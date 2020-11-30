@@ -11,6 +11,27 @@ FTP client for Rust
 
 [Documentation](https://docs.rs/ftp/)
 
+## Project Status
+
+This project is currently not maintained by its owner. [View original Project](https://github.com/mattnenterprise/rust-ftp).
+I decided to update the library to be compatible with latest versions of Rust and I've pushed a merge request of my changes, hoping they will be committed.
+
+In the meantime, if you need to work with this library (as I had to for [TermSCP](https://github.com/ChristianVisintin/TermSCP)), you can use this workaround as reported in the official Rust documentation: [Overriding Dependencies](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html).
+
+In your `Cargo.toml`:
+
+```toml
+# ...
+[dependencies]
+# ...
+ftp = { version = "3.0.1", features = ["secure"] }
+# ...
+[patch.crates-io]
+ftp = { git = "https://github.com/ChristianVisintin/rust-ftp" }
+```
+
+If I'll have enough time and the maintainer won't update the project, I might even decide to become the maintainer of this library and to publish it under another name
+
 ## Installation
 
 FTPS support is disabled by default. To enable it `secure` should be activated in `Cargo.toml`.
