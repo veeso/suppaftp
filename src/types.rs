@@ -79,4 +79,3 @@ impl fmt::Display for FtpError {
         }
     }
 }
-
