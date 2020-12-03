@@ -439,6 +439,7 @@ impl FtpStream {
                     Err(err) => return Err(FtpError::ConnectionError(err)),
                 };
             }
+            drop(data_stream);
         }
 
         self.read_response_in(close_code).map(|_| lines)
