@@ -2,42 +2,33 @@
 
 FTP client for Rust
 
-[![Number of Crate Downloads](https://img.shields.io/crates/d/ftp.svg)](https://crates.io/crates/ftp)
-[![Crate Version](https://img.shields.io/crates/v/ftp.svg)](https://crates.io/crates/ftp)
-[![Crate License](https://img.shields.io/crates/l/ftp.svg)](https://crates.io/crates/ftp)
+[![Number of Crate Downloads](https://img.shields.io/crates/d/ftp4.svg)](https://crates.io/crates/ftp4)
+[![Crate Version](https://img.shields.io/crates/v/ftp4.svg)](https://crates.io/crates/ftp4)
+[![Crate License](https://img.shields.io/crates/l/ftp4.svg)](https://crates.io/crates/ftp4)
 [![Build Status](https://travis-ci.org/mattnenterprise/rust-ftp.svg)](https://travis-ci.org/mattnenterprise/rust-ftp)
 [![Coverage Status](https://coveralls.io/repos/github/mattnenterprise/rust-ftp/badge.svg?branch=master)](https://coveralls.io/github/mattnenterprise/rust-ftp?branch=master)
 
-[Documentation](https://docs.rs/ftp/)
-
-## Project Status
-
-This project is currently not maintained by its owner. [View original Project](https://github.com/mattnenterprise/rust-ftp).
-I decided to update the library to be compatible with latest versions of Rust and I've pushed a merge request of my changes, hoping they will be committed.
-
-In the meantime, if you need to work with this library (as I had to for [TermSCP](https://github.com/ChristianVisintin/TermSCP)), you can use this workaround as reported in the official Rust documentation: [Overriding Dependencies](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html).
-
-In your `Cargo.toml`:
-
-```toml
-# ...
-[dependencies]
-# ...
-ftp = { git = "https://github.com/ChristianVisintin/rust-ftp", features = ["secure"] }
-# ...
-```
-
-If I'll have enough time and the maintainer won't update the project, I might even decide to become the maintainer of this library and to publish it under another name
+[Documentation](https://docs.rs/ftp4/)
 
 ---
 
 - [rust-ftp](#rust-ftp)
-  - [Project Status](#project-status)
+  - [Ftp4, wait what](#ftp4-wait-what)
   - [Installation](#installation)
   - [Usage](#usage)
   - [License](#license)
     - [Contribution](#contribution)
   - [Development environment](#development-environment)
+
+---
+
+## Ftp4, wait what
+
+The [original project, rust-ftp](https://github.com/mattnenterprise/rust-ftp) is unmaintained. I had to publish this library under another name, since I can say I'm the temporary maintainer of this crate, since I need it for TermSCP.
+
+I will delete this crate from Crates registry if the author takes the ownership of the project again.
+
+---
 
 ## Installation
 

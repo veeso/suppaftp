@@ -1,6 +1,6 @@
-extern crate ftp;
+extern crate ftp4;
 
-use ftp::{FtpError, FtpStream};
+use ftp4::{FtpError, FtpStream};
 use std::io::Cursor;
 use std::str;
 

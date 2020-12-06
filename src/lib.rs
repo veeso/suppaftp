@@ -1,4 +1,4 @@
-#![crate_name = "ftp"]
+#![crate_name = "ftp4"]
 #![crate_type = "lib"]
 
 //! ftp is an FTP client written in Rust.
