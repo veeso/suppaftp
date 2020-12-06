@@ -90,8 +90,8 @@ impl FtpStream {
     ///
     /// ```rust,no_run
     /// use std::path::Path;
-    /// use ftp::FtpStream;
-    /// use ftp::native_tls::{TlsConnector, TlsStream};
+    /// use ftp4::FtpStream;
+    /// use ftp4::native_tls::{TlsConnector, TlsStream};
     ///
     /// // Create a TlsConnector
     /// // NOTE: For custom options see <https://docs.rs/native-tls/0.2.6/native_tls/struct.TlsConnectorBuilder.html>
@@ -128,9 +128,9 @@ impl FtpStream {
     ///
     /// ```rust,no_run
     /// use std::path::Path;
-    /// use ftp::FtpStream;
+    /// use ftp4::FtpStream;
     ///
-    /// use ftp::native_tls::{TlsConnector, TlsStream};
+    /// use ftp4::native_tls::{TlsConnector, TlsStream};
     ///
     /// // Create an TlsConnector
     /// let mut ctx = TlsConnector::new().unwrap();
@@ -192,7 +192,7 @@ impl FtpStream {
     /// Example:
     /// ```no_run
     /// use std::net::TcpStream;
-    /// use ftp::FtpStream;
+    /// use ftp4::FtpStream;
     /// use std::time::Duration;
     ///
     /// let stream = FtpStream::connect("127.0.0.1:21")
@@ -330,7 +330,7 @@ impl FtpStream {
     /// data stream opened.
     ///
     /// ```
-    /// # use ftp::{FtpStream, FtpError};
+    /// # use ftp4::{FtpStream, FtpError};
     /// # use std::io::Cursor;
     /// # let mut conn = FtpStream::connect("127.0.0.1:21").unwrap();
     /// # conn.login("Doe", "mumble").and_then(|_| {
@@ -367,7 +367,7 @@ impl FtpStream {
     /// Simple way to retr a file from the server. This stores the file in memory.
     ///
     /// ```
-    /// # use ftp::{FtpStream, FtpError};
+    /// # use ftp4::{FtpStream, FtpError};
     /// # use std::io::Cursor;
     /// # let mut conn = FtpStream::connect("127.0.0.1:21").unwrap();
     /// # conn.login("Doe", "mumble").and_then(|_| {

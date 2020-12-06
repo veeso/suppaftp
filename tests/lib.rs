@@ -1,7 +1,7 @@
 #[cfg(test)]
-extern crate ftp;
+extern crate ftp4;
 
-use ftp::FtpStream;
+use ftp4::FtpStream;
 use std::io::Cursor;
 
 #[test]

@@ -35,17 +35,17 @@ FTPS support is achieved through [rust-native-tls](https://github.com/sfackler/r
 
 ```toml
 [dependencies]
-ftp = { version = "<version>", features = ["secure"] }
+ftp4 = { version = "<version>", features = ["secure"] }
 ```
 
 ## Usage
 
 ```rust
-extern crate ftp;
+extern crate ftp4;
 
 use std::str;
 use std::io::Cursor;
-use ftp::FtpStream;
+use ftp4::FtpStream;
 
 fn main() {
     // Create a connection to an FTP server and authenticate to it.

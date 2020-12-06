@@ -8,7 +8,7 @@
 //! Here is a basic usage example:
 //!
 //! ```rust
-//! use ftp::FtpStream;
+//! use ftp4::FtpStream;
 //! let mut ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap_or_else(|err|
 //!     panic!("{}", err)
 //! );
@@ -29,8 +29,8 @@
 //! ### FTPS Usage
 //!
 //! ```rust,no_run
-//! use ftp::FtpStream;
-//! use ftp::native_tls::{TlsConnector, TlsStream};
+//! use ftp4::FtpStream;
+//! use ftp4::native_tls::{TlsConnector, TlsStream};
 //!
 //! let ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap();
 //! let mut ctx = TlsConnector::new().unwrap();
