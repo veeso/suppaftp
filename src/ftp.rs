@@ -307,11 +307,28 @@ impl FtpStream {
     /// This method is a more complicated way to retrieve a file.
     /// The reader returned should be dropped.
     /// Also you will have to read the response to make sure it has the correct value.
+    /// Once file has been read, call `finalize_get`
     pub fn get(&mut self, file_name: &str) -> Result<BufReader<DataStream>> {
         let retr_command = format!("RETR {}\r\n", file_name);
         let data_stream = BufReader::new(self.data_command(&retr_command)?);
         self.read_response_in(&[status::ABOUT_TO_SEND, status::ALREADY_OPEN])?;
         Ok(data_stream)
+    }
+
+    /// ### finalize_get
+    /// 
+    /// Finalize get; must be called once the requested file, got previously with `get` has been read
+    pub fn finalize_get(&mut self, reader: Box<dyn Read>) -> Result<()> {
+        match self.read_response_in(&[
+            status::CLOSING_DATA_CONNECTION,
+            status::REQUESTED_FILE_ACTION_OK,
+        ]) {
+            Ok(_) => {
+                drop(reader);
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Renames the file from_name to to_name
