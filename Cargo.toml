@@ -1,7 +1,7 @@
 [package]
 name = "ftp4"
-version = "4.0.0"
-authors = ["Matt McCoy <mattnenterprise@yahoo.com>, Christian Visintin <christian.visintin1997@gmail.com>"]
+version = "4.0.1"
+authors = ["Matt McCoy <mattnenterprise@yahoo.com>", "Christian Visintin <christian.visintin1997@gmail.com>"]
 documentation = "https://docs.rs/ftp4/"
 repository = "https://github.com/mattnenterprise/rust-ftp"
 description = "FTP client for Rust"

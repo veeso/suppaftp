@@ -316,7 +316,7 @@ impl FtpStream {
     }
 
     /// ### finalize_get
-    /// 
+    ///
     /// Finalize get; must be called once the requested file, got previously with `get` has been read
     pub fn finalize_get(&mut self, reader: Box<dyn Read>) -> Result<()> {
         match self.read_response_in(&[
