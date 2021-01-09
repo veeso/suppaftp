@@ -23,9 +23,11 @@ FTP client for Rust
 
 ## Ftp4, wait what
 
-The [original project, rust-ftp](https://github.com/mattnenterprise/rust-ftp) is unmaintained. I had to publish this library under another name, since I can say I'm the temporary maintainer of this crate, since I need it for TermSCP.
+The [original project, rust-ftp](https://github.com/mattnenterprise/rust-ftp) **was** unmaintained. I had to publish this library under another name, since I can say I'm the temporary maintainer of this crate, since I need it for TermSCP.
 
 I will delete this crate from Crates registry if the author takes the ownership of the project again.
+
+Update: the maintainer of rust-ftp is back to work on the library, so this repository will probably be closed soon.
 
 ---
 
