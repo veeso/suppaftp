@@ -319,12 +319,14 @@ impl FtpStream {
     ///
     /// Finalize get; must be called once the requested file, got previously with `get` has been read
     pub fn finalize_get(&mut self, reader: Box<dyn Read>) -> Result<()> {
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(reader);
+        // Then read response
         match self.read_response_in(&[
             status::CLOSING_DATA_CONNECTION,
             status::REQUESTED_FILE_ACTION_OK,
         ]) {
             Ok(_) => {
-                drop(reader);
                 Ok(())
             }
             Err(err) => Err(err),
@@ -461,14 +463,14 @@ impl FtpStream {
     /// This method must be called once the file has been written and
     /// `put_with_stream` has been used to write the file
     pub fn finalize_put_stream(&mut self, stream: Box<dyn Write>) -> Result<()> {
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(stream);
+        // Read response
         match self.read_response_in(&[
             status::CLOSING_DATA_CONNECTION,
             status::REQUESTED_FILE_ACTION_OK,
         ]) {
-            Ok(_) => {
-                drop(stream);
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err(err) => Err(err),
         }
     }
