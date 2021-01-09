@@ -1,8 +1,15 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.0.2](#402)
   - [4.0.1](#401)
   - [4.0.0](#400)
+
+## 4.0.2
+
+Released on 09/01/2020
+
+- Fixed `finalize_get` and `finalize_put_stream`. Stream must be dropped before waiting for response.
 
 ## 4.0.1
 
