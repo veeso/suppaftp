@@ -56,10 +56,17 @@ extern crate thiserror;
 #[cfg(feature = "secure")]
 pub extern crate native_tls;
 
+#[cfg(test)]
+extern crate pretty_assertions;
+
+// -- private
 mod data_stream;
 mod ftp;
+
+// -- public
 pub mod status;
 pub mod types;
 
-pub use self::ftp::FtpStream;
-pub use self::types::FtpError;
+// -- export
+pub use ftp::FtpStream;
+pub use types::FtpError;

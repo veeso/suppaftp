@@ -1,3 +1,7 @@
+//! # Status
+//!
+//! This module exposes all the "standard" error codes defined in the File transfer protocol
+
 // 1xx: Positive Preliminary Reply
 pub const INITIATING: u32 = 100;
 pub const RESTART_MARKER: u32 = 110;

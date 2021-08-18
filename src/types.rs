@@ -91,7 +91,7 @@ impl Response {
 impl ToString for FormatControl {
     fn to_string(&self) -> String {
         match self {
-            FormatControl::Default | &FormatControl::NonPrint => String::from("N"),
+            FormatControl::Default | FormatControl::NonPrint => String::from("N"),
             FormatControl::Telnet => String::from("T"),
             FormatControl::Asa => String::from("C"),
         }
@@ -101,10 +101,57 @@ impl ToString for FormatControl {
 impl ToString for FileType {
     fn to_string(&self) -> String {
         match self {
-            FileType::Ascii(ref fc) => format!("A {}", fc.to_string()),
-            FileType::Ebcdic(ref fc) => format!("E {}", fc.to_string()),
-            FileType::Image | &FileType::Binary => String::from("I"),
-            FileType::Local(ref bits) => format!("L {}", bits),
+            FileType::Ascii(fc) => format!("A {}", fc.to_string()),
+            FileType::Ebcdic(fc) => format!("E {}", fc.to_string()),
+            FileType::Image | FileType::Binary => String::from("I"),
+            FileType::Local(bits) => format!("L {}", bits),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn response() {
+        let response: Response = Response::new(0, "error");
+        assert_eq!(response.code, 0);
+        assert_eq!(response.body.as_str(), "error");
+    }
+
+    #[test]
+    fn fmt_response() {
+        let response: Response = Response::new(550, "Can't create directory: File exists");
+        assert_eq!(
+            response.to_string().as_str(),
+            "[550] Can't create directory: File exists"
+        );
+    }
+
+    #[test]
+    fn fmt_format_control() {
+        assert_eq!(FormatControl::Asa.to_string().as_str(), "C");
+        assert_eq!(FormatControl::Telnet.to_string().as_str(), "T");
+        assert_eq!(FormatControl::Default.to_string().as_str(), "N");
+        assert_eq!(FormatControl::NonPrint.to_string().as_str(), "N");
+    }
+
+    #[test]
+    fn fmt_file_type() {
+        assert_eq!(
+            FileType::Ascii(FormatControl::Telnet).to_string().as_str(),
+            "A T"
+        );
+        assert_eq!(FileType::Binary.to_string().as_str(), "I");
+        assert_eq!(FileType::Image.to_string().as_str(), "I");
+        assert_eq!(
+            FileType::Ebcdic(FormatControl::Telnet).to_string().as_str(),
+            "E T"
+        );
+        assert_eq!(FileType::Local(2).to_string().as_str(), "L 2");
     }
 }
