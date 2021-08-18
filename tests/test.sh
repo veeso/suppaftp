@@ -19,7 +19,7 @@ set +e
 cd ..
 # Run tests
 echo "Running tests"
-cargo test --features with-containers -- --test-threads 1
+cargo test --features with-containers --features secure -- --test-threads 1
 TEST_RESULT=$?
 # Stop container
 cd tests/

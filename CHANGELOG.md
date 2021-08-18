@@ -12,7 +12,9 @@ Released on ??
 
 - Added `Response` struct, which will be returned in case of `InvalidResponse` error.
   - This adds the possibility to get the exact error code and the message
+- `size()` and `mdtm()` methods will return an option no more.
 - Improved code with linter
+- Added CI tests
 
 ## 4.0.2
 

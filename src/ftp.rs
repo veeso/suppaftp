@@ -387,8 +387,8 @@ impl FtpStream {
     /// ```
     /// # use ftp4::{FtpStream, FtpError};
     /// # use std::io::Cursor;
-    /// # let mut conn = FtpStream::connect("127.0.0.1:21").unwrap();
-    /// # conn.login("Doe", "mumble").and_then(|_| {
+    /// # let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
+    /// # conn.login("test", "test").and_then(|_| {
     /// #     let mut reader = Cursor::new("hello, world!".as_bytes());
     /// #     conn.put("retr.txt", &mut reader)
     /// # }).unwrap();
@@ -426,8 +426,8 @@ impl FtpStream {
     /// ```
     /// # use ftp4::{FtpStream, FtpError};
     /// # use std::io::Cursor;
-    /// # let mut conn = FtpStream::connect("127.0.0.1:21").unwrap();
-    /// # conn.login("Doe", "mumble").and_then(|_| {
+    /// # let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
+    /// # conn.login("test", "test").and_then(|_| {
     /// #     let mut reader = Cursor::new("hello, world!".as_bytes());
     /// #     conn.put("simple_retr.txt", &mut reader)
     /// # }).unwrap();
@@ -578,8 +578,7 @@ impl FtpStream {
     /// ### mdtm
     ///
     /// Retrieves the modification time of the file at `pathname` if it exists.
-    /// In case the file does not exist `None` is returned.
-    pub fn mdtm(&mut self, pathname: &str) -> Result<Option<DateTime<Utc>>> {
+    pub fn mdtm(&mut self, pathname: &str) -> Result<DateTime<Utc>> {
         self.write_str(format!("MDTM {}\r\n", pathname))?;
         let response: Response = self.read_response(status::FILE)?;
 
@@ -595,25 +594,22 @@ impl FtpStream {
                     caps[5].parse::<u32>().unwrap(),
                     caps[6].parse::<u32>().unwrap(),
                 );
-                Ok(Some(
-                    Utc.ymd(year, month, day).and_hms(hour, minute, second),
-                ))
+                Ok(Utc.ymd(year, month, day).and_hms(hour, minute, second))
             }
-            None => Ok(None),
+            None => Err(FtpError::BadResponse),
         }
     }
 
     /// ### size
     ///
     /// Retrieves the size of the file in bytes at `pathname` if it exists.
-    /// In case the file does not exist `None` is returned.
-    pub fn size(&mut self, pathname: &str) -> Result<Option<usize>> {
+    pub fn size(&mut self, pathname: &str) -> Result<usize> {
         self.write_str(format!("SIZE {}\r\n", pathname))?;
         let response: Response = self.read_response(status::FILE)?;
 
         match SIZE_RE.captures(&response.body) {
-            Some(caps) => Ok(Some(caps[1].parse().unwrap())),
-            None => Ok(None),
+            Some(caps) => Ok(caps[1].parse().unwrap()),
+            None => Err(FtpError::BadResponse),
         }
     }
 
@@ -703,5 +699,202 @@ impl FtpStream {
         } else {
             Err(FtpError::InvalidResponse(response))
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    #[cfg(feature = "with-containers")]
+    use crate::types::FormatControl;
+
+    #[cfg(any(feature = "with-containers", feature = "secure"))]
+    use pretty_assertions::assert_eq;
+    #[cfg(feature = "with-containers")]
+    use rand::{distributions::Alphanumeric, thread_rng, Rng};
+    #[cfg(feature = "with-containers")]
+    use std::time::Duration;
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn connect() {
+        let stream: FtpStream = setup_stream();
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "secure")]
+    fn connect_ssl() {
+        let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
+        let mut ftp_stream = ftp_stream
+            .into_secure(TlsConnector::new().unwrap(), "test.rebex.net")
+            .ok()
+            .unwrap();
+        // Set timeout (to test ref to ssl)
+        assert!(ftp_stream
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .is_ok());
+        // Login
+        assert!(ftp_stream.login("demo", "password").is_ok());
+        // PWD
+        assert_eq!(ftp_stream.pwd().ok().unwrap().as_str(), "/");
+        // Go back to insecure
+        let mut ftp_stream = ftp_stream.into_insecure().ok().unwrap();
+        // Quit
+        assert!(ftp_stream.quit().is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn welcome_message() {
+        let stream: FtpStream = setup_stream();
+        assert_eq!(
+            stream.get_welcome_msg().unwrap(),
+            "220 You will be disconnected after 15 minutes of inactivity."
+        );
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn get_ref() {
+        let stream: FtpStream = setup_stream();
+        assert!(stream
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .is_ok());
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn change_wrkdir() {
+        let mut stream: FtpStream = setup_stream();
+        let wrkdir: String = stream.pwd().ok().unwrap();
+        assert!(stream.cwd("/").is_ok());
+        assert_eq!(stream.pwd().ok().unwrap().as_str(), "/");
+        assert!(stream.cwd(wrkdir.as_str()).is_ok());
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn cd_up() {
+        let mut stream: FtpStream = setup_stream();
+        let wrkdir: String = stream.pwd().ok().unwrap();
+        assert!(stream.cdup().is_ok());
+        assert_eq!(stream.pwd().ok().unwrap().as_str(), "/");
+        assert!(stream.cwd(wrkdir.as_str()).is_ok());
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn noop() {
+        let mut stream: FtpStream = setup_stream();
+        assert!(stream.noop().is_ok());
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn make_and_remove_dir() {
+        let mut stream: FtpStream = setup_stream();
+        // Make directory
+        assert!(stream.mkdir("omar").is_ok());
+        // It shouldn't allow me to re-create the directory; should return error code 550
+        match stream.mkdir("omar").err().unwrap() {
+            FtpError::InvalidResponse(Response { code, body: _ }) => {
+                assert_eq!(code, status::FILE_UNAVAILABLE)
+            }
+            err => panic!("Expected InvalidResponse, got {}", err),
+        }
+        // Remove directory
+        assert!(stream.rmdir("omar").is_ok());
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn set_transfer_type() {
+        let mut stream: FtpStream = setup_stream();
+        assert!(stream.transfer_type(FileType::Binary).is_ok());
+        assert!(stream
+            .transfer_type(FileType::Ascii(FormatControl::Default))
+            .is_ok());
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    fn transfer_file() {
+        let mut stream: FtpStream = setup_stream();
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).is_ok());
+        // Write file
+        let file_data = "test data\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put("test.txt", &mut reader).is_ok());
+        // Read file
+        assert_eq!(
+            stream
+                .simple_retr("test.txt")
+                .map(|bytes| bytes.into_inner())
+                .ok()
+                .unwrap(),
+            file_data.as_bytes()
+        );
+        // Get size
+        assert_eq!(stream.size("test.txt").ok().unwrap(), 10);
+        // Size of non-existing file
+        assert!(stream.size("omarone.txt").is_err());
+        // List directory
+        assert_eq!(stream.list(None).ok().unwrap().len(), 1);
+        // list names
+        assert_eq!(stream.nlst(None).ok().unwrap().as_slice(), &["test.txt"]);
+        // modification time
+        assert!(stream.mdtm("test.txt").is_ok());
+        // Remove file
+        assert!(stream.rm("test.txt").is_ok());
+        assert!(stream.mdtm("test.txt").is_err());
+        // List directory again
+        assert_eq!(stream.list(None).ok().unwrap().len(), 0);
+        finalize_stream(stream);
+    }
+
+    // -- test utils
+
+    #[cfg(feature = "with-containers")]
+    fn setup_stream() -> FtpStream {
+        let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").unwrap();
+        assert!(ftp_stream.login("test", "test").is_ok());
+        // Create wrkdir
+        let tempdir: String = generate_tempdir();
+        assert!(ftp_stream.mkdir(tempdir.as_str()).is_ok());
+        // Change directory
+        assert!(ftp_stream.cwd(tempdir.as_str()).is_ok());
+        ftp_stream
+    }
+
+    #[cfg(feature = "with-containers")]
+    fn finalize_stream(mut stream: FtpStream) {
+        // Get working directory
+        let wrkdir: String = stream.pwd().ok().unwrap();
+        // Remove directory
+        assert!(stream.rmdir(wrkdir.as_str()).is_ok());
+        assert!(stream.quit().is_ok());
+    }
+
+    #[cfg(feature = "with-containers")]
+    fn generate_tempdir() -> String {
+        let mut rng = thread_rng();
+        let name: String = std::iter::repeat(())
+            .map(|()| rng.sample(Alphanumeric))
+            .map(char::from)
+            .take(5)
+            .collect();
+        format!("temp_{}", name)
     }
 }

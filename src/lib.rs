@@ -14,7 +14,7 @@
 //! let mut ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap_or_else(|err|
 //!     panic!("{}", err)
 //! );
-//! let _ = ftp_stream.quit();
+//! assert!(ftp_stream.quit().is_ok());
 //! ```
 //!
 //! ### FTPS
@@ -34,16 +34,15 @@
 //! use ftp4::FtpStream;
 //! use ftp4::native_tls::{TlsConnector, TlsStream};
 //!
-//! let ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap();
-//! let mut ctx = TlsConnector::new().unwrap();
+//! let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
 //! // Switch to the secure mode
-//! let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").unwrap();
-//! ftp_stream.login("anonymous", "anonymous").unwrap();
+//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().unwrap(), "test.rebex.net").unwrap();
+//! ftp_stream.login("demo", "password").unwrap();
 //! // Do other secret stuff
 //! // Switch back to the insecure mode (if required)
 //! let mut ftp_stream = ftp_stream.into_insecure().unwrap();
 //! // Do all public stuff
-//! let _ = ftp_stream.quit();
+//! assert!(ftp_stream.quit().is_ok());
 //! ```
 //!
 
@@ -58,6 +57,8 @@ pub extern crate native_tls;
 
 #[cfg(test)]
 extern crate pretty_assertions;
+#[cfg(test)]
+extern crate rand;
 
 // -- private
 mod data_stream;
