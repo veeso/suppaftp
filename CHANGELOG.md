@@ -1,9 +1,16 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.1.0](#410)
   - [4.0.2](#402)
   - [4.0.1](#401)
   - [4.0.0](#400)
+
+## 4.1.0
+
+Released on ??
+
+- Improved code with linter
 
 ## 4.0.2
 
