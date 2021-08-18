@@ -1,21 +1,51 @@
+//! # Types
+//!
 //! The set of valid values for FTP commands
 
 use std::convert::From;
-use std::fmt;
+use thiserror::Error;
 
+/// ## Result
+///
 /// A shorthand for a Result whose error type is always an FtpError.
-pub type Result<T> = ::std::result::Result<T, FtpError>;
+pub type Result<T> = std::result::Result<T, FtpError>;
 
+/// ## FtpError
+///
 /// `FtpError` is a library-global error type to describe the different kinds of
 /// errors that might occur while using FTP.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum FtpError {
+    /// Connection error
+    #[error("Connection error: {0}")]
     ConnectionError(::std::io::Error),
+    /// There was an error with the secure stream
+    #[cfg(feature = "secure")]
+    #[error("Secure error: {0}")]
     SecureError(String),
-    InvalidResponse(String),
-    InvalidAddress(::std::net::AddrParseError),
+    /// Invalid response from remote. Contains the response data
+    #[error("Invalid response: {0}")]
+    InvalidResponse(Response),
+    /// The response syntax is invalid
+    #[error("Response has an invalid syntax")]
+    BadResponse,
+    /// The address provided was invalid
+    #[error("Invalid address: {0}")]
+    InvalidAddress(std::net::AddrParseError),
 }
 
+/// ## Response
+///
+/// Defines a response from the ftp server
+#[derive(Clone, Debug, Error)]
+#[error("[{code}] {body}")]
+pub struct Response {
+    pub code: u32,
+    pub body: String,
+}
+
+/// ## FormatControl
+///
 /// Text Format Control used in `TYPE` command
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FormatControl {
@@ -29,6 +59,8 @@ pub enum FormatControl {
     Asa,
 }
 
+/// ## FileType
+///
 /// File Type used in `TYPE` command
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileType {
@@ -44,15 +76,24 @@ pub enum FileType {
     Local(u8),
 }
 
-/// `Line` contains a command code and the contents of a line of text read from the network.
-pub struct Line(pub u32, pub String);
+impl Response {
+    /// ### new
+    ///
+    /// Instantiates a new `Response`
+    pub fn new<S: AsRef<str>>(code: u32, body: S) -> Self {
+        Self {
+            code,
+            body: body.as_ref().to_string(),
+        }
+    }
+}
 
 impl ToString for FormatControl {
     fn to_string(&self) -> String {
         match self {
-            &FormatControl::Default | &FormatControl::NonPrint => String::from("N"),
-            &FormatControl::Telnet => String::from("T"),
-            &FormatControl::Asa => String::from("C"),
+            FormatControl::Default | &FormatControl::NonPrint => String::from("N"),
+            FormatControl::Telnet => String::from("T"),
+            FormatControl::Asa => String::from("C"),
         }
     }
 }
@@ -60,23 +101,10 @@ impl ToString for FormatControl {
 impl ToString for FileType {
     fn to_string(&self) -> String {
         match self {
-            &FileType::Ascii(ref fc) => format!("A {}", fc.to_string()),
-            &FileType::Ebcdic(ref fc) => format!("E {}", fc.to_string()),
-            &FileType::Image | &FileType::Binary => String::from("I"),
-            &FileType::Local(ref bits) => format!("L {}", bits),
-        }
-    }
-}
-
-impl fmt::Display for FtpError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            FtpError::ConnectionError(ref ioerr) => write!(f, "FTP ConnectionError: {}", ioerr),
-            FtpError::SecureError(ref desc) => write!(f, "FTP SecureError: {}", desc.clone()),
-            FtpError::InvalidResponse(ref desc) => {
-                write!(f, "FTP InvalidResponse: {}", desc.clone())
-            }
-            FtpError::InvalidAddress(ref perr) => write!(f, "FTP InvalidAddress: {}", perr),
+            FileType::Ascii(ref fc) => format!("A {}", fc.to_string()),
+            FileType::Ebcdic(ref fc) => format!("E {}", fc.to_string()),
+            FileType::Image | &FileType::Binary => String::from("I"),
+            FileType::Local(ref bits) => format!("L {}", bits),
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use super::data_stream::DataStream;
 use super::status;
-use super::types::{FileType, FtpError, Line, Result};
+use super::types::{FileType, FtpError, Response, Result};
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 #[cfg(feature = "secure")]
@@ -71,8 +71,8 @@ impl FtpStream {
                     domain: None,
                 };
                 match ftp_stream.read_response(status::READY) {
-                    Ok(line) => {
-                        ftp_stream.welcome_msg = Some(line.1);
+                    Ok(response) => {
+                        ftp_stream.welcome_msg = Some(response.body);
                         Ok(ftp_stream)
                     }
                     Err(err) => Err(err),
@@ -208,7 +208,7 @@ impl FtpStream {
     pub fn login(&mut self, user: &str, password: &str) -> Result<()> {
         self.write_str(format!("USER {}\r\n", user))?;
         self.read_response_in(&[status::LOGGED_IN, status::NEED_PASSWORD])
-            .and_then(|Line(code, _)| {
+            .and_then(|Response { code, body: _ }| {
                 if code == status::NEED_PASSWORD {
                     self.write_str(format!("PASS {}\r\n", password))?;
                     self.read_response(status::LOGGED_IN)?;
@@ -236,14 +236,9 @@ impl FtpStream {
         self.write_str("PWD\r\n")?;
         self.read_response(status::PATH_CREATED)
             .and_then(
-                |Line(_, content)| match (content.find('"'), content.rfind('"')) {
-                    (Some(begin), Some(end)) if begin < end => {
-                        Ok(content[begin + 1..end].to_string())
-                    }
-                    _ => {
-                        let cause = format!("Invalid PWD Response: {}", content);
-                        Err(FtpError::InvalidResponse(cause))
-                    }
+                |Response { code, body }| match (body.find('"'), body.rfind('"')) {
+                    (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
+                    _ => Err(FtpError::InvalidResponse(Response::new(code, body))),
                 },
             )
     }
@@ -264,10 +259,10 @@ impl FtpStream {
     fn pasv(&mut self) -> Result<SocketAddr> {
         self.write_str("PASV\r\n")?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
-        let Line(_, line) = self.read_response(status::PASSIVE_MODE)?;
+        let response: Response = self.read_response(status::PASSIVE_MODE)?;
         PORT_RE
-            .captures(&line)
-            .ok_or_else(|| FtpError::InvalidResponse(format!("Invalid PASV response: {}", line)))
+            .captures(&response.body)
+            .ok_or_else(|| FtpError::InvalidResponse(response.clone()))
             .and_then(|caps| {
                 // If the regex matches we can be sure groups contains numbers
                 let (oct1, oct2, oct3, oct4) = (
@@ -498,11 +493,7 @@ impl FtpStream {
                         }
                         lines.push(l);
                     }
-                    Err(_) => {
-                        return Err(FtpError::InvalidResponse(String::from(
-                            "Invalid lines in response",
-                        )))
-                    }
+                    Err(_) => return Err(FtpError::BadResponse),
                 },
                 None => break Ok(lines),
             }
@@ -549,9 +540,9 @@ impl FtpStream {
     /// In case the file does not exist `None` is returned.
     pub fn mdtm(&mut self, pathname: &str) -> Result<Option<DateTime<Utc>>> {
         self.write_str(format!("MDTM {}\r\n", pathname))?;
-        let Line(_, content) = self.read_response(status::FILE)?;
+        let response: Response = self.read_response(status::FILE)?;
 
-        match MDTM_RE.captures(&content) {
+        match MDTM_RE.captures(&response.body) {
             Some(caps) => {
                 let (year, month, day) = (
                     caps[1].parse::<i32>().unwrap(),
@@ -575,9 +566,9 @@ impl FtpStream {
     /// In case the file does not exist `None` is returned.
     pub fn size(&mut self, pathname: &str) -> Result<Option<usize>> {
         self.write_str(format!("SIZE {}\r\n", pathname))?;
-        let Line(_, content) = self.read_response(status::FILE)?;
+        let response: Response = self.read_response(status::FILE)?;
 
-        match SIZE_RE.captures(&content) {
+        match SIZE_RE.captures(&response.body) {
             Some(caps) => Ok(Some(caps[1].parse().unwrap())),
             None => Ok(None),
         }
@@ -594,12 +585,12 @@ impl FtpStream {
             .map_err(FtpError::ConnectionError)
     }
 
-    pub fn read_response(&mut self, expected_code: u32) -> Result<Line> {
+    pub fn read_response(&mut self, expected_code: u32) -> Result<Response> {
         self.read_response_in(&[expected_code])
     }
 
     /// Retrieve single line response
-    pub fn read_response_in(&mut self, expected_code: &[u32]) -> Result<Line> {
+    pub fn read_response_in(&mut self, expected_code: &[u32]) -> Result<Response> {
         let mut line = String::new();
         self.reader
             .read_line(&mut line)
@@ -610,14 +601,10 @@ impl FtpStream {
         }
 
         if line.len() < 5 {
-            return Err(FtpError::InvalidResponse(
-                "error: could not read reply code".to_owned(),
-            ));
+            return Err(FtpError::BadResponse);
         }
 
-        let code: u32 = line[0..3].parse().map_err(|err| {
-            FtpError::InvalidResponse(format!("error: could not parse reply code: {}", err))
-        })?;
+        let code: u32 = line[0..3].parse().map_err(|_| FtpError::BadResponse)?;
 
         // multiple line reply
         // loop while the line does not begin with the code and a space
@@ -634,14 +621,12 @@ impl FtpStream {
         }
 
         line = String::from(line.trim());
-
+        let response: Response = Response::new(code, line);
+        // Return Ok or error with response
         if expected_code.iter().any(|ec| code == *ec) {
-            Ok(Line(code, line))
+            Ok(response)
         } else {
-            Err(FtpError::InvalidResponse(format!(
-                "Expected code {:?}, got response: {}",
-                expected_code, line
-            )))
+            Err(FtpError::InvalidResponse(response))
         }
     }
 }
