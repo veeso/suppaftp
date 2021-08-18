@@ -27,3 +27,5 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy -- -Dwarnings
+      - name: Clippy with secure feature
+        run: cargo clippy --features secure -- -Dwarnings

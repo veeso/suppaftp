@@ -50,8 +50,8 @@ impl FtpStream {
                     welcome_msg: None,
                 };
                 match ftp_stream.read_response(status::READY) {
-                    Ok(line) => {
-                        ftp_stream.welcome_msg = Some(line.1);
+                    Ok(response) => {
+                        ftp_stream.welcome_msg = Some(response.body);
                         Ok(ftp_stream)
                     }
                     Err(err) => Err(err),
