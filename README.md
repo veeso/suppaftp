@@ -1,46 +1,65 @@
 # rust-ftp
 
-FTP client for Rust
+<p align="center">~ An FTP/FTPS client library for Rust ~</p>
+<p align="center">
+  <a href="https://docs.rs/ftp4" target="_blank">Documentation</a>
+  ·
+  <a href="https://crates.io/crates/ftp4" target="_blank">Crates.io</a>
+</p>
+
+<p align="center">Developed by <a href="https://veeso.github.io/">veeso</a> and <a href="https://github.com/mattnenterprise">Matt McCoy</a></p>
+<p align="center">Current version: 4.1.0 (FIXME: 23/07/2021)</p>
 
 [![Number of Crate Downloads](https://img.shields.io/crates/d/ftp4.svg)](https://crates.io/crates/ftp4)
 [![Crate Version](https://img.shields.io/crates/v/ftp4.svg)](https://crates.io/crates/ftp4)
 [![Crate License](https://img.shields.io/crates/l/ftp4.svg)](https://crates.io/crates/ftp4)
-[![Build Status](https://travis-ci.org/ChristianVisintin/rust-ftp4.svg)](https://travis-ci.org/ChristianVisintin/rust-ftp4)
+[![Docs](https://docs.rs/ftp4/badge.svg)](https://docs.rs/ftp4)  
 
-[Documentation](https://docs.rs/ftp4/)
+[![Build](https://github.com/veeso/rust-ftp4/workflows/Build/badge.svg)](https://github.com/veeso/rust-ftp4/actions) [![Coverage](https://github.com/veeso/rust-ftp4/workflows/Coverage/badge.svg)](https://github.com/veeso/rust-ftp4/actions) [![Coverage Status](https://coveralls.io/repos/github/veeso/rust-ftp4/badge.svg)](https://coveralls.io/github/veeso/rust-ftp4)
 
 ---
 
 - [rust-ftp](#rust-ftp)
-  - [Ftp4, wait what](#ftp4-wait-what)
-  - [Installation](#installation)
-  - [Usage](#usage)
-  - [License](#license)
-    - [Contribution](#contribution)
-  - [Development environment](#development-environment)
+  - [Introduction 👋](#introduction-)
+    - [Main differences between ftp4 and rust-ftp 🤔](#main-differences-between-ftp4-and-rust-ftp-)
+  - [Get started 🏁](#get-started-)
+    - [Usage 📚](#usage-)
+  - [Changelog](#changelog)
+  - [License 📜](#license-)
+    - [Contribution 🤝](#contribution-)
 
 ---
 
-## Ftp4, wait what
+## Introduction 👋
 
-The [original project, rust-ftp](https://github.com/mattnenterprise/rust-ftp) **was** unmaintained. I had to publish this library under another name, since I can say I'm the temporary maintainer of this crate, since I need it for TermSCP.
+ftp4 is a FTP/FTPS client library written in Rust. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since this library is unmaintened, I decided to keep working on this library by myself since I needed to add some features for [termscp](https://github.com/veeso/termscp). Sometimes, when I need to I add some features, so feel free to use this library if you want.
 
-I will delete this crate from Crates registry if the author takes the ownership of the project again.
+### Main differences between ftp4 and rust-ftp 🤔
 
-Update: the maintainer of rust-ftp is back to work on the library, so this repository will probably be closed soon.
+- Added methods to work with streams (e.g. `put_with_stream`) ⬇️
+- Added `get_welcome_msg` method 👋
+- Replaced openssl with native-tls 🔒
+- Removed deprecated statements 👴
+- Better error handling 🐛
+- Added test units keeping an eye on code coverage 👀
 
 ---
 
-## Installation
+## Get started 🏁
 
-FTPS support is achieved through [rust-native-tls](https://github.com/sfackler/rust-native-tls) and is disabled by default. To enable it `secure` should be activated in `Cargo.toml`.
+To get started, first add **ftp4** to your dependencies:
 
 ```toml
-[dependencies]
-ftp4 = { version = "<version>", features = ["secure"] }
+ftp4 = "4.1.0"
 ```
 
-## Usage
+or if you want to enable **TLS support for FTPS**. FTPS support is achieved through [rust-native-tls](https://github.com/sfackler/rust-native-tls), so check if your target systems are compatible.
+
+```toml
+ftp4 = { version = "4.1.0", features = ["secure"] }
+```
+
+### Usage 📚
 
 ```rust
 extern crate ftp4;
@@ -75,7 +94,11 @@ fn main() {
 
 ```
 
-## License
+## Changelog
+
+View Changelog [here](CHANGELOG.md)
+
+## License 📜
 
 Licensed under either of
 
@@ -84,50 +107,9 @@ Licensed under either of
 
 at your option.
 
-### Contribution
+### Contribution 🤝
 
 Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in the work by you, as defined in the Apache-2.0
 license, shall be dual licensed as above, without any additional terms or
 conditions.
-
-## Development environment
-
-All you need to develop rust-ftp and run the tests is Rust and Docker.
-The `tests` folder contains a `Dockerfile` that installs and configures
-the vsftpd server.
-
-To create the Docker image:
-
-```bash
-docker build -t ftp-server tests
-```
-
-To start the FTP server that is tested against:
-
-```bash
-tests/ftp-server.sh
-```
-
-This script runs the `ftp-server` image in detached mode and starts the `vsftpd` daemon. It binds ports 21 (FTP) as well as the range 65000-65010 for passive connections.
-
-Once you have an instance running, to run tests type:
-
-```bash
-cargo test
-```
-
-The following commands can be useful:
-
-```bash
-# List running containers of ftp-server image
-# (to include stopped containers use -a option)
-docker ps --filter ancestor=ftp-server
-
-# To stop and remove a container
-docker stop container_name
-docker rm container_name
-
-# To remove the image
-docker rmi ftp-server
-```
