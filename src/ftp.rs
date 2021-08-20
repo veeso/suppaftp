@@ -335,36 +335,6 @@ impl FtpStream {
         self.read_response(status::CLOSING).map(|_| ())
     }
 
-    /// ### get
-    ///
-    /// Retrieves the file name specified from the server.
-    /// This method is a more complicated way to retrieve a file.
-    /// The reader returned should be dropped.
-    /// Also you will have to read the response to make sure it has the correct value.
-    /// Once file has been read, call `finalize_get`
-    pub fn get(&mut self, file_name: &str) -> Result<BufReader<DataStream>> {
-        let retr_command = format!("RETR {}\r\n", file_name);
-        let data_stream = BufReader::new(self.data_command(&retr_command)?);
-        self.read_response_in(&[status::ABOUT_TO_SEND, status::ALREADY_OPEN])?;
-        Ok(data_stream)
-    }
-
-    /// ### finalize_get
-    ///
-    /// Finalize get; must be called once the requested file, got previously with `get` has been read
-    pub fn finalize_get(&mut self, reader: Box<dyn Read>) -> Result<()> {
-        // Drop stream NOTE: must be done first, otherwise server won't return any response
-        drop(reader);
-        // Then read response
-        match self.read_response_in(&[
-            status::CLOSING_DATA_CONNECTION,
-            status::REQUESTED_FILE_ACTION_OK,
-        ]) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(err),
-        }
-    }
-
     /// ### rename
     ///
     /// Renames the file from_name to to_name
@@ -390,7 +360,7 @@ impl FtpStream {
     /// # let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
     /// # conn.login("test", "test").and_then(|_| {
     /// #     let mut reader = Cursor::new("hello, world!".as_bytes());
-    /// #     conn.put("retr.txt", &mut reader)
+    /// #     conn.put_file("retr.txt", &mut reader)
     /// # }).unwrap();
     /// assert!(conn.retr("retr.txt", |stream| {
     ///     let mut buf = Vec::new();
@@ -400,28 +370,22 @@ impl FtpStream {
     /// }).is_ok());
     /// # assert!(conn.rm("retr.txt").is_ok());
     /// ```
-    pub fn retr<F, T>(&mut self, filename: &str, reader: F) -> Result<T>
+    pub fn retr<F, T>(&mut self, file_name: &str, reader: F) -> Result<T>
     where
         F: Fn(&mut dyn Read) -> Result<T>,
     {
-        let retr_command = format!("RETR {}\r\n", filename);
-        {
-            let mut data_stream = BufReader::new(self.data_command(&retr_command)?);
-            self.read_response_in(&[status::ABOUT_TO_SEND, status::ALREADY_OPEN])
-                .and_then(|_| reader(&mut data_stream))
+        match self.retr_as_stream(file_name) {
+            Ok(mut stream) => {
+                let result = reader(&mut stream)?;
+                self.finalize_retr_stream(Box::new(stream)).map(|_| result)
+            }
+            Err(err) => Err(err),
         }
-        .and_then(|res| {
-            self.read_response_in(&[
-                status::CLOSING_DATA_CONNECTION,
-                status::REQUESTED_FILE_ACTION_OK,
-            ])
-            .map(|_| res)
-        })
     }
 
-    /// ### simple_retr
+    /// ### retr_as_buffer
     ///
-    /// Simple way to retr a file from the server. This stores the file in memory.
+    /// Simple way to retr a file from the server. This stores the file in a buffer in memory.
     ///
     /// ```
     /// # use ftp4::{FtpStream, FtpError};
@@ -429,14 +393,14 @@ impl FtpStream {
     /// # let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
     /// # conn.login("test", "test").and_then(|_| {
     /// #     let mut reader = Cursor::new("hello, world!".as_bytes());
-    /// #     conn.put("simple_retr.txt", &mut reader)
+    /// #     conn.put_file("simple_retr.txt", &mut reader)
     /// # }).unwrap();
-    /// let cursor = conn.simple_retr("simple_retr.txt").unwrap();
+    /// let cursor = conn.retr_as_buffer("simple_retr.txt").unwrap();
     /// // do something with bytes
     /// assert_eq!(cursor.into_inner(), "hello, world!".as_bytes());
     /// # assert!(conn.rm("simple_retr.txt").is_ok());
     /// ```
-    pub fn simple_retr(&mut self, file_name: &str) -> Result<Cursor<Vec<u8>>> {
+    pub fn retr_as_buffer(&mut self, file_name: &str) -> Result<Cursor<Vec<u8>>> {
         self.retr(file_name, |reader| {
             let mut buffer = Vec::new();
             reader
@@ -445,6 +409,36 @@ impl FtpStream {
                 .map_err(FtpError::ConnectionError)
         })
         .map(Cursor::new)
+    }
+
+    /// ### retr_as_stream
+    ///
+    /// Retrieves the file name specified from the server as a readable stream.
+    /// This method is a more complicated way to retrieve a file.
+    /// The reader returned should be dropped.
+    /// Also you will have to read the response to make sure it has the correct value.
+    /// Once file has been read, call `finalize_retr_stream()`
+    pub fn retr_as_stream(&mut self, file_name: &str) -> Result<BufReader<DataStream>> {
+        let retr_command = format!("RETR {}\r\n", file_name);
+        let data_stream = BufReader::new(self.data_command(&retr_command)?);
+        self.read_response_in(&[status::ABOUT_TO_SEND, status::ALREADY_OPEN])?;
+        Ok(data_stream)
+    }
+
+    /// ### finalize_retr_stream
+    ///
+    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
+    pub fn finalize_retr_stream(&mut self, reader: Box<dyn Read>) -> Result<()> {
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(reader);
+        // Then read response
+        match self.read_response_in(&[
+            status::CLOSING_DATA_CONNECTION,
+            status::REQUESTED_FILE_ACTION_OK,
+        ]) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err),
+        }
     }
 
     /// ### rmdir
@@ -467,12 +461,14 @@ impl FtpStream {
 
     /// ### put_file
     ///
-    fn put_file<R: Read>(&mut self, filename: &str, r: &mut R) -> Result<()> {
+    /// This stores a file on the server.
+    /// r argument must be any struct which implemenents the Read trait
+    pub fn put_file<R: Read>(&mut self, filename: &str, r: &mut R) -> Result<()> {
         // Get stream
         let mut data_stream = self.put_with_stream(filename)?;
         copy(r, &mut data_stream)
             .map_err(FtpError::ConnectionError)
-            .map(|_| ())
+            .and_then(|_| self.finalize_put_stream(Box::new(data_stream)))
     }
 
     /// ### put_with_stream
@@ -486,19 +482,6 @@ impl FtpStream {
         let stream = BufWriter::new(self.data_command(&stor_command)?);
         self.read_response_in(&[status::ALREADY_OPEN, status::ABOUT_TO_SEND])?;
         Ok(stream)
-    }
-
-    /// ### put
-    ///
-    /// This stores a file on the server.
-    /// r argument must be any struct which implemenents the Read trait
-    pub fn put<R: Read>(&mut self, filename: &str, r: &mut R) -> Result<()> {
-        self.put_file(filename, r)?;
-        self.read_response_in(&[
-            status::CLOSING_DATA_CONNECTION,
-            status::REQUESTED_FILE_ACTION_OK,
-        ])
-        .map(|_| ())
     }
 
     /// ### finalize_put_stream
@@ -836,11 +819,11 @@ mod test {
         // Write file
         let file_data = "test data\n";
         let mut reader = Cursor::new(file_data.as_bytes());
-        assert!(stream.put("test.txt", &mut reader).is_ok());
+        assert!(stream.put_file("test.txt", &mut reader).is_ok());
         // Read file
         assert_eq!(
             stream
-                .simple_retr("test.txt")
+                .retr_as_buffer("test.txt")
                 .map(|bytes| bytes.into_inner())
                 .ok()
                 .unwrap(),
@@ -859,6 +842,12 @@ mod test {
         // Remove file
         assert!(stream.rm("test.txt").is_ok());
         assert!(stream.mdtm("test.txt").is_err());
+        // Write file, rename and get
+        let file_data = "test data\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("test.txt", &mut reader).is_ok());
+        assert!(stream.rename("test.txt", "toast.txt").is_ok());
+        assert!(stream.rm("toast.txt").is_ok());
         // List directory again
         assert_eq!(stream.list(None).ok().unwrap().len(), 0);
         finalize_stream(stream);

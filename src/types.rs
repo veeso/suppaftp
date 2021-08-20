@@ -122,7 +122,7 @@ mod test {
             FtpError::ConnectionError(std::io::Error::new(std::io::ErrorKind::NotFound, "omar"))
                 .to_string()
                 .as_str(),
-            "Connection error: NotFound (omar)"
+            "Connection error: omar"
         );
         #[cfg(feature = "secure")]
         assert_eq!(

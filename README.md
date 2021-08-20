@@ -1,4 +1,4 @@
-# rust-ftp
+# FTP4
 
 <p align="center">
   <img src="/assets/images/ftp4.svg" width="256" height="256" />
@@ -22,7 +22,7 @@
 
 ---
 
-- [rust-ftp](#rust-ftp)
+- [FTP4](#ftp4)
   - [Introduction 👋](#introduction-)
     - [Main differences between ftp4 and rust-ftp 🤔](#main-differences-between-ftp4-and-rust-ftp-)
   - [Get started 🏁](#get-started-)
@@ -35,7 +35,7 @@
 
 ## Introduction 👋
 
-ftp4 is a FTP/FTPS client library written in Rust. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since this library is unmaintened, I decided to keep working on this library by myself since I needed to add some features for [termscp](https://github.com/veeso/termscp). Sometimes, when I need to I add some features, so feel free to use this library if you want.
+FTP4 is a FTP/FTPS client library written in Rust. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since this library is unmaintened, I decided to keep working on this library by myself since I needed to add some features for [termscp](https://github.com/veeso/termscp). Sometimes, when I need to I add some features, so feel free to use this library if you want.
 
 ### Main differences between ftp4 and rust-ftp 🤔
 

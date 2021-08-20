@@ -12,6 +12,11 @@ Released on ??
 
 - Added `Response` struct, which will be returned in case of `InvalidResponse` error.
   - This adds the possibility to get the exact error code and the message
+- **API** changes
+  - renamed `simple_retr` to `retr_as_buffer`
+  - renamed `get` to `retr_as_strea`
+  - renamed `finalize_get_stream` to `finalize_retr_stream`
+- Optimized code to reuse stream functions as much as possible
 - `size()` and `mdtm()` methods will return an option no more.
 - Improved code with linter
 - Added CI tests
