@@ -1,0 +1,810 @@
+//! # List
+//!
+//! This module exposes the parser for the LIST command.
+//! Please note that there's no guarantee this parser works and the reason is quite simple.
+//! There's no specification regarding the LIST command output, so it basically depends on the implementation of the
+//! remote FTP server. Despite this though, this parser, has worked on all the ftp server I've used.
+//! If you find a variant which doesn't work with this parser,
+//! please feel free to report an issue to <https://github.com/veeso/rust-ftp4>.
+//!
+//! ## Get started
+//!
+//! Whenever you receive the output for your LIST command, all you have to do is to iterate over lines and
+//! call `File::from_line()` function as shown in the example.
+//!
+//! ```rust
+//! use std::convert::TryFrom;
+//! use ftp4::{FtpStream, list::File};
+//!
+//! // Connect to the server
+//! let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").unwrap_or_else(|err|
+//!     panic!("{}", err)
+//! );
+//!
+//! // Authenticate
+//! assert!(ftp_stream.login("test", "test").is_ok());
+//!
+//! // List current directory
+//! let files: Vec<File> = ftp_stream.list(None).ok().unwrap().iter().map(|x| File::try_from(x.as_str()).ok().unwrap()).collect();
+//!
+//! // Disconnect from server
+//! assert!(ftp_stream.quit().is_ok());
+//!
+//! ```
+
+use chrono::prelude::{NaiveDate, NaiveDateTime, Utc};
+use chrono::Datelike;
+use regex::Regex;
+use std::convert::TryFrom;
+use std::ops::Range;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+use thiserror::Error;
+
+// -- Regex
+
+lazy_static! {
+    /// UNIX system regex to parse list output
+    static ref UNIX_LS_RE: Regex = Regex::new(r#"^([\-ld])([\-rwxs]{9})\s+(\d+)\s+(\w+)\s+(\w+)\s+(\d+)\s+(\w{3}\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#).unwrap();
+    /// DOS system regex to parse list output
+    static ref DOS_LS_RE: Regex = Regex::new(r#"^(\d{2}\-\d{2}\-\d{2}\s+\d{2}:\d{2}\s*[AP]M)\s+(<DIR>)?([\d,]*)\s+(.+)$"#).unwrap();
+}
+
+// -- File entry
+
+/// ## File
+///
+/// Describes a file entry on the remote system.
+/// This data type is returned in a collection after parsing a LIST output
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct File {
+    /// File name
+    name: String,
+    /// File type describes whether it is a directory, a file or a symlink
+    file_type: FileType,
+    /// File size in bytes
+    size: usize,
+    /// Last time the file was modified
+    modified: SystemTime,
+    /// User id (UNIX only)
+    uid: Option<u32>,
+    /// Group id (UNIX only)
+    gid: Option<u32>,
+    /// UNIX permissions
+    unix_pex: (UnixPex, UnixPex, UnixPex),
+}
+
+/// ## FileType
+///
+/// Describes the kind of file. Can be `Directory`, `File` or `Symlink`. If `Symlink` the path to the pointed file must be provided
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum FileType {
+    Directory,
+    File,
+    Symlink(PathBuf),
+}
+
+/// ### UnixPexQuery
+///
+/// This enum is used to query about unix permissions on a file
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum UnixPexQuery {
+    Owner,
+    Group,
+    Others,
+}
+
+/// ## UnixPex
+///
+/// Describes the permissions on UNIX system.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct UnixPex {
+    read: bool,
+    write: bool,
+    execute: bool,
+}
+
+// -- Error
+
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum ParseError {
+    #[error("Syntax error: invalid line")]
+    SyntaxError,
+    #[error("Invalid date")]
+    InvalidDate,
+    #[error("Bad file size")]
+    BadSize,
+}
+
+impl File {
+    // -- getters
+
+    /// ### name
+    ///
+    /// Get file name
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// ### is_directory
+    ///
+    /// Get whether file is a directory
+    pub fn is_directory(&self) -> bool {
+        self.file_type.is_directory()
+    }
+
+    /// ### is_file
+    ///
+    /// Get whether file is a file
+    pub fn is_file(&self) -> bool {
+        self.file_type.is_file()
+    }
+
+    /// ### is_symlink
+    ///
+    /// Get whether file is a symlink
+    pub fn is_symlink(&self) -> bool {
+        self.file_type.is_symlink()
+    }
+
+    /// ### symlink
+    ///
+    /// Returns, if available, the file the symlink is pointing to
+    pub fn symlink(&self) -> Option<&Path> {
+        self.file_type.symlink()
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    pub fn modified(&self) -> SystemTime {
+        self.modified
+    }
+
+    pub fn uid(&self) -> Option<u32> {
+        self.uid.to_owned()
+    }
+
+    pub fn gid(&self) -> Option<u32> {
+        self.gid.to_owned()
+    }
+
+    /// ### can_read
+    ///
+    /// Returns whether `who` can read file
+    pub fn can_read(&self, who: UnixPexQuery) -> bool {
+        self.query_pex(who).can_read()
+    }
+
+    /// ### can_write
+    ///
+    /// Returns whether `who` can write file
+    pub fn can_write(&self, who: UnixPexQuery) -> bool {
+        self.query_pex(who).can_write()
+    }
+
+    /// ### can_execute
+    ///
+    /// Returns whether `who` can execute file
+    pub fn can_execute(&self, who: UnixPexQuery) -> bool {
+        self.query_pex(who).can_execute()
+    }
+
+    /// ### query_pex
+    ///
+    /// Returns the pex structure for selected query
+    fn query_pex(&self, who: UnixPexQuery) -> &UnixPex {
+        match who {
+            UnixPexQuery::Group => &self.unix_pex.1,
+            UnixPexQuery::Others => &self.unix_pex.2,
+            UnixPexQuery::Owner => &self.unix_pex.0,
+        }
+    }
+
+    // -- parsers
+
+    /// ### from_line
+    ///
+    /// Parse LIST output line. This function will try first to parse with UNIX parser and then, if failed, with the DOS parser.
+    /// If you already know the syntax used by your server, you can directly use `from_unix_line` or `from_dos_line`.
+    pub fn from_line(line: &str) -> Result<Self, ParseError> {
+        Self::try_from(line)
+    }
+
+    /// ### from_unix_line
+    ///
+    /// Parse a UNIX LIST output line and if it is valid, return a `File` instance.
+    /// In case of error a `ParseError` is returned
+    pub fn from_unix_line(line: &str) -> Result<Self, ParseError> {
+        // Apply regex to result
+        match UNIX_LS_RE.captures(line) {
+            // String matches regex
+            Some(metadata) => {
+                // NOTE: metadata fmt: (regex, file_type, permissions, link_count, uid, gid, filesize, mtime, filename)
+                // Expected 7 + 1 (8) values: + 1 cause regex is repeated at 0
+                if metadata.len() < 8 {
+                    return Err(ParseError::SyntaxError);
+                }
+                // Collect metadata
+                // Get if is directory and if is symlink
+                let file_type: FileType = match metadata.get(1).unwrap().as_str() {
+                    "-" => FileType::File,
+                    "d" => FileType::Directory,
+                    "l" => FileType::Symlink(PathBuf::default()),
+                    _ => return Err(ParseError::SyntaxError), // This case is actually already covered by the regex
+                };
+
+                let pex = |range: Range<usize>| {
+                    let mut count: u8 = 0;
+                    for (i, c) in metadata.get(2).unwrap().as_str()[range].chars().enumerate() {
+                        match c {
+                            '-' => {}
+                            _ => {
+                                count += match i {
+                                    0 => 4,
+                                    1 => 2,
+                                    2 => 1,
+                                    _ => 0,
+                                }
+                            }
+                        }
+                    }
+                    count
+                };
+
+                // Get unix pex
+                let unix_pex: (UnixPex, UnixPex, UnixPex) = (
+                    UnixPex::from(pex(0..3)),
+                    UnixPex::from(pex(3..6)),
+                    UnixPex::from(pex(6..9)),
+                );
+
+                // Parse mtime and convert to SystemTime
+                let modified: SystemTime = Self::parse_lstime(
+                    metadata.get(7).unwrap().as_str(),
+                    "%b %d %Y",
+                    "%b %d %H:%M",
+                )?;
+                // Get gid
+                let gid: Option<u32> = metadata.get(5).unwrap().as_str().parse::<u32>().ok();
+                // Get uid
+                let uid: Option<u32> = metadata.get(4).unwrap().as_str().parse::<u32>().ok();
+                // Get filesize
+                let size: usize = metadata
+                    .get(6)
+                    .unwrap()
+                    .as_str()
+                    .parse::<usize>()
+                    .map_err(|_| ParseError::BadSize)?;
+                // Split filename if required
+                let (name, symlink_path): (String, Option<PathBuf>) = match file_type.is_symlink() {
+                    true => Self::get_name_and_link(metadata.get(8).unwrap().as_str()),
+                    false => (String::from(metadata.get(8).unwrap().as_str()), None),
+                };
+                // If symlink path is Some, assign symlink path to file_type
+                let file_type: FileType = match symlink_path {
+                    Some(p) => FileType::Symlink(p),
+                    None => file_type,
+                };
+                Ok(File {
+                    name,
+                    file_type,
+                    size,
+                    modified,
+                    uid,
+                    gid,
+                    unix_pex,
+                })
+            }
+            None => Err(ParseError::SyntaxError),
+        }
+    }
+
+    /// ### from_dos_line
+    ///
+    /// Try to parse a "LIST" output command line in DOS format.
+    /// Returns error if syntax is not DOS compliant.
+    /// DOS syntax has the following syntax:
+    /// {DATE} {TIME} {<DIR> | SIZE} {FILENAME}
+    /// 10-19-20  03:19PM <DIR> pub
+    /// 04-08-14  03:09PM 403   readme.txt
+    pub fn from_dos_line(line: &str) -> Result<Self, ParseError> {
+        // Apply regex to result
+        match DOS_LS_RE.captures(line) {
+            // String matches regex
+            Some(metadata) => {
+                // NOTE: metadata fmt: (regex, date_time, is_dir?, file_size?, file_name)
+                // Expected 4 + 1 (5) values: + 1 cause regex is repeated at 0
+                if metadata.len() < 5 {
+                    return Err(ParseError::SyntaxError);
+                }
+                // Parse date time
+                let modified: SystemTime = Self::parse_dostime(metadata.get(1).unwrap().as_str())?;
+                // Get if is a directory
+                let file_type: FileType = match metadata.get(2).is_some() {
+                    true => FileType::Directory,
+                    false => FileType::File,
+                };
+                // Get file size
+                let size: usize = match file_type.is_directory() {
+                    true => 0, // If is directory, filesize is 0
+                    false => match metadata.get(3) {
+                        // If is file, parse arg 3
+                        Some(val) => val
+                            .as_str()
+                            .parse::<usize>()
+                            .map_err(|_| ParseError::BadSize)?,
+                        None => 0,
+                    },
+                };
+                // Get file name
+                let name: String = String::from(metadata.get(4).unwrap().as_str());
+                // Return entry
+                Ok(File {
+                    name,
+                    file_type,
+                    size,
+                    modified,
+                    uid: None,
+                    gid: None,
+                    unix_pex: (UnixPex::default(), UnixPex::default(), UnixPex::default()),
+                })
+            }
+            None => Err(ParseError::SyntaxError), // Invalid syntax
+        }
+    }
+
+    /// ### get_name_and_link
+    ///
+    /// Returns from a `ls -l` command output file name token, the name of the file and the symbolic link (if there is any)
+    fn get_name_and_link(token: &str) -> (String, Option<PathBuf>) {
+        let tokens: Vec<&str> = token.split(" -> ").collect();
+        let filename: String = String::from(*tokens.get(0).unwrap());
+        let symlink: Option<PathBuf> = tokens.get(1).map(PathBuf::from);
+        (filename, symlink)
+    }
+
+    /// ### parse_lstime
+    ///
+    /// Convert ls syntax time to System Time
+    /// ls time has two possible syntax:
+    /// 1. if year is current: %b %d %H:%M (e.g. Nov 5 13:46)
+    /// 2. else: %b %d %Y (e.g. Nov 5 2019)
+    fn parse_lstime(tm: &str, fmt_year: &str, fmt_hours: &str) -> Result<SystemTime, ParseError> {
+        let datetime: NaiveDateTime = match NaiveDate::parse_from_str(tm, fmt_year) {
+            Ok(date) => {
+                // Case 2.
+                // Return NaiveDateTime from NaiveDate with time 00:00:00
+                date.and_hms(0, 0, 0)
+            }
+            Err(_) => {
+                // Might be case 1.
+                // We need to add Current Year at the end of the string
+                let this_year: i32 = Utc::now().year();
+                let date_time_str: String = format!("{} {}", tm, this_year);
+                // Now parse
+                NaiveDateTime::parse_from_str(
+                    date_time_str.as_ref(),
+                    format!("{} %Y", fmt_hours).as_ref(),
+                )
+                .map_err(|_| ParseError::InvalidDate)?
+            }
+        };
+        // Convert datetime to system time
+        let sys_time: SystemTime = SystemTime::UNIX_EPOCH;
+        Ok(sys_time
+            .checked_add(Duration::from_secs(datetime.timestamp() as u64))
+            .unwrap_or(SystemTime::UNIX_EPOCH))
+    }
+
+    /// ### parse_dostime
+    ///
+    /// Parse date time string in DOS representation ("%d-%m-%y %I:%M%p")
+    pub fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
+        NaiveDateTime::parse_from_str(tm, "%d-%m-%y %I:%M%p")
+            .map(|dt| {
+                SystemTime::UNIX_EPOCH
+                    .checked_add(Duration::from_secs(dt.timestamp() as u64))
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+            })
+            .map_err(|_| ParseError::InvalidDate)
+    }
+}
+
+impl TryFrom<&str> for File {
+    type Error = ParseError;
+
+    fn try_from(line: &str) -> Result<Self, Self::Error> {
+        match Self::from_unix_line(line) {
+            Ok(entry) => Ok(entry),
+            Err(_) => match Self::from_dos_line(line) {
+                // If UNIX parsing fails, try with DOS parser
+                Ok(entry) => Ok(entry),
+                Err(err) => Err(err),
+            },
+        }
+    }
+}
+
+impl TryFrom<String> for File {
+    type Error = ParseError;
+
+    fn try_from(line: String) -> Result<Self, Self::Error> {
+        File::try_from(line.as_str())
+    }
+}
+
+impl FileType {
+    /// ### is_directory
+    ///
+    /// Returns whether the file is a directory
+    fn is_directory(&self) -> bool {
+        matches!(self, &FileType::Directory)
+    }
+
+    /// ### is_file
+    ///
+    /// Returns whether the file is a file
+    fn is_file(&self) -> bool {
+        matches!(self, &FileType::File)
+    }
+
+    /// ### is_symlink
+    ///
+    /// Returns whether the file is a symlink
+    fn is_symlink(&self) -> bool {
+        matches!(self, &FileType::Symlink(_))
+    }
+
+    /// ### symlink
+    ///
+    /// get symlink if any
+    fn symlink(&self) -> Option<&Path> {
+        match self {
+            FileType::Symlink(p) => Some(p.as_path()),
+            _ => None,
+        }
+    }
+}
+
+impl UnixPex {
+    /// ### can_read
+    ///
+    /// Returns whether read permission is true
+    fn can_read(&self) -> bool {
+        self.read
+    }
+
+    /// ### can_write
+    ///
+    /// Returns whether write permission is true
+    fn can_write(&self) -> bool {
+        self.write
+    }
+
+    /// ### can_execute
+    ///
+    /// Returns whether execute permission is true
+    fn can_execute(&self) -> bool {
+        self.execute
+    }
+}
+
+impl Default for UnixPex {
+    fn default() -> Self {
+        Self {
+            read: true,
+            write: true,
+            execute: true,
+        }
+    }
+}
+
+impl From<u8> for UnixPex {
+    fn from(bits: u8) -> Self {
+        Self {
+            read: ((bits >> 2) & 0x01) != 0,
+            write: ((bits >> 1) & 0x01) != 0,
+            execute: (bits & 0x01) != 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    use chrono::DateTime;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn file_getters() {
+        let file: File = File {
+            name: String::from("provola.txt"),
+            file_type: FileType::File,
+            size: 2048,
+            modified: SystemTime::UNIX_EPOCH,
+            gid: Some(0),
+            uid: Some(0),
+            unix_pex: (UnixPex::from(7), UnixPex::from(5), UnixPex::from(4)),
+        };
+        assert_eq!(file.name(), "provola.txt");
+        assert_eq!(file.is_directory(), false);
+        assert_eq!(file.is_file(), true);
+        assert_eq!(file.is_symlink(), false);
+        assert_eq!(file.symlink(), None);
+        assert_eq!(file.size(), 2048);
+        assert_eq!(file.gid(), Some(0));
+        assert_eq!(file.uid(), Some(0));
+        assert_eq!(file.modified(), SystemTime::UNIX_EPOCH);
+        // -- unix pex
+        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_read(UnixPexQuery::Group), true);
+        assert_eq!(file.can_write(UnixPexQuery::Group), false);
+        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
+        assert_eq!(file.can_read(UnixPexQuery::Others), true);
+        assert_eq!(file.can_write(UnixPexQuery::Others), false);
+        assert_eq!(file.can_execute(UnixPexQuery::Others), false);
+    }
+
+    #[test]
+    fn parse_unix_line() {
+        let file: File = File::from_line("-rw-rw-r-- 1 0  1  8192 Nov 5 2018 omar.txt")
+            .ok()
+            .unwrap();
+        assert_eq!(file.name(), "omar.txt");
+        assert_eq!(file.size, 8192);
+        assert_eq!(file.is_file(), true);
+        assert_eq!(file.uid, Some(0));
+        assert_eq!(file.gid, Some(1));
+        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Owner), false);
+        assert_eq!(file.can_read(UnixPexQuery::Group), true);
+        assert_eq!(file.can_write(UnixPexQuery::Group), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Group), false);
+        assert_eq!(file.can_read(UnixPexQuery::Others), true);
+        assert_eq!(file.can_write(UnixPexQuery::Others), false);
+        assert_eq!(file.can_execute(UnixPexQuery::Others), false);
+        assert_eq!(
+            file.modified()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1541376000)
+        );
+        // Group and user as strings; directory
+        let file: File = File::from_line("drwxrwxr-x 1 root  dialout  4096 Nov 5 2018 provola")
+            .ok()
+            .unwrap();
+        assert_eq!(file.name(), "provola");
+        assert_eq!(file.size, 4096);
+        assert_eq!(file.is_directory(), true);
+        assert_eq!(file.uid, None);
+        assert_eq!(file.gid, None);
+        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_read(UnixPexQuery::Group), true);
+        assert_eq!(file.can_write(UnixPexQuery::Group), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
+        assert_eq!(file.can_read(UnixPexQuery::Others), true);
+        assert_eq!(file.can_write(UnixPexQuery::Others), false);
+        assert_eq!(file.can_execute(UnixPexQuery::Others), true);
+        assert_eq!(
+            file.modified()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1541376000)
+        );
+        // Error
+        assert_eq!(
+            File::from_unix_line("drwxrwxr-x 1 0  9  Nov 5 2018 docs")
+                .err()
+                .unwrap(),
+            ParseError::SyntaxError
+        );
+        assert_eq!(
+            File::from_unix_line("drwxrwxr-x 1 root  dialout  4096 Nov 31 2018 provola")
+                .err()
+                .unwrap(),
+            ParseError::InvalidDate
+        );
+    }
+
+    #[test]
+    fn parse_dos_line() {
+        let file: File = File::try_from("04-08-14  03:09PM  8192 omar.txt".to_string())
+            .ok()
+            .unwrap();
+        assert_eq!(file.name(), "omar.txt");
+        assert_eq!(file.size, 8192);
+        assert!(file.is_file());
+        assert_eq!(file.gid, None);
+        assert_eq!(file.uid, None);
+        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_read(UnixPexQuery::Group), true);
+        assert_eq!(file.can_write(UnixPexQuery::Group), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
+        assert_eq!(file.can_read(UnixPexQuery::Others), true);
+        assert_eq!(file.can_write(UnixPexQuery::Others), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Others), true);
+        assert_eq!(
+            file.modified
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1407164940)
+        );
+        // Parse directory
+        let dir: File = File::try_from("04-08-14  03:09PM  <DIR> docs")
+            .ok()
+            .unwrap();
+        assert_eq!(dir.name(), "docs");
+        assert!(dir.is_directory());
+        assert_eq!(dir.uid, None);
+        assert_eq!(dir.gid, None);
+        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
+        assert_eq!(file.can_read(UnixPexQuery::Group), true);
+        assert_eq!(file.can_write(UnixPexQuery::Group), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
+        assert_eq!(file.can_read(UnixPexQuery::Others), true);
+        assert_eq!(file.can_write(UnixPexQuery::Others), true);
+        assert_eq!(file.can_execute(UnixPexQuery::Others), true);
+        assert_eq!(
+            dir.modified
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1407164940)
+        );
+        // Error
+        assert_eq!(
+            File::from_dos_line("-08-14  03:09PM  <DIR> docs")
+                .err()
+                .unwrap(),
+            ParseError::SyntaxError
+        );
+        assert_eq!(
+            File::from_dos_line("34-08-14  03:09PM  <DIR> docs")
+                .err()
+                .unwrap(),
+            ParseError::InvalidDate
+        );
+        assert_eq!(
+            File::from_dos_line("04-08-14  03:09PM  OMAR docs")
+                .err()
+                .unwrap(),
+            ParseError::BadSize
+        );
+    }
+
+    #[test]
+    fn get_name_and_link() {
+        assert_eq!(
+            File::get_name_and_link("Cargo.toml"),
+            (String::from("Cargo.toml"), None)
+        );
+        assert_eq!(
+            File::get_name_and_link("Cargo -> Cargo.toml"),
+            (String::from("Cargo"), Some(PathBuf::from("Cargo.toml")))
+        );
+    }
+
+    #[test]
+    fn parse_lstime() {
+        // Good cases
+        assert_eq!(
+            fmt_time(
+                File::parse_lstime("Nov 5 16:32", "%b %d %Y", "%b %d %H:%M")
+                    .ok()
+                    .unwrap(),
+                "%m %d %M"
+            )
+            .as_str(),
+            "11 05 32"
+        );
+        assert_eq!(
+            fmt_time(
+                File::parse_lstime("Dec 2 21:32", "%b %d %Y", "%b %d %H:%M")
+                    .ok()
+                    .unwrap(),
+                "%m %d %M"
+            )
+            .as_str(),
+            "12 02 32"
+        );
+        assert_eq!(
+            File::parse_lstime("Nov 5 2018", "%b %d %Y", "%b %d %H:%M")
+                .ok()
+                .unwrap()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1541376000)
+        );
+        assert_eq!(
+            File::parse_lstime("Mar 18 2018", "%b %d %Y", "%b %d %H:%M")
+                .ok()
+                .unwrap()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1521331200)
+        );
+        // bad cases
+        assert!(File::parse_lstime("Oma 31 2018", "%b %d %Y", "%b %d %H:%M").is_err());
+        assert!(File::parse_lstime("Feb 31 2018", "%b %d %Y", "%b %d %H:%M").is_err());
+        assert!(File::parse_lstime("Feb 15 25:32", "%b %d %Y", "%b %d %H:%M").is_err());
+    }
+
+    #[test]
+    fn parse_dostime() {
+        assert_eq!(
+            File::parse_dostime("04-08-14  03:09PM")
+                .ok()
+                .unwrap()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1407164940)
+        );
+        // Not enough argument for datetime
+        assert!(File::parse_dostime("04-08-14").is_err());
+    }
+
+    #[test]
+    fn file_type() {
+        assert_eq!(FileType::Directory.is_directory(), true);
+        assert_eq!(FileType::Directory.is_file(), false);
+        assert_eq!(FileType::Directory.is_symlink(), false);
+        assert_eq!(FileType::Directory.symlink(), None);
+        assert_eq!(FileType::File.is_directory(), false);
+        assert_eq!(FileType::File.is_file(), true);
+        assert_eq!(FileType::File.is_symlink(), false);
+        assert_eq!(FileType::File.symlink(), None);
+        assert_eq!(FileType::Symlink(PathBuf::default()).is_directory(), false);
+        assert_eq!(FileType::Symlink(PathBuf::default()).is_file(), false);
+        assert_eq!(FileType::Symlink(PathBuf::default()).is_symlink(), true);
+        assert_eq!(
+            FileType::Symlink(PathBuf::default()).symlink(),
+            Some(PathBuf::default().as_path())
+        );
+    }
+
+    #[test]
+    fn unix_pex_from_bits() {
+        let pex: UnixPex = UnixPex::from(4);
+        assert_eq!(pex.can_read(), true);
+        assert_eq!(pex.can_write(), false);
+        assert_eq!(pex.can_execute(), false);
+        let pex: UnixPex = UnixPex::from(0);
+        assert_eq!(pex.can_read(), false);
+        assert_eq!(pex.can_write(), false);
+        assert_eq!(pex.can_execute(), false);
+        let pex: UnixPex = UnixPex::from(3);
+        assert_eq!(pex.can_read(), false);
+        assert_eq!(pex.can_write(), true);
+        assert_eq!(pex.can_execute(), true);
+        let pex: UnixPex = UnixPex::from(7);
+        assert_eq!(pex.can_read(), true);
+        assert_eq!(pex.can_write(), true);
+        assert_eq!(pex.can_execute(), true);
+    }
+
+    // -- utils
+
+    fn fmt_time(time: SystemTime, fmt: &str) -> String {
+        let datetime: DateTime<Utc> = time.into();
+        format!("{}", datetime.format(fmt))
+    }
+}

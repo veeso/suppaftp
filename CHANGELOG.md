@@ -14,8 +14,10 @@ Released on ??
   - This adds the possibility to get the exact error code and the message
 - **API** changes
   - renamed `simple_retr` to `retr_as_buffer`
-  - renamed `get` to `retr_as_strea`
+  - renamed `get` to `retr_as_stream`
   - renamed `finalize_get_stream` to `finalize_retr_stream`
+- **LIST** command output parser
+  - Read more on [docs.rs](https://docs.rs/ftp4/4.1.0/ftp4/list/index.html)
 - Optimized code to reuse stream functions as much as possible
 - `size()` and `mdtm()` methods will return an option no more.
 - Improved code with linter

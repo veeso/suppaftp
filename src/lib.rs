@@ -9,11 +9,14 @@
 //!
 //! Here is a basic usage example:
 //!
-//! ```rust,no_run
+//! ```rust
 //! use ftp4::FtpStream;
-//! let mut ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap_or_else(|err|
+//! let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").unwrap_or_else(|err|
 //!     panic!("{}", err)
 //! );
+//! assert!(ftp_stream.login("test", "test").is_ok());
+//!
+//! // Disconnect from server
 //! assert!(ftp_stream.quit().is_ok());
 //! ```
 //!
@@ -30,7 +33,7 @@
 //!
 //! ### FTPS Usage
 //!
-//! ```rust,no_run
+//! ```rust
 //! use ftp4::FtpStream;
 //! use ftp4::native_tls::{TlsConnector, TlsStream};
 //!
@@ -73,6 +76,7 @@ mod data_stream;
 mod ftp;
 
 // -- public
+pub mod list;
 pub mod status;
 pub mod types;
 
