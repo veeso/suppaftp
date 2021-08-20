@@ -18,14 +18,33 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt, clippy
+      - name: Build simple
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+      - name: Build secure
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --features secure
+      - name: Build async
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --features async
+      - name: Build async-secure
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --features async-secure
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --lib --no-default-features --features secure --features with-containers --no-fail-fast -- --test-threads 1
+          args: --lib --no-default-features --features secure --features async-secure --features with-containers --no-fail-fast -- --test-threads 1
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy -- -Dwarnings
+      - name: Clippy without secure
+        run: cargo clippy --features async -- -Dwarnings
       - name: Clippy with secure feature
-        run: cargo clippy --features secure -- -Dwarnings
+        run: cargo clippy --features secure --features async-secure -- -Dwarnings
