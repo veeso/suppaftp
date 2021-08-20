@@ -18,7 +18,7 @@ pub type Result<T> = std::result::Result<T, FtpError>;
 pub enum FtpError {
     /// Connection error
     #[error("Connection error: {0}")]
-    ConnectionError(::std::io::Error),
+    ConnectionError(std::io::Error),
     /// There was an error with the secure stream
     #[cfg(feature = "secure")]
     #[error("Secure error: {0}")]
@@ -27,7 +27,7 @@ pub enum FtpError {
     #[error("Invalid response: {0}")]
     InvalidResponse(Response),
     /// The response syntax is invalid
-    #[error("Response has an invalid syntax")]
+    #[error("Response contains an invalid syntax")]
     BadResponse,
     /// The address provided was invalid
     #[error("Invalid address: {0}")]
@@ -115,6 +115,33 @@ mod test {
     use super::*;
 
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn fmt_error() {
+        assert_eq!(
+            FtpError::ConnectionError(std::io::Error::new(std::io::ErrorKind::NotFound, "omar"))
+                .to_string()
+                .as_str(),
+            "Connection error: NotFound (omar)"
+        );
+        #[cfg(feature = "secure")]
+        assert_eq!(
+            FtpError::SecureError("omar".to_string())
+                .to_string()
+                .as_str(),
+            "Secure error: omar"
+        );
+        assert_eq!(
+            FtpError::InvalidResponse(Response::new(0, "error"))
+                .to_string()
+                .as_str(),
+            "Invalid response: [0] error"
+        );
+        assert_eq!(
+            FtpError::BadResponse.to_string().as_str(),
+            "Response contains an invalid syntax"
+        );
+    }
 
     #[test]
     fn response() {

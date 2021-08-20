@@ -1,5 +1,8 @@
 # rust-ftp
 
+<p align="center">
+  <img src="/assets/images/ftp4.svg" width="256" height="256" />
+</p>
 <p align="center">~ An FTP/FTPS client library for Rust ~</p>
 <p align="center">
   <a href="https://docs.rs/ftp4" target="_blank">Documentation</a>

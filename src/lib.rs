@@ -46,6 +46,14 @@
 //! ```
 //!
 
+#![doc(html_playground_url = "https://play.rust-lang.org")]
+#![doc(
+    html_favicon_url = "https://raw.githubusercontent.com/veeso/rust-ftp4/main/assets/images/cargo/ftp4-128.png"
+)]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/veeso/rust-ftp4/main/assets/images/cargo/ftp4-512.png"
+)]
+
 #[macro_use]
 extern crate lazy_static;
 extern crate chrono;
