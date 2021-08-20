@@ -1,10 +1,12 @@
-//! # FTP
+//! # Sync
 //!
-//! Main module of the library. This module exposes the real implementation of the ftp client
+//! This module contains the definition for all Sync implementation of suppaftp
 
-use super::data_stream::DataStream;
+mod data_stream;
+
 use super::status;
 use super::types::{FileType, FtpError, Response, Result};
+use data_stream::DataStream;
 
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};

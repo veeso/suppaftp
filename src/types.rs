@@ -20,7 +20,7 @@ pub enum FtpError {
     #[error("Connection error: {0}")]
     ConnectionError(std::io::Error),
     /// There was an error with the secure stream
-    #[cfg(feature = "secure")]
+    #[cfg(any(feature = "secure", feature = "async-secure"))]
     #[error("Secure error: {0}")]
     SecureError(String),
     /// Invalid response from remote. Contains the response data

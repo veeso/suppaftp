@@ -2,6 +2,7 @@
 name = "suppaftp"
 version = "4.1.0"
 authors = ["Matt McCoy <mattnenterprise@yahoo.com>", "Christian Visintin <christian.visintin1997@gmail.com>"]
+edition = "2018" 
 documentation = "https://docs.rs/suppaftp/"
 repository = "https://github.com/veeso/rust-suppaftp"
 description = "A super FTP/FTPS client library for Rust"
@@ -14,7 +15,25 @@ categories = ["asynchronous", "network-programming"]
 name = "suppaftp"
 path = "src/lib.rs"
 
+[dependencies]
+async-std = { version = "^1.9.0", optional = true }
+async-native-tls = { version = "0.3.3", optional = true }
+chrono = "0.4.19"
+lazy_static = "1.4.0"
+native-tls = { version = "^0.2", optional = true }
+pin-project = { version = "^1.0.8", optional = true }
+regex = "1.4.2"
+thiserror = "1.0.26"
+
+[dev-dependencies]
+pretty_assertions = "0.7.2"
+rand = "0.8.4"
+
 [features]
+# Enable async support for suppaftp
+async = ["async-std", "pin-project"]
+async-secure = ["async-std", "async-native-tls", "pin-project"]
+
 # Enable support of FTPS which requires native-tls (openssl is required on Linux)
 secure = ["native-tls"]
 
@@ -24,14 +43,3 @@ with-containers = []
 # Add debug output (to STDOUT) of commands sent to the server
 # and lines read from the server
 debug_print = []
-
-[dependencies]
-chrono = "0.4.19"
-lazy_static = "1.4.0"
-native-tls = { version = "^0.2", optional = true }
-regex = "1.4.2"
-thiserror = "1.0.26"
-
-[dev-dependencies]
-pretty_assertions = "0.7.2"
-rand = "0.8.4"

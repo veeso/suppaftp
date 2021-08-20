@@ -57,14 +57,22 @@
     html_logo_url = "https://raw.githubusercontent.com/veeso/rust-suppaftp/main/assets/images/cargo/suppaftp-512.png"
 )]
 
+// -- common deps
+extern crate chrono;
 #[macro_use]
 extern crate lazy_static;
-extern crate chrono;
 extern crate regex;
 extern crate thiserror;
-
+// -- secure deps
 #[cfg(feature = "secure")]
 pub extern crate native_tls;
+// -- async deps
+#[cfg(feature = "async-secure")]
+pub extern crate async_native_tls;
+#[cfg(any(feature = "async", feature = "async-secure"))]
+extern crate async_std;
+#[cfg(any(feature = "async", feature = "async-secure"))]
+extern crate pin_project;
 
 #[cfg(test)]
 extern crate pretty_assertions;
@@ -72,14 +80,21 @@ extern crate pretty_assertions;
 extern crate rand;
 
 // -- private
-mod data_stream;
-mod ftp;
+#[cfg(any(feature = "async", feature = "async-secure"))]
+mod async_ftp;
+#[cfg(not(any(feature = "async", feature = "async-secure")))]
+mod sync_ftp;
 
 // -- public
 pub mod list;
 pub mod status;
 pub mod types;
 
-// -- export
-pub use ftp::FtpStream;
+// -- export async
+#[cfg(any(feature = "async", feature = "async-secure"))]
+pub use async_ftp::FtpStream;
+// -- export sync
+#[cfg(not(any(feature = "async", feature = "async-secure")))]
+pub use sync_ftp::FtpStream;
+// -- export (common)
 pub use types::FtpError;
