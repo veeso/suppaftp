@@ -5,7 +5,7 @@
 //! There's no specification regarding the LIST command output, so it basically depends on the implementation of the
 //! remote FTP server. Despite this though, this parser, has worked on all the ftp server I've used.
 //! If you find a variant which doesn't work with this parser,
-//! please feel free to report an issue to <https://github.com/veeso/rust-ftp4>.
+//! please feel free to report an issue to <https://github.com/veeso/rust-suppaftp>.
 //!
 //! ## Get started
 //!
@@ -14,7 +14,7 @@
 //!
 //! ```rust
 //! use std::convert::TryFrom;
-//! use ftp4::{FtpStream, list::File};
+//! use suppaftp::{FtpStream, list::File};
 //!
 //! // Connect to the server
 //! let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").unwrap_or_else(|err|

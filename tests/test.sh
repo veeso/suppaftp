@@ -7,8 +7,8 @@ if [ ! -f docker-compose.yml ]; then
 fi
 
 echo "Prepare volume..."
-rm -rf /tmp/ftp4-test-ftp
-mkdir -p /tmp/ftp4-test-ftp
+rm -rf /tmp/suppaftp-test-ftp
+mkdir -p /tmp/suppaftp-test-ftp
 echo "Building docker image..."
 docker compose build
 set -e

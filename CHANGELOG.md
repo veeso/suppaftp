@@ -8,7 +8,7 @@
 
 ## 4.1.0
 
-Released on ??
+Released on 20/08/2021
 
 - Added `Response` struct, which will be returned in case of `InvalidResponse` error.
   - This adds the possibility to get the exact error code and the message
@@ -17,7 +17,7 @@ Released on ??
   - renamed `get` to `retr_as_stream`
   - renamed `finalize_get_stream` to `finalize_retr_stream`
 - **LIST** command output parser
-  - Read more on [docs.rs](https://docs.rs/ftp4/4.1.0/ftp4/list/index.html)
+  - Read more on [docs.rs](https://docs.rs/suppaftp/4.1.0/suppaftp/list/index.html)
 - Optimized code to reuse stream functions as much as possible
 - `size()` and `mdtm()` methods will return an option no more.
 - Improved code with linter

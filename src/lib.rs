@@ -1,16 +1,16 @@
-#![crate_name = "ftp4"]
+#![crate_name = "suppaftp"]
 #![crate_type = "lib"]
 
-//! # ftp4
+//! # suppaftp
 //!
-//! ftp4 is an FTP client library written in Rust with optional FTPS support.
+//! suppaftp is an FTP client library written in Rust with optional FTPS support.
 //!
 //! ### Usage
 //!
 //! Here is a basic usage example:
 //!
 //! ```rust
-//! use ftp4::FtpStream;
+//! use suppaftp::FtpStream;
 //! let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").unwrap_or_else(|err|
 //!     panic!("{}", err)
 //! );
@@ -34,8 +34,8 @@
 //! ### FTPS Usage
 //!
 //! ```rust
-//! use ftp4::FtpStream;
-//! use ftp4::native_tls::{TlsConnector, TlsStream};
+//! use suppaftp::FtpStream;
+//! use suppaftp::native_tls::{TlsConnector, TlsStream};
 //!
 //! let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
 //! // Switch to the secure mode
@@ -51,10 +51,10 @@
 
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![doc(
-    html_favicon_url = "https://raw.githubusercontent.com/veeso/rust-ftp4/main/assets/images/cargo/ftp4-128.png"
+    html_favicon_url = "https://raw.githubusercontent.com/veeso/rust-suppaftp/main/assets/images/cargo/suppaftp-128.png"
 )]
 #![doc(
-    html_logo_url = "https://raw.githubusercontent.com/veeso/rust-ftp4/main/assets/images/cargo/ftp4-512.png"
+    html_logo_url = "https://raw.githubusercontent.com/veeso/rust-suppaftp/main/assets/images/cargo/suppaftp-512.png"
 )]
 
 #[macro_use]

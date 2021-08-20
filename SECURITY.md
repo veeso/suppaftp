@@ -2,8 +2,8 @@
 
 ## Supported Versions
 
-Only latst version of ftp4 has the latest security updates.
-Because of that, **you should always consider updating ftp4 to the latest version**.
+Only latst version of suppaftp has the latest security updates.
+Because of that, **you should always consider updating suppaftp to the latest version**.
 
 ## Reporting a Vulnerability
 

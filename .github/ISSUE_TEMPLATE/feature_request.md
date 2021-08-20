@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea to improve ftp4
+about: Suggest an idea to improve suppaftp
 title: "[Feature Request] - FEATURE_TITLE"
 labels: "new feature"
 assignees: veeso
