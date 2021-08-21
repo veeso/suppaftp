@@ -5,7 +5,7 @@
 //! There's no specification regarding the LIST command output, so it basically depends on the implementation of the
 //! remote FTP server. Despite this though, this parser, has worked on all the ftp server I've used.
 //! If you find a variant which doesn't work with this parser,
-//! please feel free to report an issue to <https://github.com/veeso/rust-suppaftp>.
+//! please feel free to report an issue to <https://github.com/veeso/suppaftp>.
 //!
 //! ## Get started
 //!

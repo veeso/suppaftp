@@ -11,14 +11,14 @@
 </p>
 
 <p align="center">Developed by <a href="https://veeso.github.io/">veeso</a> and <a href="https://github.com/mattnenterprise">Matt McCoy</a></p>
-<p align="center">Current version: 4.1.0 (20/08/2021)</p>
+<p align="center">Current version: 4.1.0 (22/08/2021)</p>
 
 [![Number of Crate Downloads](https://img.shields.io/crates/d/suppaftp.svg)](https://crates.io/crates/suppaftp)
 [![Crate Version](https://img.shields.io/crates/v/suppaftp.svg)](https://crates.io/crates/suppaftp)
 [![Crate License](https://img.shields.io/crates/l/suppaftp.svg)](https://crates.io/crates/suppaftp)
 [![Docs](https://docs.rs/suppaftp/badge.svg)](https://docs.rs/suppaftp)  
 
-[![Build](https://github.com/veeso/rust-suppaftp/workflows/Build/badge.svg)](https://github.com/veeso/rust-suppaftp/actions) [![Coverage](https://github.com/veeso/rust-suppaftp/workflows/Coverage/badge.svg)](https://github.com/veeso/rust-suppaftp/actions) [![Coverage Status](https://coveralls.io/repos/github/veeso/rust-suppaftp/badge.svg)](https://coveralls.io/github/veeso/rust-suppaftp)
+[![Build](https://github.com/veeso/suppaftp/workflows/Build/badge.svg)](https://github.com/veeso/suppaftp/actions) [![Coverage](https://github.com/veeso/suppaftp/workflows/Coverage/badge.svg)](https://github.com/veeso/suppaftp/actions) [![Coverage Status](https://coveralls.io/repos/github/veeso/suppaftp/badge.svg)](https://coveralls.io/github/veeso/suppaftp)
 
 ---
 
@@ -30,6 +30,8 @@
       - [SSL/TLS Support](#ssltls-support)
       - [Async support](#async-support)
     - [Example 📚](#example-)
+      - [Going Async](#going-async)
+  - [Built-in CLI client 🖥️](#built-in-cli-client-️)
   - [Changelog](#changelog)
   - [License 📜](#license-)
     - [Contribution 🤝](#contribution-)
@@ -38,7 +40,7 @@
 
 ## Introduction 👋
 
-SuppaFTP is a FTP/FTPS client library written in Rust. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since the original library is currently unmaintened, I decided to keep working on this library by myself. Currently, I consider myself as the only maintainer of this project, indeed I've already added some features to the library and improved it with better error handling and test units. Then, feel free to use this library instead of the classic *rust-ftp* if you want, and if you have any feature request or issue to report, please open an issue on this repository; I will answer you as soon as possible.
+SuppaFTP is a FTP/FTPS client library written in Rust, with both support for sync/async programming. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since the original library is currently unmaintened, I decided to keep working on this library by myself. Currently, I consider myself as the only maintainer of this project, indeed I've already added some features to the library and improved it with better error handling and test units. Then, feel free to use this library instead of the classic *rust-ftp* if you want, and if you have any feature request or issue to report, please open an issue on this repository; I will answer you as soon as possible.
 
 ### Main differences between SuppaFTP and rust-ftp 🤔
 
@@ -113,8 +115,33 @@ fn main() {
     // Terminate the connection to the server.
     let _ = ftp_stream.quit();
 }
-
 ```
+
+#### Going Async
+
+```rust
+use suppaftp::FtpStream;
+use suppftp::async_native_tls::{TlsConnector, TlsStream};
+let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
+// Switch to the secure mode
+let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new(), "test.rebex.net").await.unwrap();
+ftp_stream.login("demo", "password").await.unwrap();
+// Do other secret stuff
+// Do all public stuff
+assert!(ftp_stream.quit().await.is_ok());
+```
+
+## Built-in CLI client 🖥️
+
+SuppaFTP comes also with a built-in command line FTP client. This CLI application provides all the commands to interact with a remote FTP server and supports FTPS too. You can also use it as a reference to implement your project. You can find it in the `cli/` directory.
+
+You can just install as any other rust application via **Cargo**:
+
+```sh
+cargo install suppaftp
+```
+
+---
 
 ## Changelog
 

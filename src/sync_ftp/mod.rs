@@ -698,7 +698,6 @@ mod test {
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
-    #[cfg(feature = "with-containers")]
     use std::time::Duration;
 
     #[test]

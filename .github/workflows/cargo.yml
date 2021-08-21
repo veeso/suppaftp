@@ -37,6 +37,11 @@ jobs:
         with:
           command: build
           args: --features async-secure
+      - name: Build suppaftp-cli
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --features secure --features cli-bin --bin suppaftp
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
