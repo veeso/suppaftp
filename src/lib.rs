@@ -82,7 +82,7 @@ extern crate rand;
 // -- private
 #[cfg(any(feature = "async", feature = "async-secure"))]
 mod async_ftp;
-#[cfg(not(any(feature = "async", feature = "async-secure")))]
+#[cfg(any(test, not(any(feature = "async", feature = "async-secure"))))]
 mod sync_ftp;
 
 // -- public

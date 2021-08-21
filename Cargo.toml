@@ -26,6 +26,7 @@ regex = "1.4.2"
 thiserror = "1.0.26"
 
 [dev-dependencies]
+async-attributes = "1.1.2"
 pretty_assertions = "0.7.2"
 rand = "0.8.4"
 

@@ -106,14 +106,14 @@ impl FtpStream {
     ///
     /// ```rust,no_run
     /// use suppaftp::FtpStream;
-    /// use suppaftp::native_tls::{TlsConnector, TlsStream};
+    /// use suppaftp::async_native_tls::{TlsConnector, TlsStream};
     /// use std::path::Path;
     ///
     /// // Create a TlsConnector
     /// // NOTE: For custom options see <https://docs.rs/native-tls/0.2.6/native_tls/struct.TlsConnectorBuilder.html>
-    /// let mut ctx = TlsConnector::new().unwrap();
-    /// let mut ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap();
-    /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").unwrap();
+    /// let mut ctx = TlsConnector::new();
+    /// let mut ftp_stream = FtpStream::connect("127.0.0.1:21").await.unwrap();
+    /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").await.unwrap();
     /// ```
     #[cfg(feature = "async-secure")]
     pub async fn into_secure(
@@ -157,17 +157,17 @@ impl FtpStream {
     /// use suppaftp::FtpStream;
     /// use std::path::Path;
     ///
-    /// use suppaftp::native_tls::{TlsConnector, TlsStream};
+    /// use suppaftp::async_native_tls::{TlsConnector, TlsStream};
     ///
     /// // Create an TlsConnector
-    /// let mut ctx = TlsConnector::new().unwrap();
-    /// let mut ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap();
-    /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").unwrap();
+    /// let mut ctx = TlsConnector::new();
+    /// let mut ftp_stream = FtpStream::connect("127.0.0.1:21").await.unwrap();
+    /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").await.unwrap();
     /// // Do all secret things
     /// // Switch back to the insecure mode
-    /// let mut ftp_stream = ftp_stream.into_insecure().unwrap();
+    /// let mut ftp_stream = ftp_stream.into_insecure().await.unwrap();
     /// // Do all public things
-    /// let _ = ftp_stream.quit();
+    /// let _ = ftp_stream.quit().await;
     /// ```
     #[cfg(feature = "async-secure")]
     pub async fn into_insecure(mut self) -> Result<FtpStream> {
@@ -186,7 +186,7 @@ impl FtpStream {
     /// ### get_welcome_msg
     ///
     /// Returns welcome message retrieved from server (if available)
-    pub async fn get_welcome_msg(&self) -> Option<&str> {
+    pub fn get_welcome_msg(&self) -> Option<&str> {
         self.welcome_msg.as_deref()
     }
 
@@ -216,18 +216,6 @@ impl FtpStream {
     /// ### get_ref
     ///
     /// Returns a reference to the underlying TcpStream.
-    ///
-    /// Example:
-    /// ```no_run
-    /// use suppaftp::FtpStream;
-    /// use std::net::TcpStream;
-    /// use std::time::Duration;
-    ///
-    /// let stream = FtpStream::connect("127.0.0.1:21")
-    ///                        .expect("Couldn't connect to the server...");
-    /// stream.get_ref().set_read_timeout(Some(Duration::from_secs(10)))
-    ///                 .expect("set_read_timeout call failed");
-    /// ```
     pub async fn get_ref(&self) -> &TcpStream {
         self.reader.get_ref().get_ref()
     }
@@ -361,23 +349,6 @@ impl FtpStream {
     /// The implementation of `RETR` command where `filename` is the name of the file
     /// to download from FTP and `reader` is the function which operates with the
     /// data stream opened.
-    ///
-    /// ```
-    /// # use suppaftp::{FtpStream, FtpError};
-    /// # use std::io::Cursor;
-    /// # let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
-    /// # conn.login("test", "test").and_then(|_| {
-    /// #     let mut reader = Cursor::new("hello, world!".as_bytes());
-    /// #     conn.put_file("retr.txt", &mut reader)
-    /// # }).unwrap();
-    /// assert!(conn.retr("retr.txt", |stream| {
-    ///     let mut buf = Vec::new();
-    ///     stream.read_to_end(&mut buf).map(|_|
-    ///         assert_eq!(buf, "hello, world!".as_bytes())
-    ///     ).map_err(|e| FtpError::ConnectionError(e))
-    /// }).is_ok());
-    /// # assert!(conn.rm("retr.txt").is_ok());
-    /// ```
     pub async fn retr<F, T>(&mut self, file_name: &str, reader: F) -> Result<T>
     where
         F: Fn(&mut BufReader<DataStream>) -> Result<T>,
@@ -683,5 +654,206 @@ impl FtpStream {
         } else {
             Err(FtpError::InvalidResponse(response))
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    #[cfg(feature = "with-containers")]
+    use crate::types::FormatControl;
+
+    #[cfg(any(feature = "with-containers", feature = "async-secure"))]
+    use pretty_assertions::assert_eq;
+    #[cfg(feature = "with-containers")]
+    use rand::{distributions::Alphanumeric, thread_rng, Rng};
+
+    #[cfg(feature = "with-containers")]
+    #[async_attributes::test]
+    async fn connect() {
+        let stream: FtpStream = setup_stream().await;
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "async-secure")]
+    async fn connect_ssl() {
+        let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
+        let mut ftp_stream = ftp_stream
+            .into_secure(TlsConnector::new(), "test.rebex.net")
+            .await
+            .ok()
+            .unwrap();
+        // Set timeout (to test ref to ssl)
+        assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
+        // Login
+        assert!(ftp_stream.login("demo", "password").await.is_ok());
+        // PWD
+        assert_eq!(ftp_stream.pwd().await.ok().unwrap().as_str(), "/");
+        // Go back to insecure
+        let mut ftp_stream = ftp_stream.into_insecure().await.ok().unwrap();
+        // Quit
+        assert!(ftp_stream.quit().await.is_ok());
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn welcome_message() {
+        let stream: FtpStream = setup_stream().await;
+        assert_eq!(
+            stream.get_welcome_msg().unwrap(),
+            "220 You will be disconnected after 15 minutes of inactivity."
+        );
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn get_ref() {
+        let stream: FtpStream = setup_stream().await;
+        assert!(stream.get_ref().await.set_ttl(255).is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn change_wrkdir() {
+        let mut stream: FtpStream = setup_stream().await;
+        let wrkdir: String = stream.pwd().await.ok().unwrap();
+        assert!(stream.cwd("/").await.is_ok());
+        assert_eq!(stream.pwd().await.ok().unwrap().as_str(), "/");
+        assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn cd_up() {
+        let mut stream: FtpStream = setup_stream().await;
+        let wrkdir: String = stream.pwd().await.ok().unwrap();
+        assert!(stream.cdup().await.is_ok());
+        assert_eq!(stream.pwd().await.ok().unwrap().as_str(), "/");
+        assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn noop() {
+        let mut stream: FtpStream = setup_stream().await;
+        assert!(stream.noop().await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn make_and_remove_dir() {
+        let mut stream: FtpStream = setup_stream().await;
+        // Make directory
+        assert!(stream.mkdir("omar").await.is_ok());
+        // It shouldn't allow me to re-create the directory; should return error code 550
+        match stream.mkdir("omar").await.err().unwrap() {
+            FtpError::InvalidResponse(Response { code, body: _ }) => {
+                assert_eq!(code, status::FILE_UNAVAILABLE)
+            }
+            err => panic!("Expected InvalidResponse, got {}", err),
+        }
+        // Remove directory
+        assert!(stream.rmdir("omar").await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn set_transfer_type() {
+        let mut stream: FtpStream = setup_stream().await;
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        assert!(stream
+            .transfer_type(FileType::Ascii(FormatControl::Default))
+            .await
+            .is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    async fn transfer_file() {
+        use async_std::io::Cursor;
+
+        let mut stream: FtpStream = setup_stream().await;
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        // Write file
+        let file_data = "test data\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+        // Read file
+        let mut reader = stream.retr_as_stream("test.txt").await.ok().unwrap();
+        let mut buffer = Vec::new();
+        assert!(reader.read_to_end(&mut buffer).await.is_ok());
+        // Verify file matches
+        assert_eq!(buffer.as_slice(), file_data.as_bytes());
+        // Finalize
+        assert!(stream.finalize_retr_stream(Box::new(reader)).await.is_ok());
+        // Get size
+        assert_eq!(stream.size("test.txt").await.ok().unwrap(), 10);
+        // Size of non-existing file
+        assert!(stream.size("omarone.txt").await.is_err());
+        // List directory
+        assert_eq!(stream.list(None).await.ok().unwrap().len(), 1);
+        // list names
+        assert_eq!(
+            stream.nlst(None).await.ok().unwrap().as_slice(),
+            &["test.txt"]
+        );
+        // modification time
+        assert!(stream.mdtm("test.txt").await.is_ok());
+        // Remove file
+        assert!(stream.rm("test.txt").await.is_ok());
+        assert!(stream.mdtm("test.txt").await.is_err());
+        // Write file, rename and get
+        let file_data = "test data\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+        assert!(stream.rename("test.txt", "toast.txt").await.is_ok());
+        assert!(stream.rm("toast.txt").await.is_ok());
+        // List directory again
+        assert_eq!(stream.list(None).await.ok().unwrap().len(), 0);
+        finalize_stream(stream).await;
+    }
+
+    // -- test utils
+
+    #[cfg(feature = "with-containers")]
+    async fn setup_stream() -> FtpStream {
+        let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").await.unwrap();
+        assert!(ftp_stream.login("test", "test").await.is_ok());
+        // Create wrkdir
+        let tempdir: String = generate_tempdir();
+        assert!(ftp_stream.mkdir(tempdir.as_str()).await.is_ok());
+        // Change directory
+        assert!(ftp_stream.cwd(tempdir.as_str()).await.is_ok());
+        ftp_stream
+    }
+
+    #[cfg(feature = "with-containers")]
+    async fn finalize_stream(mut stream: FtpStream) {
+        // Get working directory
+        let wrkdir: String = stream.pwd().await.ok().unwrap();
+        // Remove directory
+        assert!(stream.rmdir(wrkdir.as_str()).await.is_ok());
+        assert!(stream.quit().await.is_ok());
+    }
+
+    #[cfg(feature = "with-containers")]
+    fn generate_tempdir() -> String {
+        let mut rng = thread_rng();
+        let name: String = std::iter::repeat(())
+            .map(|()| rng.sample(Alphanumeric))
+            .map(char::from)
+            .take(5)
+            .collect();
+        format!("temp_{}", name)
     }
 }
