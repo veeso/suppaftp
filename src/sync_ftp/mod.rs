@@ -372,9 +372,9 @@ impl FtpStream {
     /// }).is_ok());
     /// # assert!(conn.rm("retr.txt").is_ok());
     /// ```
-    pub fn retr<F, T>(&mut self, file_name: &str, reader: F) -> Result<T>
+    pub fn retr<F, T>(&mut self, file_name: &str, mut reader: F) -> Result<T>
     where
-        F: Fn(&mut dyn Read) -> Result<T>,
+        F: FnMut(&mut dyn Read) -> Result<T>,
     {
         match self.retr_as_stream(file_name) {
             Ok(mut stream) => {

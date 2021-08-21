@@ -349,9 +349,9 @@ impl FtpStream {
     /// The implementation of `RETR` command where `filename` is the name of the file
     /// to download from FTP and `reader` is the function which operates with the
     /// data stream opened.
-    pub async fn retr<F, T>(&mut self, file_name: &str, reader: F) -> Result<T>
+    pub async fn retr<F, T>(&mut self, file_name: &str, mut reader: F) -> Result<T>
     where
-        F: Fn(&mut BufReader<DataStream>) -> Result<T>,
+        F: FnMut(&mut BufReader<DataStream>) -> Result<T>,
     {
         match self.retr_as_stream(file_name).await {
             Ok(mut stream) => {
