@@ -8,10 +8,11 @@
 
 ## 4.1.0
 
-Released on 20/08/2021
+Released on 22/08/2021
 
 - Added `Response` struct, which will be returned in case of `InvalidResponse` error.
   - This adds the possibility to get the exact error code and the message
+- Added **async** support
 - **API** changes
   - renamed `simple_retr` to `retr_as_buffer`
   - renamed `get` to `retr_as_stream`
