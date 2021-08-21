@@ -138,7 +138,7 @@ SuppaFTP comes also with a built-in command line FTP client. This CLI applicatio
 You can just install as any other rust application via **Cargo**:
 
 ```sh
-cargo install suppaftp
+cargo install suppaftp --features="secure cli-bin"
 ```
 
 ---
