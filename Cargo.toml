@@ -1,12 +1,12 @@
 [package]
 name = "suppaftp"
-version = "4.1.0"
+version = "4.1.1"
 authors = ["Matt McCoy <mattnenterprise@yahoo.com>", "Christian Visintin <christian.visintin1997@gmail.com>"]
 edition = "2018" 
 documentation = "https://docs.rs/suppaftp/"
 repository = "https://github.com/veeso/suppaftp"
 description = "A super FTP/FTPS client library for Rust"
-include = ["src/**/*", "LICENSE-APACHE", "LICENSE-MIT", "README.md", "CHANGELOG.md"]
+include = ["src/**/*", "cli/**/*", "LICENSE-APACHE", "LICENSE-MIT", "README.md", "CHANGELOG.md"]
 readme = "README.md"
 license = "Apache-2.0/MIT"
 keywords = ["ftp", "ftps", "network-protocol", "async"]

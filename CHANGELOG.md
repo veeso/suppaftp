@@ -1,10 +1,17 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.1.1](#411)
   - [4.1.0](#410)
   - [4.0.2](#402)
   - [4.0.1](#401)
   - [4.0.0](#400)
+
+## 4.1.1
+
+Released on 22/08/2021
+
+- Fixed missing `cli/` directory on Cargo registry.
 
 ## 4.1.0
 
