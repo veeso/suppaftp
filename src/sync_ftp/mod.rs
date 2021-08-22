@@ -504,22 +504,6 @@ impl FtpStream {
         }
     }
 
-    /// ### list_command
-    ///
-    /// Execute a command which returns list of strings in a separate stream
-    fn list_command(
-        &mut self,
-        cmd: Cow<'static, str>,
-        open_code: u32,
-        close_code: &[u32],
-    ) -> Result<Vec<String>> {
-        let data_stream = BufReader::new(self.data_command(&cmd)?);
-        self.read_response_in(&[open_code, status::ALREADY_OPEN])?;
-        let lines = Self::get_lines_from_stream(data_stream);
-        self.read_response_in(close_code)?;
-        lines
-    }
-
     /// ### list
     ///
     /// Execute `LIST` command which returns the detailed file listing in human readable format.
@@ -530,7 +514,7 @@ impl FtpStream {
             format!("LIST {}\r\n", path).into()
         });
 
-        self.list_command(
+        self.stream_lines(
             command,
             status::ABOUT_TO_SEND,
             &[
@@ -550,7 +534,7 @@ impl FtpStream {
             format!("NLST {}\r\n", path).into()
         });
 
-        self.list_command(
+        self.stream_lines(
             command,
             status::ABOUT_TO_SEND,
             &[
@@ -684,6 +668,22 @@ impl FtpStream {
         } else {
             Err(FtpError::InvalidResponse(response))
         }
+    }
+
+    /// ### stream_lines
+    ///
+    /// Execute a command which returns list of strings in a separate stream
+    fn stream_lines(
+        &mut self,
+        cmd: Cow<'static, str>,
+        open_code: u32,
+        close_code: &[u32],
+    ) -> Result<Vec<String>> {
+        let data_stream = BufReader::new(self.data_command(&cmd)?);
+        self.read_response_in(&[open_code, status::ALREADY_OPEN])?;
+        let lines = Self::get_lines_from_stream(data_stream);
+        self.read_response_in(close_code)?;
+        lines
     }
 }
 
