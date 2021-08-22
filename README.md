@@ -32,6 +32,7 @@
     - [Example 📚](#example-)
       - [Going Async](#going-async)
   - [Built-in CLI client 🖥️](#built-in-cli-client-️)
+  - [Buy me a coffee ☕](#buy-me-a-coffee-)
   - [Changelog](#changelog)
   - [License 📜](#license-)
     - [Contribution 🤝](#contribution-)
@@ -143,9 +144,19 @@ cargo install suppaftp --features="secure cli-bin"
 
 ---
 
+## Buy me a coffee ☕
+
+If you like **SuppaFTP**, please consider a little donation 🥳
+
+[![Buy-me-a-coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=veeso&button_colour=404040&font_colour=ffffff&font_family=Comic&outline_colour=ffffff&coffee_colour=FFDD00)](https://www.buymeacoffee.com/veeso)
+
+---
+
 ## Changelog
 
 View Changelog [here](CHANGELOG.md)
+
+---
 
 ## License 📜
 
@@ -156,9 +167,13 @@ Licensed under either of
 
 at your option.
 
+---
+
 ### Contribution 🤝
 
 Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in the work by you, as defined in the Apache-2.0
 license, shall be dual licensed as above, without any additional terms or
 conditions.
+
+If you want to contribute to this project, please read the [Contributing guide](CONTRIBUTING.md) first 🙂.
