@@ -23,9 +23,11 @@ pub enum FtpError {
     #[cfg(any(feature = "secure", feature = "async-secure"))]
     #[error("Secure error: {0}")]
     SecureError(String),
-    /// Invalid response from remote. Contains the response data
+    /// Unexpected response from remote. The command expected a certain response, but got another one.
+    /// This means the ftp server refused to perform your request or there was an error while processing it.
+    /// Contains the response data.
     #[error("Invalid response: {0}")]
-    InvalidResponse(Response),
+    UnexpectedResponse(Response),
     /// The response syntax is invalid
     #[error("Response contains an invalid syntax")]
     BadResponse,
@@ -132,7 +134,7 @@ mod test {
             "Secure error: omar"
         );
         assert_eq!(
-            FtpError::InvalidResponse(Response::new(0, "error"))
+            FtpError::UnexpectedResponse(Response::new(0, "error"))
                 .to_string()
                 .as_str(),
             "Invalid response: [0] error"

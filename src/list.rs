@@ -44,8 +44,8 @@ use thiserror::Error;
 // -- Regex
 
 lazy_static! {
-    /// UNIX system regex to parse list output
-    static ref UNIX_LS_RE: Regex = Regex::new(r#"^([\-ld])([\-rwxs]{9})\s+(\d+)\s+(\w+)\s+(\w+)\s+(\d+)\s+(\w{3}\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#).unwrap();
+    /// POSIX system regex to parse list output
+    static ref POSIX_LS_RE: Regex = Regex::new(r#"^([\-ld])([\-rwxs]{9})\s+(\d+)\s+(\w+)\s+(\w+)\s+(\d+)\s+(\w{3}\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#).unwrap();
     /// DOS system regex to parse list output
     static ref DOS_LS_RE: Regex = Regex::new(r#"^(\d{2}\-\d{2}\-\d{2}\s+\d{2}:\d{2}\s*[AP]M)\s+(<DIR>)?([\d,]*)\s+(.+)$"#).unwrap();
 }
@@ -66,12 +66,12 @@ pub struct File {
     size: usize,
     /// Last time the file was modified
     modified: SystemTime,
-    /// User id (UNIX only)
+    /// User id (POSIX only)
     uid: Option<u32>,
-    /// Group id (UNIX only)
+    /// Group id (POSIX only)
     gid: Option<u32>,
-    /// UNIX permissions
-    unix_pex: (UnixPex, UnixPex, UnixPex),
+    /// POSIX permissions
+    posix_pex: (PosixPex, PosixPex, PosixPex),
 }
 
 /// ## FileType
@@ -84,21 +84,21 @@ enum FileType {
     Symlink(PathBuf),
 }
 
-/// ### UnixPexQuery
+/// ### PosixPexQuery
 ///
-/// This enum is used to query about unix permissions on a file
+/// This enum is used to query about posix permissions on a file
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum UnixPexQuery {
+pub enum PosixPexQuery {
     Owner,
     Group,
     Others,
 }
 
-/// ## UnixPex
+/// ## PosixPex
 ///
-/// Describes the permissions on UNIX system.
+/// Describes the permissions on POSIX system.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-struct UnixPex {
+struct PosixPex {
     read: bool,
     write: bool,
     execute: bool,
@@ -154,18 +154,30 @@ impl File {
         self.file_type.symlink()
     }
 
+    /// ### size
+    ///
+    /// Returned file size in bytes
     pub fn size(&self) -> usize {
         self.size
     }
 
+    /// ### modified
+    ///
+    //// Returns the last time the file was modified
     pub fn modified(&self) -> SystemTime {
         self.modified
     }
 
+    /// ### uid
+    ///
+    /// Returns when available the owner user of the file. (POSIX only)
     pub fn uid(&self) -> Option<u32> {
         self.uid.to_owned()
     }
 
+    /// ### gid
+    ///
+    /// Returns when available the owner group of the file. (POSIX only)
     pub fn gid(&self) -> Option<u32> {
         self.gid.to_owned()
     }
@@ -173,32 +185,32 @@ impl File {
     /// ### can_read
     ///
     /// Returns whether `who` can read file
-    pub fn can_read(&self, who: UnixPexQuery) -> bool {
+    pub fn can_read(&self, who: PosixPexQuery) -> bool {
         self.query_pex(who).can_read()
     }
 
     /// ### can_write
     ///
     /// Returns whether `who` can write file
-    pub fn can_write(&self, who: UnixPexQuery) -> bool {
+    pub fn can_write(&self, who: PosixPexQuery) -> bool {
         self.query_pex(who).can_write()
     }
 
     /// ### can_execute
     ///
     /// Returns whether `who` can execute file
-    pub fn can_execute(&self, who: UnixPexQuery) -> bool {
+    pub fn can_execute(&self, who: PosixPexQuery) -> bool {
         self.query_pex(who).can_execute()
     }
 
     /// ### query_pex
     ///
     /// Returns the pex structure for selected query
-    fn query_pex(&self, who: UnixPexQuery) -> &UnixPex {
+    fn query_pex(&self, who: PosixPexQuery) -> &PosixPex {
         match who {
-            UnixPexQuery::Group => &self.unix_pex.1,
-            UnixPexQuery::Others => &self.unix_pex.2,
-            UnixPexQuery::Owner => &self.unix_pex.0,
+            PosixPexQuery::Group => &self.posix_pex.1,
+            PosixPexQuery::Others => &self.posix_pex.2,
+            PosixPexQuery::Owner => &self.posix_pex.0,
         }
     }
 
@@ -206,19 +218,19 @@ impl File {
 
     /// ### from_line
     ///
-    /// Parse LIST output line. This function will try first to parse with UNIX parser and then, if failed, with the DOS parser.
-    /// If you already know the syntax used by your server, you can directly use `from_unix_line` or `from_dos_line`.
+    /// Parse LIST output line. This function will try first to parse with POSIX parser and then, if failed, with the DOS parser.
+    /// If you already know the syntax used by your server, you can directly use `from_posix_line` or `from_dos_line`.
     pub fn from_line(line: &str) -> Result<Self, ParseError> {
         Self::try_from(line)
     }
 
-    /// ### from_unix_line
+    /// ### from_posix_line
     ///
-    /// Parse a UNIX LIST output line and if it is valid, return a `File` instance.
+    /// Parse a POSIX LIST output line and if it is valid, return a `File` instance.
     /// In case of error a `ParseError` is returned
-    pub fn from_unix_line(line: &str) -> Result<Self, ParseError> {
+    pub fn from_posix_line(line: &str) -> Result<Self, ParseError> {
         // Apply regex to result
-        match UNIX_LS_RE.captures(line) {
+        match POSIX_LS_RE.captures(line) {
             // String matches regex
             Some(metadata) => {
                 // NOTE: metadata fmt: (regex, file_type, permissions, link_count, uid, gid, filesize, mtime, filename)
@@ -253,11 +265,11 @@ impl File {
                     count
                 };
 
-                // Get unix pex
-                let unix_pex: (UnixPex, UnixPex, UnixPex) = (
-                    UnixPex::from(pex(0..3)),
-                    UnixPex::from(pex(3..6)),
-                    UnixPex::from(pex(6..9)),
+                // Get posix pex
+                let posix_pex: (PosixPex, PosixPex, PosixPex) = (
+                    PosixPex::from(pex(0..3)),
+                    PosixPex::from(pex(3..6)),
+                    PosixPex::from(pex(6..9)),
                 );
 
                 // Parse mtime and convert to SystemTime
@@ -294,7 +306,7 @@ impl File {
                     modified,
                     uid,
                     gid,
-                    unix_pex,
+                    posix_pex,
                 })
             }
             None => Err(ParseError::SyntaxError),
@@ -348,7 +360,11 @@ impl File {
                     modified,
                     uid: None,
                     gid: None,
-                    unix_pex: (UnixPex::default(), UnixPex::default(), UnixPex::default()),
+                    posix_pex: (
+                        PosixPex::default(),
+                        PosixPex::default(),
+                        PosixPex::default(),
+                    ),
                 })
             }
             None => Err(ParseError::SyntaxError), // Invalid syntax
@@ -401,7 +417,7 @@ impl File {
     /// ### parse_dostime
     ///
     /// Parse date time string in DOS representation ("%d-%m-%y %I:%M%p")
-    pub fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
+    fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
         NaiveDateTime::parse_from_str(tm, "%d-%m-%y %I:%M%p")
             .map(|dt| {
                 SystemTime::UNIX_EPOCH
@@ -416,10 +432,10 @@ impl TryFrom<&str> for File {
     type Error = ParseError;
 
     fn try_from(line: &str) -> Result<Self, Self::Error> {
-        match Self::from_unix_line(line) {
+        match Self::from_posix_line(line) {
             Ok(entry) => Ok(entry),
             Err(_) => match Self::from_dos_line(line) {
-                // If UNIX parsing fails, try with DOS parser
+                // If POSIX parsing fails, try with DOS parser
                 Ok(entry) => Ok(entry),
                 Err(err) => Err(err),
             },
@@ -468,7 +484,7 @@ impl FileType {
     }
 }
 
-impl UnixPex {
+impl PosixPex {
     /// ### can_read
     ///
     /// Returns whether read permission is true
@@ -491,7 +507,7 @@ impl UnixPex {
     }
 }
 
-impl Default for UnixPex {
+impl Default for PosixPex {
     fn default() -> Self {
         Self {
             read: true,
@@ -501,7 +517,7 @@ impl Default for UnixPex {
     }
 }
 
-impl From<u8> for UnixPex {
+impl From<u8> for PosixPex {
     fn from(bits: u8) -> Self {
         Self {
             read: ((bits >> 2) & 0x01) != 0,
@@ -528,7 +544,7 @@ mod test {
             modified: SystemTime::UNIX_EPOCH,
             gid: Some(0),
             uid: Some(0),
-            unix_pex: (UnixPex::from(7), UnixPex::from(5), UnixPex::from(4)),
+            posix_pex: (PosixPex::from(7), PosixPex::from(5), PosixPex::from(4)),
         };
         assert_eq!(file.name(), "provola.txt");
         assert_eq!(file.is_directory(), false);
@@ -539,20 +555,20 @@ mod test {
         assert_eq!(file.gid(), Some(0));
         assert_eq!(file.uid(), Some(0));
         assert_eq!(file.modified(), SystemTime::UNIX_EPOCH);
-        // -- unix pex
-        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_read(UnixPexQuery::Group), true);
-        assert_eq!(file.can_write(UnixPexQuery::Group), false);
-        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
-        assert_eq!(file.can_read(UnixPexQuery::Others), true);
-        assert_eq!(file.can_write(UnixPexQuery::Others), false);
-        assert_eq!(file.can_execute(UnixPexQuery::Others), false);
+        // -- posix pex
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), true);
+        assert_eq!(file.can_write(PosixPexQuery::Group), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), true);
+        assert_eq!(file.can_read(PosixPexQuery::Others), true);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), false);
     }
 
     #[test]
-    fn parse_unix_line() {
+    fn parse_posix_line() {
         let file: File = File::from_line("-rw-rw-r-- 1 0  1  8192 Nov 5 2018 omar.txt")
             .ok()
             .unwrap();
@@ -561,15 +577,15 @@ mod test {
         assert_eq!(file.is_file(), true);
         assert_eq!(file.uid, Some(0));
         assert_eq!(file.gid, Some(1));
-        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Owner), false);
-        assert_eq!(file.can_read(UnixPexQuery::Group), true);
-        assert_eq!(file.can_write(UnixPexQuery::Group), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Group), false);
-        assert_eq!(file.can_read(UnixPexQuery::Others), true);
-        assert_eq!(file.can_write(UnixPexQuery::Others), false);
-        assert_eq!(file.can_execute(UnixPexQuery::Others), false);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), false);
+        assert_eq!(file.can_read(PosixPexQuery::Group), true);
+        assert_eq!(file.can_write(PosixPexQuery::Group), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), false);
+        assert_eq!(file.can_read(PosixPexQuery::Others), true);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), false);
         assert_eq!(
             file.modified()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -586,15 +602,15 @@ mod test {
         assert_eq!(file.is_directory(), true);
         assert_eq!(file.uid, None);
         assert_eq!(file.gid, None);
-        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_read(UnixPexQuery::Group), true);
-        assert_eq!(file.can_write(UnixPexQuery::Group), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
-        assert_eq!(file.can_read(UnixPexQuery::Others), true);
-        assert_eq!(file.can_write(UnixPexQuery::Others), false);
-        assert_eq!(file.can_execute(UnixPexQuery::Others), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), true);
+        assert_eq!(file.can_write(PosixPexQuery::Group), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), true);
+        assert_eq!(file.can_read(PosixPexQuery::Others), true);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), true);
         assert_eq!(
             file.modified()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -604,13 +620,13 @@ mod test {
         );
         // Error
         assert_eq!(
-            File::from_unix_line("drwxrwxr-x 1 0  9  Nov 5 2018 docs")
+            File::from_posix_line("drwxrwxr-x 1 0  9  Nov 5 2018 docs")
                 .err()
                 .unwrap(),
             ParseError::SyntaxError
         );
         assert_eq!(
-            File::from_unix_line("drwxrwxr-x 1 root  dialout  4096 Nov 31 2018 provola")
+            File::from_posix_line("drwxrwxr-x 1 root  dialout  4096 Nov 31 2018 provola")
                 .err()
                 .unwrap(),
             ParseError::InvalidDate
@@ -627,15 +643,15 @@ mod test {
         assert!(file.is_file());
         assert_eq!(file.gid, None);
         assert_eq!(file.uid, None);
-        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_read(UnixPexQuery::Group), true);
-        assert_eq!(file.can_write(UnixPexQuery::Group), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
-        assert_eq!(file.can_read(UnixPexQuery::Others), true);
-        assert_eq!(file.can_write(UnixPexQuery::Others), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Others), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), true);
+        assert_eq!(file.can_write(PosixPexQuery::Group), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), true);
+        assert_eq!(file.can_read(PosixPexQuery::Others), true);
+        assert_eq!(file.can_write(PosixPexQuery::Others), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), true);
         assert_eq!(
             file.modified
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -651,15 +667,15 @@ mod test {
         assert!(dir.is_directory());
         assert_eq!(dir.uid, None);
         assert_eq!(dir.gid, None);
-        assert_eq!(file.can_read(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_write(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Owner), true);
-        assert_eq!(file.can_read(UnixPexQuery::Group), true);
-        assert_eq!(file.can_write(UnixPexQuery::Group), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Group), true);
-        assert_eq!(file.can_read(UnixPexQuery::Others), true);
-        assert_eq!(file.can_write(UnixPexQuery::Others), true);
-        assert_eq!(file.can_execute(UnixPexQuery::Others), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), true);
+        assert_eq!(file.can_write(PosixPexQuery::Group), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), true);
+        assert_eq!(file.can_read(PosixPexQuery::Others), true);
+        assert_eq!(file.can_write(PosixPexQuery::Others), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), true);
         assert_eq!(
             dir.modified
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -782,20 +798,20 @@ mod test {
     }
 
     #[test]
-    fn unix_pex_from_bits() {
-        let pex: UnixPex = UnixPex::from(4);
+    fn posix_pex_from_bits() {
+        let pex: PosixPex = PosixPex::from(4);
         assert_eq!(pex.can_read(), true);
         assert_eq!(pex.can_write(), false);
         assert_eq!(pex.can_execute(), false);
-        let pex: UnixPex = UnixPex::from(0);
+        let pex: PosixPex = PosixPex::from(0);
         assert_eq!(pex.can_read(), false);
         assert_eq!(pex.can_write(), false);
         assert_eq!(pex.can_execute(), false);
-        let pex: UnixPex = UnixPex::from(3);
+        let pex: PosixPex = PosixPex::from(3);
         assert_eq!(pex.can_read(), false);
         assert_eq!(pex.can_write(), true);
         assert_eq!(pex.can_execute(), true);
-        let pex: UnixPex = UnixPex::from(7);
+        let pex: PosixPex = PosixPex::from(7);
         assert_eq!(pex.can_read(), true);
         assert_eq!(pex.can_write(), true);
         assert_eq!(pex.can_execute(), true);

@@ -265,7 +265,7 @@ impl FtpStream {
             .and_then(
                 |Response { code, body }| match (body.find('"'), body.rfind('"')) {
                     (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
-                    _ => Err(FtpError::InvalidResponse(Response::new(code, body))),
+                    _ => Err(FtpError::UnexpectedResponse(Response::new(code, body))),
                 },
             )
     }
@@ -295,7 +295,7 @@ impl FtpStream {
         let response: Response = self.read_response(status::PASSIVE_MODE).await?;
         PORT_RE
             .captures(&response.body)
-            .ok_or_else(|| FtpError::InvalidResponse(response.clone()))
+            .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))
             .and_then(|caps| {
                 // If the regex matches we can be sure groups contains numbers
                 let (oct1, oct2, oct3, oct4) = (
@@ -635,7 +635,7 @@ impl FtpStream {
         if expected_code.iter().any(|ec| code == *ec) {
             Ok(response)
         } else {
-            Err(FtpError::InvalidResponse(response))
+            Err(FtpError::UnexpectedResponse(response))
         }
     }
 
@@ -754,10 +754,10 @@ mod test {
         assert!(stream.mkdir("omar").await.is_ok());
         // It shouldn't allow me to re-create the directory; should return error code 550
         match stream.mkdir("omar").await.err().unwrap() {
-            FtpError::InvalidResponse(Response { code, body: _ }) => {
+            FtpError::UnexpectedResponse(Response { code, body: _ }) => {
                 assert_eq!(code, status::FILE_UNAVAILABLE)
             }
-            err => panic!("Expected InvalidResponse, got {}", err),
+            err => panic!("Expected UnexpectedResponse, got {}", err),
         }
         // Remove directory
         assert!(stream.rmdir("omar").await.is_ok());
