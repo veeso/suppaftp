@@ -1,11 +1,21 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.1.2](#412)
   - [4.1.1](#411)
   - [4.1.0](#410)
   - [4.0.2](#402)
   - [4.0.1](#401)
   - [4.0.0](#400)
+
+## 4.1.2
+
+Released on 23/08/2021
+
+- Renamed `InvalidResponse` to `UnexpectedResponse`, which makes more sense
+- Renamed `File::from_unix_line` to `File::from_posix_line`
+- Renamed `UnixPexQuery` to `PosixPexQuery`
+- Made `parse_dostime` private
 
 ## 4.1.1
 
