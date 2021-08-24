@@ -122,7 +122,7 @@ fn main() {
 
 ```rust
 use suppaftp::FtpStream;
-use suppftp::async_native_tls::{TlsConnector, TlsStream};
+use suppaftp::async_native_tls::{TlsConnector, TlsStream};
 let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
 // Switch to the secure mode
 let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new(), "test.rebex.net").await.unwrap();
