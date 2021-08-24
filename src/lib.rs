@@ -69,6 +69,8 @@
 //! ### FTPS Usage
 //!
 //! ```rust
+//! extern crate suppaftp;
+//!
 //! use suppaftp::FtpStream;
 //! use suppaftp::native_tls::{TlsConnector, TlsStream};
 //!
@@ -90,8 +92,10 @@
 //! Let's quickly see in the example how it works
 //!
 //! ```rust
+//! extern crate suppaftp;
+//!
 //! use suppaftp::FtpStream;
-//! use suppftp::async_native_tls::{TlsConnector, TlsStream};
+//! use suppaftp::async_native_tls::{TlsConnector, TlsStream};
 //!
 //! let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
 //! // Switch to the secure mode
