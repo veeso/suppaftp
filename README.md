@@ -11,14 +11,52 @@
 </p>
 
 <p align="center">Developed by <a href="https://veeso.github.io/">veeso</a> and <a href="https://github.com/mattnenterprise">Matt McCoy</a></p>
-<p align="center">Current version: 4.1.2 (23/08/2021)</p>
+<p align="center">Current version: 4.1.3 (01/12/2021)</p>
 
-[![Number of Crate Downloads](https://img.shields.io/crates/d/suppaftp.svg)](https://crates.io/crates/suppaftp)
-[![Crate Version](https://img.shields.io/crates/v/suppaftp.svg)](https://crates.io/crates/suppaftp)
-[![Crate License](https://img.shields.io/crates/l/suppaftp.svg)](https://crates.io/crates/suppaftp)
-[![Docs](https://docs.rs/suppaftp/badge.svg)](https://docs.rs/suppaftp)  
-
-[![Build](https://github.com/veeso/suppaftp/workflows/Build/badge.svg)](https://github.com/veeso/suppaftp/actions) [![Coverage](https://github.com/veeso/suppaftp/workflows/Coverage/badge.svg)](https://github.com/veeso/suppaftp/actions) [![Coverage Status](https://coveralls.io/repos/github/veeso/suppaftp/badge.svg)](https://coveralls.io/github/veeso/suppaftp)
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"
+    ><img
+      src="https://img.shields.io/crates/l/suppaftp.svg"
+      alt="License-Apache-2.0/MIT"
+  /></a>
+  <a href="https://github.com/veeso/suppaftp/stargazers"
+    ><img
+      src="https://img.shields.io/github/stars/veeso/suppaftp.svg"
+      alt="Repo stars"
+  /></a>
+  <a href="https://crates.io/crates/suppaftp"
+    ><img
+      src="https://img.shields.io/crates/d/suppaftp.svg"
+      alt="Downloads counter"
+  /></a>
+  <a href="https://crates.io/crates/suppaftp"
+    ><img
+      src="https://img.shields.io/crates/v/suppaftp.svg"
+      alt="Latest version"
+  /></a>
+  <a href="https://www.buymeacoffee.com/veeso"
+    ><img
+      src="https://img.shields.io/badge/Donate-BuyMeACoffee-yellow.svg"
+      alt="Buy me a coffee"
+  /></a>
+</p>
+<p align="center">
+  <a href="https://github.com/veeso/suppaftp/actions"
+    ><img
+      src="https://github.com/veeso/suppaftp/workflows/Build/badge.svg"
+      alt="Linux CI"
+  /></a>
+  <a href="https://coveralls.io/github/veeso/suppaftp"
+    ><img
+      src="https://coveralls.io/repos/github/veeso/suppaftp/badge.svg"
+      alt="Coveralls"
+  /></a>
+  <a href="https://docs.rs/suppaftp"
+    ><img
+      src="https://docs.rs/suppaftp/badge.svg"
+      alt="Docs"
+  /></a>
+</p>
 
 ---
 
@@ -32,7 +70,7 @@
     - [Example 📚](#example-)
       - [Going Async](#going-async)
   - [Built-in CLI client 🖥️](#built-in-cli-client-️)
-  - [Buy me a coffee ☕](#buy-me-a-coffee-)
+  - [Support the developer ☕](#support-the-developer-)
   - [Changelog](#changelog)
   - [License 📜](#license-)
     - [Contribution 🤝](#contribution-)
@@ -61,7 +99,7 @@ SuppaFTP is a FTP/FTPS client library written in Rust, with both support for syn
 To get started, first add **suppaftp** to your dependencies:
 
 ```toml
-suppaftp = "4.1.2"
+suppaftp = "^4.1.0"
 ```
 
 ### Features
@@ -71,7 +109,7 @@ suppaftp = "4.1.2"
 If you want to enable **support for FTPS**, you must enable the `secure` feature in your cargo dependencies. FTPS support is achieved through [rust-native-tls](https://github.com/sfackler/rust-native-tls), so check if your target systems are compatible.
 
 ```toml
-suppaftp = { version = "4.1.2", features = ["secure"] }
+suppaftp = { version = "^4.1.0", features = ["secure"] }
 ```
 
 #### Async support
@@ -79,7 +117,7 @@ suppaftp = { version = "4.1.2", features = ["secure"] }
 If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
 
 ```toml
-suppaftp = { version = "4.1.2", features = ["async"] }
+suppaftp = { version = "^4.1.0", features = ["async"] }
 ```
 
 ⚠️ If you want to enable both **secure** and **async** you must use the **async-secure** feature ⚠️
