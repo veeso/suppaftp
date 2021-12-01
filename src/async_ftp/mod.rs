@@ -422,16 +422,17 @@ impl FtpStream {
     ///
     /// This stores a file on the server.
     /// r argument must be any struct which implemenents the Read trait
-    pub async fn put_file<R>(&mut self, filename: &str, r: &mut R) -> Result<()>
+    pub async fn put_file<R>(&mut self, filename: &str, r: &mut R) -> Result<u64>
     where
         R: Read + std::marker::Unpin,
     {
         // Get stream
         let mut data_stream = self.put_with_stream(filename).await?;
-        copy(r, &mut data_stream)
+        let bytes = copy(r, &mut data_stream)
             .await
             .map_err(FtpError::ConnectionError)?;
-        self.finalize_put_stream(Box::new(data_stream)).await
+        self.finalize_put_stream(Box::new(data_stream)).await?;
+        Ok(bytes)
     }
 
     /// ### put_with_stream

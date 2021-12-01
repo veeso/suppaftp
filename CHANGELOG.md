@@ -15,6 +15,7 @@ Released on 01/12/2021
 
 - UNIX file parser:
   - Fixed file parsing, which didn't allow any other characters than alphanumerics for groups, users and dates
+- `put_file()` will now return the amount of bytes written
 - Updated dependencies
 
 ## 4.1.2
