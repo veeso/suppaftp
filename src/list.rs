@@ -45,7 +45,7 @@ use thiserror::Error;
 
 lazy_static! {
     /// POSIX system regex to parse list output
-    static ref POSIX_LS_RE: Regex = Regex::new(r#"^([\-ld])([\-rwxs]{9})\s+(\d+)\s+(\w+)\s+(\w+)\s+(\d+)\s+(\w{3}\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#).unwrap();
+    static ref POSIX_LS_RE: Regex = Regex::new(r#"^([\-ld])([\-rwxs]{9})\s+(\d+)\s+(.+)\s+(.+)\s+(\d+)\s+(.+\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#).unwrap();
     /// DOS system regex to parse list output
     static ref DOS_LS_RE: Regex = Regex::new(r#"^(\d{2}\-\d{2}\-\d{2}\s+\d{2}:\d{2}\s*[AP]M)\s+(<DIR>)?([\d,]*)\s+(.+)$"#).unwrap();
 }
@@ -274,14 +274,14 @@ impl File {
 
                 // Parse mtime and convert to SystemTime
                 let modified: SystemTime = Self::parse_lstime(
-                    metadata.get(7).unwrap().as_str(),
+                    metadata.get(7).unwrap().as_str().trim(),
                     "%b %d %Y",
                     "%b %d %H:%M",
                 )?;
                 // Get gid
-                let gid: Option<u32> = metadata.get(5).unwrap().as_str().parse::<u32>().ok();
+                let gid: Option<u32> = metadata.get(5).unwrap().as_str().trim().parse::<u32>().ok();
                 // Get uid
-                let uid: Option<u32> = metadata.get(4).unwrap().as_str().parse::<u32>().ok();
+                let uid: Option<u32> = metadata.get(4).unwrap().as_str().trim().parse::<u32>().ok();
                 // Get filesize
                 let size: usize = metadata
                     .get(6)
@@ -631,6 +631,14 @@ mod test {
                 .unwrap(),
             ParseError::InvalidDate
         );
+    }
+
+    #[test]
+    fn should_parse_utf8_names_in_ls_output() {
+        assert!(File::try_from(
+            "-rw-rw-r-- 1 омар  www-data  8192 Nov 5 2018 фообар.txt".to_string()
+        )
+        .is_ok());
     }
 
     #[test]
