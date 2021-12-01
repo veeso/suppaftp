@@ -691,7 +691,8 @@ impl FtpStream {
 #[cfg(test)]
 mod test {
 
-    
+    use super::*;
+
     #[cfg(feature = "with-containers")]
     use crate::types::FormatControl;
 
@@ -699,7 +700,8 @@ mod test {
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
-    
+
+    use std::time::Duration;
 
     #[test]
     #[cfg(feature = "with-containers")]
