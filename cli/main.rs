@@ -6,9 +6,6 @@
 const SUPPAFTP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 const SUPPAFTP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-extern crate rpassword;
-extern crate suppaftp;
-
 // -- mods
 mod actions;
 mod command;
@@ -39,6 +36,7 @@ fn usage() {
     println!("LIST [dir]                          List files. If directory is not provided, current directory is used");
     println!("LOGIN                               Login to remote");
     println!("MDTM <file>                         Get modification time for `file`");
+    println!("MODE <PASSIVE|ACTIVE>               Set mode");
     println!("NOOP                                Ping server");
     println!("PUT <file> <dest>                   Upload local file `file` to `dest`");
     println!("PWD                                 Print working directory");
@@ -125,6 +123,7 @@ fn perform_connected(ftp: &mut FtpStream, command: Command) {
         Command::Login => login(ftp),
         Command::Mdtm(p) => mdtm(ftp, p.as_str()),
         Command::Mkdir(p) => mkdir(ftp, p.as_str()),
+        Command::Mode(m) => set_mode(ftp, m),
         Command::Noop => noop(ftp),
         Command::Put(src, dest) => put(ftp, src.as_path(), dest.as_str()),
         Command::Pwd => pwd(ftp),

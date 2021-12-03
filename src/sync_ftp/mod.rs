@@ -5,7 +5,7 @@
 mod data_stream;
 
 use super::status;
-use super::types::{FileType, FtpError, Response, Result};
+use super::types::{FileType, FtpError, Mode, Response, Result};
 use data_stream::DataStream;
 
 use chrono::offset::TimeZone;
@@ -15,8 +15,7 @@ use native_tls::TlsConnector;
 use regex::Regex;
 use std::borrow::Cow;
 use std::io::{copy, BufRead, BufReader, BufWriter, Cursor, Read, Write};
-use std::net::ToSocketAddrs;
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
 use std::string::String;
 
@@ -38,6 +37,7 @@ lazy_static! {
 #[derive(Debug)]
 pub struct FtpStream {
     reader: BufReader<DataStream>,
+    mode: Mode,
     welcome_msg: Option<String>,
     #[cfg(feature = "secure")]
     tls_ctx: Option<TlsConnector>,
@@ -56,6 +56,7 @@ impl FtpStream {
             .and_then(|stream| {
                 let mut ftp_stream = FtpStream {
                     reader: BufReader::new(DataStream::Tcp(stream)),
+                    mode: Mode::Passive,
                     welcome_msg: None,
                 };
                 match ftp_stream.read_response(status::READY) {
@@ -78,6 +79,7 @@ impl FtpStream {
             .and_then(|stream| {
                 let mut ftp_stream = FtpStream {
                     reader: BufReader::new(DataStream::Tcp(stream)),
+                    mode: Mode::Passive,
                     welcome_msg: None,
                     tls_ctx: None,
                     domain: None,
@@ -90,6 +92,21 @@ impl FtpStream {
                     Err(err) => Err(err),
                 }
             })
+    }
+
+    /// ### active_mode
+    ///
+    /// Enable active mode for data channel
+    pub fn active_mode(mut self) -> Self {
+        self.mode = Mode::Active;
+        self
+    }
+
+    /// ### set_mode
+    ///
+    /// Set the data channel transfer mode
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
     }
 
     /// ### into_secure
@@ -124,6 +141,7 @@ impl FtpStream {
             .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
         let mut secured_ftp_tream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(stream)),
+            mode: self.mode,
             tls_ctx: Some(tls_connector),
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
@@ -167,6 +185,7 @@ impl FtpStream {
         self.read_response(status::COMMAND_OK)?;
         let plain_ftp_stream = FtpStream {
             reader: BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream())),
+            mode: self.mode,
             tls_ctx: None,
             domain: None,
             welcome_msg: self.welcome_msg,
@@ -184,29 +203,33 @@ impl FtpStream {
     /// ### data_command
     ///
     /// Execute command which send data back in a separate stream
-    #[cfg(not(feature = "secure"))]
     fn data_command(&mut self, cmd: &str) -> Result<DataStream> {
-        self.pasv()
-            .and_then(|addr| self.write_str(cmd).map(|_| addr))
-            .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))
-            .map(DataStream::Tcp)
-    }
+        let stream = match self.mode {
+            Mode::Passive => self
+                .pasv()
+                .and_then(|addr| self.write_str(cmd).map(|_| addr))
+                .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))?,
 
-    /// ### data_command
-    ///
-    /// Execute command which send data back in a separate stream
-    #[cfg(feature = "secure")]
-    fn data_command(&mut self, cmd: &str) -> Result<DataStream> {
-        self.pasv()
-            .and_then(|addr| self.write_str(cmd).map(|_| addr))
-            .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))
-            .and_then(|stream| match self.tls_ctx {
-                Some(ref tls_ctx) => tls_ctx
-                    .connect(self.domain.as_ref().unwrap(), stream)
-                    .map(DataStream::Ssl)
-                    .map_err(|e| FtpError::SecureError(format!("{}", e))),
-                None => Ok(DataStream::Tcp(stream)),
-            })
+            Mode::Active => self
+                .active()
+                .and_then(|listener| self.write_str(cmd).map(|_| listener))
+                .and_then(|listener| listener.accept().map_err(FtpError::ConnectionError))
+                .map(|(stream, _)| stream)?,
+        };
+
+        #[cfg(not(feature = "secure"))]
+        {
+            Ok(DataStream::Tcp(stream))
+        }
+
+        #[cfg(feature = "secure")]
+        match self.tls_ctx {
+            Some(ref tls_ctx) => tls_ctx
+                .connect(self.domain.as_ref().unwrap(), stream)
+                .map(DataStream::Ssl)
+                .map_err(|e| FtpError::SecureError(format!("{}", e))),
+            None => Ok(DataStream::Tcp(stream)),
+        }
     }
 
     /// ### get_ref
@@ -317,6 +340,35 @@ impl FtpStream {
                 let addr = format!("{}.{}.{}.{}:{}", oct1, oct2, oct3, oct4, port);
                 SocketAddr::from_str(&addr).map_err(FtpError::InvalidAddress)
             })
+    }
+
+    /// ### active
+    ///
+    /// Create a new tcp listener and send a PORT command for it
+    fn active(&mut self) -> Result<TcpListener> {
+        let conn = TcpListener::bind("0.0.0.0:0").map_err(FtpError::ConnectionError)?;
+
+        let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
+
+        let ip = match self.reader.get_mut() {
+            DataStream::Tcp(stream) => stream.local_addr().unwrap().ip(),
+
+            #[cfg(feature = "secure")]
+            DataStream::Ssl(stream) => stream.get_mut().local_addr().unwrap().ip(),
+        };
+
+        let msb = addr.port() / 256;
+        let lsb = addr.port() % 256;
+        let ip_port = format!("{},{},{}", ip.to_string().replace(".", ","), msb, lsb);
+
+        if cfg!(feature = "debug_print") {
+            println!("Active mode, listening on {}:{}", ip, addr.port());
+        }
+
+        self.write_str(format!("PORT {}\r\n", ip_port))?;
+        self.read_response(status::COMMAND_OK)?;
+
+        Ok(conn)
     }
 
     /// ### transfer_type
@@ -701,6 +753,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
 
+    use serial_test::serial;
     use std::time::Duration;
 
     #[test]
@@ -711,6 +764,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "secure")]
     fn connect_ssl() {
         let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
@@ -734,6 +788,18 @@ mod test {
     }
 
     #[test]
+    #[serial]
+    fn should_change_mode() {
+        let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
+            .map(|x| x.active_mode())
+            .unwrap();
+        assert_eq!(ftp_stream.mode, Mode::Active);
+        ftp_stream.set_mode(Mode::Passive);
+        assert_eq!(ftp_stream.mode, Mode::Passive);
+    }
+
+    #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn welcome_message() {
         let stream: FtpStream = setup_stream();
@@ -745,6 +811,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn get_ref() {
         let stream: FtpStream = setup_stream();
@@ -756,6 +823,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn change_wrkdir() {
         let mut stream: FtpStream = setup_stream();
@@ -767,6 +835,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn cd_up() {
         let mut stream: FtpStream = setup_stream();
@@ -778,6 +847,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn noop() {
         let mut stream: FtpStream = setup_stream();
@@ -786,6 +856,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn make_and_remove_dir() {
         let mut stream: FtpStream = setup_stream();
@@ -804,6 +875,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn set_transfer_type() {
         let mut stream: FtpStream = setup_stream();
@@ -815,6 +887,7 @@ mod test {
     }
 
     #[test]
+    #[serial]
     #[cfg(feature = "with-containers")]
     fn transfer_file() {
         let mut stream: FtpStream = setup_stream();

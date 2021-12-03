@@ -35,7 +35,8 @@ thiserror = "^1.0.20"
 [dev-dependencies]
 async-attributes = "1.1.2"
 pretty_assertions = "^1.0.0"
-rand = "0.8.4"
+rand = "^0.8.4"
+serial_test = "^0.5.1"
 
 [features]
 # Enable async support for suppaftp

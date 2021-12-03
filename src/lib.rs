@@ -155,4 +155,4 @@ pub use async_ftp::FtpStream;
 #[cfg(not(any(feature = "async", feature = "async-secure")))]
 pub use sync_ftp::FtpStream;
 // -- export (common)
-pub use types::FtpError;
+pub use types::{FtpError, Mode};
