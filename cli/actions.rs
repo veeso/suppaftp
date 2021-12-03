@@ -1,5 +1,3 @@
-extern crate rpassword;
-
 use super::{FtpError, FtpStream};
 
 use std::fs::File;
@@ -7,6 +5,7 @@ use std::io;
 use std::path::Path;
 use suppaftp::native_tls::TlsConnector;
 use suppaftp::types::FileType;
+use suppaftp::Mode;
 
 pub fn quit(mut ftp: Option<FtpStream>) {
     if let Some(mut ftp) = ftp.take() {
@@ -117,6 +116,11 @@ pub fn mkdir(ftp: &mut FtpStream, f: &str) {
         Ok(_) => println!("OK"),
         Err(err) => eprintln!("MDTM error: {}", err),
     }
+}
+
+pub fn set_mode(ftp: &mut FtpStream, mode: Mode) {
+    ftp.set_mode(mode);
+    println!("OK");
 }
 
 pub fn noop(ftp: &mut FtpStream) {

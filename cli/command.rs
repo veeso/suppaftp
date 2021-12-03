@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use suppaftp::Mode;
 
 pub enum Command {
     Cdup,
@@ -10,6 +11,7 @@ pub enum Command {
     Login,
     Mdtm(String),
     Mkdir(String),
+    Mode(Mode),
     Noop,
     Put(PathBuf, String),
     Pwd,
@@ -56,6 +58,12 @@ impl FromStr for Command {
                 "MKDIR" => match args.next() {
                     Some(file) => Ok(Self::Mkdir(file.to_string())),
                     None => Err("Missing `file` field"),
+                },
+                "MODE" => match args.next() {
+                    Some("ACTIVE") => Ok(Self::Mode(Mode::Active)),
+                    Some("PASSIVE") => Ok(Self::Mode(Mode::Passive)),
+                    Some(_) => Err("Invalid mode"),
+                    None => Err("Missing `mode` field"),
                 },
                 "NOOP" => Ok(Self::Noop),
                 "PUT" => {

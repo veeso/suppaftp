@@ -78,6 +78,15 @@ pub enum FileType {
     Local(u8),
 }
 
+/// ## Mode
+///
+/// Connection mode for data channel
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Passive,
+    Active,
+}
+
 impl Response {
     /// ### new
     ///
