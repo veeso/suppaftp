@@ -50,7 +50,7 @@ fn usage() {
     println!("SIZE <file>                         Get `file` size");
     println!();
     println!("Please, report issues to <https://github.com/veeso/suppaftp>");
-    println!("Please, consider supporting the author <https://www.buymeacoffee.com/veeso>");
+    println!("Please, consider supporting the author <https://ko-fi.com/veeso>");
     println!();
 }
 
