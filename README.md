@@ -84,6 +84,7 @@ SuppaFTP is a FTP/FTPS client library written in Rust, with both support for syn
 ### Main differences between SuppaFTP and rust-ftp 🤔
 
 - Added methods to work with streams (e.g. `put_with_stream`) ⬇️
+- suppaftp supports **Active mode**
 - Added `get_welcome_msg` method 👋
 - Supports for both sync/async rust
 - Some extra features, such as the **LIST** command output parser

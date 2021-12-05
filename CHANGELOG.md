@@ -14,6 +14,10 @@
 
 Released on ??
 
+- **Active mode**
+  - suppaftp now supports Active-mode (credit [@devbydav](https://github.com/devbydav))
+  - You can change mode with `set_mode(Mode::Passive) or set_mode(Mode::Active)` whenever you want
+
 ## 4.1.3
 
 Released on 01/12/2021
