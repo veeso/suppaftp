@@ -140,3 +140,9 @@ pub use async_ftp::FtpStream;
 pub use sync_ftp::FtpStream;
 // -- export (common)
 pub use types::{FtpError, Mode};
+
+// -- test logging
+#[cfg(test)]
+pub fn log_init() {
+    let _ = env_logger::builder().is_test(true).try_init();
+}

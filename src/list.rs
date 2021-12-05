@@ -233,9 +233,11 @@ impl File {
         match POSIX_LS_RE.captures(line) {
             // String matches regex
             Some(metadata) => {
+                trace!("Parsed POXIS line {}", line);
                 // NOTE: metadata fmt: (regex, file_type, permissions, link_count, uid, gid, filesize, mtime, filename)
                 // Expected 7 + 1 (8) values: + 1 cause regex is repeated at 0
                 if metadata.len() < 8 {
+                    trace!("Bad syntax for posix line");
                     return Err(ParseError::SyntaxError);
                 }
                 // Collect metadata
@@ -299,6 +301,15 @@ impl File {
                     Some(p) => FileType::Symlink(p),
                     None => file_type,
                 };
+                trace!(
+                    "Found file with name {}, type: {:?}, size: {}, uid: {:?}, gid: {:?}, pex: {:?}",
+                    name,
+                    file_type,
+                    size,
+                    uid,
+                    gid,
+                    posix_pex
+                );
                 Ok(File {
                     name,
                     file_type,
@@ -326,6 +337,7 @@ impl File {
         match DOS_LS_RE.captures(line) {
             // String matches regex
             Some(metadata) => {
+                trace!("Parsed DOS line {}", line);
                 // NOTE: metadata fmt: (regex, date_time, is_dir?, file_size?, file_name)
                 // Expected 4 + 1 (5) values: + 1 cause regex is repeated at 0
                 if metadata.len() < 5 {
@@ -352,6 +364,12 @@ impl File {
                 };
                 // Get file name
                 let name: String = String::from(metadata.get(4).unwrap().as_str());
+                trace!(
+                    "Found file with name {}, type: {:?}, size: {}",
+                    name,
+                    file_type,
+                    size,
+                );
                 // Return entry
                 Ok(File {
                     name,

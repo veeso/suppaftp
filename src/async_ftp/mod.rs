@@ -52,18 +52,22 @@ impl FtpStream {
     /// Creates an FTP Stream.
     #[cfg(not(feature = "async-secure"))]
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> Result<FtpStream> {
+        debug!("Connecting to server");
         let stream = TcpStream::connect(addr)
             .await
             .map_err(FtpError::ConnectionError)?;
+        debug!("Established connection with server");
 
         let mut ftp_stream = FtpStream {
             reader: BufReader::new(DataStream::Tcp(stream)),
             mode: Mode::Passive,
             welcome_msg: None,
         };
+        debug!("Reading server response...");
 
         match ftp_stream.read_response(status::READY).await {
             Ok(response) => {
+                debug!("Server READY; response: {}", response.body);
                 ftp_stream.welcome_msg = Some(response.body);
                 Ok(ftp_stream)
             }
@@ -79,7 +83,7 @@ impl FtpStream {
         let stream = TcpStream::connect(addr)
             .await
             .map_err(FtpError::ConnectionError)?;
-
+        debug!("Connecting to server");
         let mut ftp_stream = FtpStream {
             reader: BufReader::new(DataStream::Tcp(stream)),
             mode: Mode::Passive,
@@ -87,8 +91,10 @@ impl FtpStream {
             tls_ctx: None,
             domain: None,
         };
+        debug!("Reading server response...");
         match ftp_stream.read_response(status::READY).await {
             Ok(response) => {
+                debug!("Server READY; response: {}", response.body);
                 ftp_stream.welcome_msg = Some(response.body);
                 Ok(ftp_stream)
             }
@@ -124,9 +130,11 @@ impl FtpStream {
         tls_connector: TlsConnector,
         domain: &str,
     ) -> Result<FtpStream> {
+        debug!("Initializing TLS auth");
         // Ask the server to start securing data.
         self.write_str("AUTH TLS\r\n").await?;
         self.read_response(status::AUTH_OK).await?;
+        debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
             .connect(
                 domain,
@@ -176,8 +184,10 @@ impl FtpStream {
     #[cfg(feature = "async-secure")]
     pub async fn into_insecure(mut self) -> Result<FtpStream> {
         // Ask the server to stop securing data
+        debug!("Going back to insecure mode");
         self.write_str("CCC\r\n").await?;
         self.read_response(status::COMMAND_OK).await?;
+        trace!("Insecure mode OK");
         let plain_ftp_stream = FtpStream {
             reader: BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream())),
             tls_ctx: None,
@@ -205,6 +215,7 @@ impl FtpStream {
 
     /// Set mode
     pub fn set_mode(&mut self, mode: Mode) {
+        debug!("Changed mode to {:?}", mode);
         self.mode = mode;
     }
 
@@ -258,14 +269,17 @@ impl FtpStream {
     ///
     /// Log in to the FTP server.
     pub async fn login(&mut self, user: &str, password: &str) -> Result<()> {
+        debug!("Signin in with user '{}'", user);
         self.write_str(format!("USER {}\r\n", user)).await?;
         let response = self
             .read_response_in(&[status::LOGGED_IN, status::NEED_PASSWORD])
             .await?;
         if response.code == status::NEED_PASSWORD {
+            debug!("Password is required");
             self.write_str(format!("PASS {}\r\n", password)).await?;
             self.read_response(status::LOGGED_IN).await?;
         }
+        debug!("Login OK");
         Ok(())
     }
 
@@ -273,6 +287,7 @@ impl FtpStream {
     ///
     /// Change the current directory to the path specified.
     pub async fn cwd(&mut self, path: &str) -> Result<()> {
+        debug!("Changing working directory to {}", path);
         self.write_str(format!("CWD {}\r\n", path)).await?;
         self.read_response(status::REQUESTED_FILE_ACTION_OK)
             .await
@@ -283,6 +298,7 @@ impl FtpStream {
     ///
     /// Move the current directory to the parent directory.
     pub async fn cdup(&mut self) -> Result<()> {
+        debug!("Going to parent directory");
         self.write_str("CDUP\r\n").await?;
         self.read_response_in(&[status::COMMAND_OK, status::REQUESTED_FILE_ACTION_OK])
             .await
@@ -293,6 +309,7 @@ impl FtpStream {
     ///
     /// Gets the current directory
     pub async fn pwd(&mut self) -> Result<String> {
+        debug!("Getting working directory");
         self.write_str("PWD\r\n").await?;
         self.read_response(status::PATH_CREATED)
             .await
@@ -308,6 +325,7 @@ impl FtpStream {
     ///
     /// This does nothing. This is usually just used to keep the connection open.
     pub async fn noop(&mut self) -> Result<()> {
+        debug!("Pinging server");
         self.write_str("NOOP\r\n").await?;
         self.read_response(status::COMMAND_OK).await.map(|_| ())
     }
@@ -316,6 +334,7 @@ impl FtpStream {
     ///
     /// This creates a new directory on the server.
     pub async fn mkdir(&mut self, pathname: &str) -> Result<()> {
+        debug!("Creating directory at {}", pathname);
         self.write_str(format!("MKD {}\r\n", pathname)).await?;
         self.read_response(status::PATH_CREATED).await.map(|_| ())
     }
@@ -324,6 +343,7 @@ impl FtpStream {
     ///
     /// Runs the PASV command.
     async fn pasv(&mut self) -> Result<SocketAddr> {
+        debug!("PASV command");
         self.write_str("PASV\r\n").await?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
         let response: Response = self.read_response(status::PASSIVE_MODE).await?;
@@ -344,6 +364,7 @@ impl FtpStream {
                 );
                 let port = ((msb as u16) << 8) + lsb as u16;
                 let addr = format!("{}.{}.{}.{}:{}", oct1, oct2, oct3, oct4, port);
+                trace!("Passive address: {}", addr);
                 SocketAddr::from_str(&addr).map_err(FtpError::InvalidAddress)
             })
     }
@@ -352,11 +373,13 @@ impl FtpStream {
     ///
     /// Create a new tcp listener and send a PORT command for it
     async fn active(&mut self) -> Result<TcpListener> {
+        debug!("Starting local tcp listener...");
         let conn = TcpListener::bind("0.0.0.0:0")
             .await
             .map_err(FtpError::ConnectionError)?;
 
         let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
+        trace!("Local address is {}", addr);
 
         let ip = match self.reader.get_mut() {
             DataStream::Tcp(stream) => stream.local_addr().unwrap().ip(),
@@ -368,11 +391,9 @@ impl FtpStream {
         let msb = addr.port() / 256;
         let lsb = addr.port() % 256;
         let ip_port = format!("{},{},{}", ip.to_string().replace(".", ","), msb, lsb);
+        debug!("Active mode, listening on {}:{}", ip, addr.port());
 
-        if cfg!(feature = "debug_print") {
-            println!("Active mode, listening on {}:{}", ip, addr.port());
-        }
-
+        debug!("Running PORT command");
         self.write_str(format!("PORT {}\r\n", ip_port)).await?;
         self.read_response(status::COMMAND_OK).await?;
 
@@ -384,6 +405,7 @@ impl FtpStream {
     /// Sets the type of file to be transferred. That is the implementation
     /// of `TYPE` command.
     pub async fn transfer_type(&mut self, file_type: FileType) -> Result<()> {
+        debug!("Setting transfer type {}", file_type.to_string());
         let type_command = format!("TYPE {}\r\n", file_type.to_string());
         self.write_str(&type_command).await?;
         self.read_response(status::COMMAND_OK).await.map(|_| ())
@@ -393,6 +415,7 @@ impl FtpStream {
     ///
     /// Quits the current FTP session.
     pub async fn quit(&mut self) -> Result<()> {
+        debug!("Quitting stream");
         self.write_str("QUIT\r\n").await?;
         self.read_response(status::CLOSING).await.map(|_| ())
     }
@@ -401,6 +424,7 @@ impl FtpStream {
     ///
     /// Renames the file from_name to to_name
     pub async fn rename(&mut self, from_name: &str, to_name: &str) -> Result<()> {
+        debug!("Renaming '{}' to '{}'", from_name, to_name);
         self.write_str(format!("RNFR {}\r\n", from_name)).await?;
         self.read_response(status::REQUEST_FILE_PENDING).await?;
         self.write_str(format!("RNTO {}\r\n", to_name)).await?;
@@ -437,6 +461,7 @@ impl FtpStream {
     /// Also you will have to read the response to make sure it has the correct value.
     /// Once file has been read, call `finalize_retr_stream()`
     pub async fn retr_as_stream(&mut self, file_name: &str) -> Result<BufReader<DataStream>> {
+        debug!("Retrieving '{}'", file_name);
         let retr_command = format!("RETR {}\r\n", file_name);
         let data_stream = BufReader::new(self.data_command(&retr_command).await?);
         self.read_response_in(&[status::ABOUT_TO_SEND, status::ALREADY_OPEN])
@@ -448,8 +473,10 @@ impl FtpStream {
     ///
     /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
     pub async fn finalize_retr_stream(&mut self, reader: Box<dyn Read>) -> Result<()> {
+        debug!("Finalizing retr stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(reader);
+        trace!("dropped stream");
         // Then read response
         match self
             .read_response_in(&[
@@ -467,6 +494,7 @@ impl FtpStream {
     ///
     /// Removes the remote pathname from the server.
     pub async fn rmdir(&mut self, pathname: &str) -> Result<()> {
+        debug!("Removing directory {}", pathname);
         self.write_str(format!("RMD {}\r\n", pathname)).await?;
         self.read_response(status::REQUESTED_FILE_ACTION_OK)
             .await
@@ -477,6 +505,7 @@ impl FtpStream {
     ///
     /// Remove the remote file from the server.
     pub async fn rm(&mut self, filename: &str) -> Result<()> {
+        debug!("Removing file {}", filename);
         self.write_str(format!("DELE {}\r\n", filename)).await?;
         self.read_response(status::REQUESTED_FILE_ACTION_OK)
             .await
@@ -507,6 +536,7 @@ impl FtpStream {
     /// The stream must be then correctly dropped.
     /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
     pub async fn put_with_stream(&mut self, filename: &str) -> Result<BufWriter<DataStream>> {
+        debug!("Put file {}", filename);
         let stor_command = format!("STOR {}\r\n", filename);
         let stream = BufWriter::new(self.data_command(&stor_command).await?);
         self.read_response_in(&[status::ALREADY_OPEN, status::ABOUT_TO_SEND])
@@ -520,8 +550,10 @@ impl FtpStream {
     /// This method must be called once the file has been written and
     /// `put_with_stream` has been used to write the file
     pub async fn finalize_put_stream(&mut self, stream: Box<dyn Write>) -> Result<()> {
+        debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
+        trace!("Stream dropped");
         // Read response
         match self
             .read_response_in(&[
@@ -541,6 +573,10 @@ impl FtpStream {
     /// If `pathname` is omited then the list of files in the current directory will be
     /// returned otherwise it will the list of files on `pathname`.
     pub async fn list(&mut self, pathname: Option<&str>) -> Result<Vec<String>> {
+        debug!(
+            "Reading {} directory content",
+            pathname.unwrap_or("working")
+        );
         let command = pathname.map_or("LIST\r\n".into(), |path| {
             format!("LIST {}\r\n", path).into()
         });
@@ -562,6 +598,10 @@ impl FtpStream {
     /// If `pathname` is omited then the list of files in the current directory will be
     /// returned otherwise it will the list of files on `pathname`.
     pub async fn nlst(&mut self, pathname: Option<&str>) -> Result<Vec<String>> {
+        debug!(
+            "Getting file names for {} directory",
+            pathname.unwrap_or("working")
+        );
         let command = pathname.map_or("NLST\r\n".into(), |path| {
             format!("NLST {}\r\n", path).into()
         });
@@ -581,6 +621,7 @@ impl FtpStream {
     ///
     /// Retrieves the modification time of the file at `pathname` if it exists.
     pub async fn mdtm(&mut self, pathname: &str) -> Result<DateTime<Utc>> {
+        debug!("Getting modification time for {}", pathname);
         self.write_str(format!("MDTM {}\r\n", pathname)).await?;
         let response: Response = self.read_response(status::FILE).await?;
 
@@ -606,6 +647,7 @@ impl FtpStream {
     ///
     /// Retrieves the size of the file in bytes at `pathname` if it exists.
     pub async fn size(&mut self, pathname: &str) -> Result<usize> {
+        debug!("Getting file size for {}", pathname);
         self.write_str(format!("SIZE {}\r\n", pathname)).await?;
         let response: Response = self.read_response(status::FILE).await?;
 
@@ -643,9 +685,7 @@ impl FtpStream {
     ///
     /// Write data to stream
     async fn write_str<S: AsRef<str>>(&mut self, command: S) -> Result<()> {
-        if cfg!(feature = "debug_print") {
-            print!("CMD {}", command.as_ref());
-        }
+        trace!("CMD {}", command.as_ref());
 
         let stream = self.reader.get_mut();
         stream
@@ -671,9 +711,7 @@ impl FtpStream {
             .await
             .map_err(FtpError::ConnectionError)?;
 
-        if cfg!(feature = "debug_print") {
-            print!("FTP {}", line);
-        }
+        trace!("FTP {}", line);
 
         if line.len() < 5 {
             return Err(FtpError::BadResponse);
@@ -690,9 +728,7 @@ impl FtpStream {
                 return Err(FtpError::ConnectionError(e));
             }
 
-            if cfg!(feature = "debug_print") {
-                print!("FTP {}", line);
-            }
+            print!("FTP {}", line);
         }
 
         line = String::from(line.trim());
@@ -741,6 +777,7 @@ mod test {
     #[async_attributes::test]
     #[serial]
     async fn connect() {
+        crate::log_init();
         let stream: FtpStream = setup_stream().await;
         finalize_stream(stream).await;
     }
@@ -749,6 +786,7 @@ mod test {
     #[cfg(feature = "async-secure")]
     #[serial]
     async fn connect_ssl() {
+        crate::log_init();
         let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
         let mut ftp_stream = ftp_stream
             .into_secure(TlsConnector::new(), "test.rebex.net")
@@ -770,6 +808,7 @@ mod test {
     #[async_attributes::test]
     #[serial]
     async fn should_change_mode() {
+        crate::log_init();
         let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
             .await
             .map(|x| x.active_mode())
@@ -783,6 +822,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn welcome_message() {
+        crate::log_init();
         let stream: FtpStream = setup_stream().await;
         assert_eq!(
             stream.get_welcome_msg().unwrap(),
@@ -795,6 +835,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn get_ref() {
+        crate::log_init();
         let stream: FtpStream = setup_stream().await;
         assert!(stream.get_ref().await.set_ttl(255).is_ok());
         finalize_stream(stream).await;
@@ -804,6 +845,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn change_wrkdir() {
+        crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
         let wrkdir: String = stream.pwd().await.ok().unwrap();
         assert!(stream.cwd("/").await.is_ok());
@@ -816,6 +858,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn cd_up() {
+        crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
         let wrkdir: String = stream.pwd().await.ok().unwrap();
         assert!(stream.cdup().await.is_ok());
@@ -828,6 +871,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn noop() {
+        crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
         assert!(stream.noop().await.is_ok());
         finalize_stream(stream).await;
@@ -837,6 +881,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn make_and_remove_dir() {
+        crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
         // Make directory
         assert!(stream.mkdir("omar").await.is_ok());
@@ -856,6 +901,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn set_transfer_type() {
+        crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
         assert!(stream
@@ -869,6 +915,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     #[serial]
     async fn transfer_file() {
+        crate::log_init();
         use async_std::io::Cursor;
 
         let mut stream: FtpStream = setup_stream().await;
@@ -917,6 +964,7 @@ mod test {
 
     #[cfg(feature = "with-containers")]
     async fn setup_stream() -> FtpStream {
+        crate::log_init();
         let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").await.unwrap();
         assert!(ftp_stream.login("test", "test").await.is_ok());
         // Create wrkdir
@@ -929,6 +977,7 @@ mod test {
 
     #[cfg(feature = "with-containers")]
     async fn finalize_stream(mut stream: FtpStream) {
+        crate::log_init();
         // Get working directory
         let wrkdir: String = stream.pwd().await.ok().unwrap();
         // Remove directory
