@@ -116,26 +116,10 @@
 )]
 
 // -- common deps
-extern crate chrono;
 #[macro_use]
 extern crate lazy_static;
-extern crate regex;
-extern crate thiserror;
-// -- secure deps
-#[cfg(feature = "secure")]
-pub extern crate native_tls;
-// -- async deps
-#[cfg(feature = "async-secure")]
-pub extern crate async_native_tls;
-#[cfg(any(feature = "async", feature = "async-secure"))]
-extern crate async_std;
-#[cfg(any(feature = "async", feature = "async-secure"))]
-extern crate pin_project;
-// -- test deps
-#[cfg(test)]
-extern crate pretty_assertions;
-#[cfg(test)]
-extern crate rand;
+#[macro_use]
+extern crate log;
 
 // -- private
 #[cfg(any(feature = "async", feature = "async-secure"))]

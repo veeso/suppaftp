@@ -67,6 +67,7 @@
     - [Features](#features)
       - [SSL/TLS Support](#ssltls-support)
       - [Async support](#async-support)
+      - [Logging](#logging)
     - [Example 📚](#example-)
       - [Going Async](#going-async)
   - [Built-in CLI client 🖥️](#built-in-cli-client-️)
@@ -122,6 +123,11 @@ suppaftp = { version = "^4.2.0", features = ["async"] }
 ```
 
 ⚠️ If you want to enable both **secure** and **async** you must use the **async-secure** feature ⚠️
+
+#### Logging
+
+By default the library will log if there is any `log` crate consumer on the user implementation.
+Logging can be, if preferred, disabled via the `no-log` feature.
 
 ### Example 📚
 

@@ -51,16 +51,20 @@ impl FtpStream {
     /// Creates an FTP Stream.
     #[cfg(not(feature = "secure"))]
     pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<FtpStream> {
+        debug!("Connecting to server");
         TcpStream::connect(addr)
             .map_err(FtpError::ConnectionError)
             .and_then(|stream| {
+                debug!("Established connection with server");
                 let mut ftp_stream = FtpStream {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
                     welcome_msg: None,
                 };
+                debug!("Reading server response...");
                 match ftp_stream.read_response(status::READY) {
                     Ok(response) => {
+                        debug!("Server READY; response: {}", response.body);
                         ftp_stream.welcome_msg = Some(response.body);
                         Ok(ftp_stream)
                     }
@@ -74,9 +78,11 @@ impl FtpStream {
     /// Creates an FTP Stream.
     #[cfg(feature = "secure")]
     pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<FtpStream> {
+        debug!("Connecting to server");
         TcpStream::connect(addr)
             .map_err(FtpError::ConnectionError)
             .and_then(|stream| {
+                debug!("Established connection with server");
                 let mut ftp_stream = FtpStream {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
@@ -84,8 +90,10 @@ impl FtpStream {
                     tls_ctx: None,
                     domain: None,
                 };
+                debug!("Reading server response...");
                 match ftp_stream.read_response(status::READY) {
                     Ok(response) => {
+                        debug!("Server READY; response: {}", response.body);
                         ftp_stream.welcome_msg = Some(response.body);
                         Ok(ftp_stream)
                     }
@@ -134,11 +142,14 @@ impl FtpStream {
     #[cfg(feature = "secure")]
     pub fn into_secure(mut self, tls_connector: TlsConnector, domain: &str) -> Result<FtpStream> {
         // Ask the server to start securing data.
+        debug!("Initializing TLS auth");
         self.write_str("AUTH TLS\r\n")?;
         self.read_response(status::AUTH_OK)?;
+        debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
             .connect(domain, self.reader.into_inner().into_tcp_stream())
             .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+        debug!("TLS Steam OK");
         let mut secured_ftp_tream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(stream)),
             mode: self.mode,
@@ -181,16 +192,17 @@ impl FtpStream {
     #[cfg(feature = "secure")]
     pub fn into_insecure(mut self) -> Result<FtpStream> {
         // Ask the server to stop securing data
+        debug!("Going back to insecure mode");
         self.write_str("CCC\r\n")?;
         self.read_response(status::COMMAND_OK)?;
-        let plain_ftp_stream = FtpStream {
+        trace!("Insecure mode OK");
+        Ok(FtpStream {
             reader: BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream())),
             mode: self.mode,
             tls_ctx: None,
             domain: None,
             welcome_msg: self.welcome_msg,
-        };
-        Ok(plain_ftp_stream)
+        })
     }
 
     /// ### get_welcome_msg

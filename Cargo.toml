@@ -26,6 +26,7 @@ async-std = { version = "^1.10.0", optional = true }
 async-native-tls = { version = "^0.4.0", optional = true }
 chrono = "^0.4.19"
 lazy_static = "^1.4.0"
+log = "^0.4.0"
 native-tls = { version = "^0.2", optional = true }
 pin-project = { version = "^1.0.8", optional = true }
 regex = "^1.4.2"
@@ -34,6 +35,7 @@ thiserror = "^1.0.20"
 
 [dev-dependencies]
 async-attributes = "1.1.2"
+env_logger = "^0.9.0"
 pretty_assertions = "^1.0.0"
 rand = "^0.8.4"
 serial_test = "^0.5.1"
@@ -46,12 +48,11 @@ async-secure = ["async-std", "async-native-tls", "pin-project"]
 # Enable support of FTPS which requires native-tls (openssl is required on Linux)
 secure = ["native-tls"]
 
+# Disable logging
+no-log = [ "log/max_level_off" ]
+
 # Must be enabled whenever testing with docker containers
 with-containers = []
-
-# Add debug output (to STDOUT) of commands sent to the server
-# and lines read from the server
-debug_print = []
 
 # Don't enable this feature; is used by suppaftp binary only
 cli-bin = ["rpassword"]
