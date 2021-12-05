@@ -132,6 +132,13 @@ pub mod list;
 pub mod status;
 pub mod types;
 
+// -- secure deps
+#[cfg(feature = "secure")]
+pub extern crate native_tls;
+// -- async deps
+#[cfg(feature = "async-secure")]
+pub extern crate async_native_tls;
+
 // -- export async
 #[cfg(any(feature = "async", feature = "async-secure"))]
 pub use async_ftp::FtpStream;
