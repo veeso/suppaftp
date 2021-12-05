@@ -8,13 +8,16 @@ use super::status;
 use super::types::{FileType, FtpError, Mode, Response, Result};
 use data_stream::DataStream;
 
+#[cfg(feature = "secure")]
+use data_stream::TlsStreamWrapper;
+
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 #[cfg(feature = "secure")]
 use native_tls::TlsConnector;
 use regex::Regex;
 use std::borrow::Cow;
-use std::io::{copy, BufRead, BufReader, BufWriter, Cursor, Read, Write};
+use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
 use std::string::String;
@@ -152,7 +155,7 @@ impl FtpStream {
             .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
         debug!("TLS Steam OK");
         let mut secured_ftp_tream = FtpStream {
-            reader: BufReader::new(DataStream::Ssl(stream)),
+            reader: BufReader::new(DataStream::Ssl(stream.into())),
             mode: self.mode,
             tls_ctx: Some(tls_connector),
             domain: Some(String::from(domain)),
@@ -239,6 +242,7 @@ impl FtpStream {
         match self.tls_ctx {
             Some(ref tls_ctx) => tls_ctx
                 .connect(self.domain.as_ref().unwrap(), stream)
+                .map(TlsStreamWrapper::from)
                 .map(DataStream::Ssl)
                 .map_err(|e| FtpError::SecureError(format!("{}", e))),
             None => Ok(DataStream::Tcp(stream)),
@@ -379,7 +383,7 @@ impl FtpStream {
             DataStream::Tcp(stream) => stream.local_addr().unwrap().ip(),
 
             #[cfg(feature = "secure")]
-            DataStream::Ssl(stream) => stream.get_mut().local_addr().unwrap().ip(),
+            DataStream::Ssl(stream) => stream.mut_ref().get_mut().local_addr().unwrap().ip(),
         };
 
         let msb = addr.port() / 256;
@@ -457,7 +461,7 @@ impl FtpStream {
         match self.retr_as_stream(file_name) {
             Ok(mut stream) => {
                 let result = reader(&mut stream)?;
-                self.finalize_retr_stream(Box::new(stream)).map(|_| result)
+                self.finalize_retr_stream(stream).map(|_| result)
             }
             Err(err) => Err(err),
         }
@@ -498,10 +502,10 @@ impl FtpStream {
     /// The reader returned should be dropped.
     /// Also you will have to read the response to make sure it has the correct value.
     /// Once file has been read, call `finalize_retr_stream()`
-    pub fn retr_as_stream(&mut self, file_name: &str) -> Result<BufReader<DataStream>> {
+    pub fn retr_as_stream(&mut self, file_name: &str) -> Result<DataStream> {
         debug!("Retrieving '{}'", file_name);
         let retr_command = format!("RETR {}\r\n", file_name);
-        let data_stream = BufReader::new(self.data_command(&retr_command)?);
+        let data_stream = self.data_command(&retr_command)?;
         self.read_response_in(&[status::ABOUT_TO_SEND, status::ALREADY_OPEN])?;
         Ok(data_stream)
     }
@@ -509,10 +513,10 @@ impl FtpStream {
     /// ### finalize_retr_stream
     ///
     /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
-    pub fn finalize_retr_stream(&mut self, reader: Box<dyn Read>) -> Result<()> {
+    pub fn finalize_retr_stream(&mut self, stream: impl Read) -> Result<()> {
         debug!("Finalizing retr stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
-        drop(reader);
+        drop(stream);
         trace!("dropped stream");
         // Then read response
         self.read_response_in(&[
@@ -551,7 +555,7 @@ impl FtpStream {
         // Get stream
         let mut data_stream = self.put_with_stream(filename)?;
         let bytes = copy(r, &mut data_stream).map_err(FtpError::ConnectionError)?;
-        self.finalize_put_stream(Box::new(data_stream))?;
+        self.finalize_put_stream(data_stream)?;
         Ok(bytes)
     }
 
@@ -561,10 +565,10 @@ impl FtpStream {
     /// The returned stream must be then correctly manipulated to write the content of the source file to the remote destination
     /// The stream must be then correctly dropped.
     /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
-    pub fn put_with_stream(&mut self, filename: &str) -> Result<BufWriter<DataStream>> {
+    pub fn put_with_stream(&mut self, filename: &str) -> Result<DataStream> {
         debug!("Put file {}", filename);
         let stor_command = format!("STOR {}\r\n", filename);
-        let stream = BufWriter::new(self.data_command(&stor_command)?);
+        let stream = self.data_command(&stor_command)?;
         self.read_response_in(&[status::ALREADY_OPEN, status::ABOUT_TO_SEND])?;
         Ok(stream)
     }
@@ -574,7 +578,7 @@ impl FtpStream {
     /// Finalize put when using stream
     /// This method must be called once the file has been written and
     /// `put_with_stream` has been used to write the file
-    pub fn finalize_put_stream(&mut self, stream: Box<dyn Write>) -> Result<()> {
+    pub fn finalize_put_stream(&mut self, stream: impl Write) -> Result<()> {
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
@@ -601,14 +605,7 @@ impl FtpStream {
             format!("LIST {}\r\n", path).into()
         });
 
-        self.stream_lines(
-            command,
-            status::ABOUT_TO_SEND,
-            &[
-                status::CLOSING_DATA_CONNECTION,
-                status::REQUESTED_FILE_ACTION_OK,
-            ],
-        )
+        self.stream_lines(command, status::ABOUT_TO_SEND)
     }
 
     /// ### nlst
@@ -625,14 +622,7 @@ impl FtpStream {
             format!("NLST {}\r\n", path).into()
         });
 
-        self.stream_lines(
-            command,
-            status::ABOUT_TO_SEND,
-            &[
-                status::CLOSING_DATA_CONNECTION,
-                status::REQUESTED_FILE_ACTION_OK,
-            ],
-        )
+        self.stream_lines(command, status::ABOUT_TO_SEND)
     }
 
     /// ### mdtm
@@ -678,25 +668,31 @@ impl FtpStream {
     /// ### get_lines_from_stream
     ///
     /// Retrieve stream "message"
-    fn get_lines_from_stream(data_stream: BufReader<DataStream>) -> Result<Vec<String>> {
+    fn get_lines_from_stream(data_stream: &mut BufReader<DataStream>) -> Result<Vec<String>> {
         let mut lines: Vec<String> = Vec::new();
 
-        let mut lines_stream = data_stream.lines();
         loop {
-            let line = lines_stream.next();
-            match line {
-                Some(line) => match line {
-                    Ok(l) => {
-                        if l.is_empty() {
-                            continue;
+            let mut line = String::new();
+            match data_stream.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if line.ends_with('\n') {
+                        line.pop();
+                        if line.ends_with('\r') {
+                            line.pop();
                         }
-                        lines.push(l);
                     }
-                    Err(_) => return Err(FtpError::BadResponse),
-                },
-                None => break Ok(lines),
+                    if line.is_empty() {
+                        continue;
+                    }
+                    lines.push(line);
+                }
+                Err(_) => return Err(FtpError::BadResponse),
             }
         }
+        trace!("Lines from stream {:?}", lines);
+
+        Ok(lines)
     }
 
     /// ### writr_str
@@ -760,16 +756,11 @@ impl FtpStream {
     /// ### stream_lines
     ///
     /// Execute a command which returns list of strings in a separate stream
-    fn stream_lines(
-        &mut self,
-        cmd: Cow<'static, str>,
-        open_code: u32,
-        close_code: &[u32],
-    ) -> Result<Vec<String>> {
-        let data_stream = BufReader::new(self.data_command(&cmd)?);
+    fn stream_lines(&mut self, cmd: Cow<'static, str>, open_code: u32) -> Result<Vec<String>> {
+        let mut data_stream = BufReader::new(self.data_command(&cmd)?);
         self.read_response_in(&[open_code, status::ALREADY_OPEN])?;
-        let lines = Self::get_lines_from_stream(data_stream);
-        self.read_response_in(close_code)?;
+        let lines = Self::get_lines_from_stream(&mut data_stream);
+        self.finalize_retr_stream(data_stream)?;
         lines
     }
 }

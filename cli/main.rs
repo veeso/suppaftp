@@ -74,6 +74,8 @@ fn main() {
         usage();
         exit(255);
     }
+    // init logger
+    env_logger::init();
     // Main loop
     let mut ftp: Option<FtpStream> = None;
     loop {
