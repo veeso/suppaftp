@@ -28,6 +28,7 @@ fn usage() {
     );
     println!();
     println!("Available commands:");
+    println!("APPE <file> <dest>                  Append content of local file `file` to `dest`");
     println!("CDUP                                Go to parent directory");
     println!("CONNECT <addr:port>                 Connect to remote host");
     println!("CONNECT+S <addr:port>               Connect to remote host using FTPS");
@@ -114,6 +115,7 @@ fn perform_uninitialized(command: Command) -> Option<FtpStream> {
 
 fn perform_connected(ftp: &mut FtpStream, command: Command) {
     match command {
+        Command::Appe(src, dest) => appe(ftp, src.as_path(), dest.as_str()),
         Command::Cdup => cdup(ftp),
         Command::Connect(remote, secure) => {
             if let Some(stream) = connect(remote.as_str(), secure) {
@@ -134,6 +136,8 @@ fn perform_connected(ftp: &mut FtpStream, command: Command) {
         Command::Rm(file) => rm(ftp, file.as_str()),
         Command::Rmdir(file) => rmdir(ftp, file.as_str()),
         Command::Size(file) => size(ftp, file.as_str()),
-        _ => panic!("Something unexpected happened"),
+        Command::Help | Command::Quit => {
+            panic!("Something unexpected happened")
+        }
     }
 }

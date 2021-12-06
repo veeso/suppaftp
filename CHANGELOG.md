@@ -17,6 +17,7 @@ Released on ??
 - **Active mode**
   - suppaftp now supports Active-mode (credit [@devbydav](https://github.com/devbydav))
   - You can change mode with `set_mode(Mode::Passive) or set_mode(Mode::Active)` whenever you want
+- **Append command**: implemented the `APPE` FTP command
 - **Logging**: `log` crate has been implemented for debugging. You can disable logging with `no-log` feature
 - Security
   - **TlsStream shutdown**: fixed [issue 5](https://github.com/veeso/suppaftp/issues/5)

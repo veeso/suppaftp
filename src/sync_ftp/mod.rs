@@ -591,6 +591,25 @@ impl FtpStream {
         .map(|_| ())
     }
 
+    /// Open specified file for appending data. Returns the stream to append data to specified file.
+    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
+    pub fn append_with_stream(&mut self, filename: &str) -> Result<DataStream> {
+        debug!("Appending to file {}", filename);
+        let command = format!("APPE {}\r\n", filename);
+        let stream = self.data_command(&command)?;
+        self.read_response_in(&[status::ALREADY_OPEN, status::ABOUT_TO_SEND])?;
+        Ok(stream)
+    }
+
+    /// Append data from reader to file at `filename`
+    pub fn append_file<R: Read>(&mut self, filename: &str, r: &mut R) -> Result<u64> {
+        // Get stream
+        let mut data_stream = self.append_with_stream(filename)?;
+        let bytes = copy(r, &mut data_stream).map_err(FtpError::ConnectionError)?;
+        self.finalize_put_stream(Box::new(data_stream))?;
+        Ok(bytes)
+    }
+
     /// ### list
     ///
     /// Execute `LIST` command which returns the detailed file listing in human readable format.
@@ -959,6 +978,18 @@ mod test {
         let file_data = "test data\n";
         let mut reader = Cursor::new(file_data.as_bytes());
         assert!(stream.put_file("test.txt", &mut reader).is_ok());
+        // Append file
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.append_file("test.txt", &mut reader).is_ok());
+        // Read file
+        let mut reader = stream.retr_as_stream("test.txt").ok().unwrap();
+        let mut buffer = Vec::new();
+        assert!(reader.read_to_end(&mut buffer).is_ok());
+        // Finalize
+        assert!(stream.finalize_retr_stream(Box::new(reader)).is_ok());
+        // Verify file matches
+        assert_eq!(buffer.as_slice(), "test data\ntest data\n".as_bytes());
+        // Rename
         assert!(stream.rename("test.txt", "toast.txt").is_ok());
         assert!(stream.rm("toast.txt").is_ok());
         // List directory again

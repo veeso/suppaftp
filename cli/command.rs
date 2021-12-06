@@ -3,6 +3,7 @@ use std::str::FromStr;
 use suppaftp::Mode;
 
 pub enum Command {
+    Appe(PathBuf, String),
     Cdup,
     Connect(String, bool),
     Cwd(String),
@@ -32,6 +33,16 @@ impl FromStr for Command {
         // Match args
         match args.next() {
             Some(cmd) => match cmd.to_ascii_uppercase().as_str() {
+                "APPE" => {
+                    let local: PathBuf = match args.next() {
+                        Some(l) => PathBuf::from(l),
+                        None => return Err("Missing `source` field"),
+                    };
+                    match args.next() {
+                        Some(d) => Ok(Self::Appe(local, d.to_string())),
+                        None => Err("Missing `dest` field"),
+                    }
+                }
                 "CDUP" => Ok(Self::Cdup),
                 "CONNECT" => match args.next() {
                     Some(addr) => Ok(Self::Connect(addr.to_string(), false)),
