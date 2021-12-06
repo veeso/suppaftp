@@ -16,6 +16,20 @@ pub fn quit(mut ftp: Option<FtpStream>) {
     }
 }
 
+pub fn appe(ftp: &mut FtpStream, local: &Path, dest: &str) {
+    let mut reader = match File::open(local) {
+        Ok(r) => r,
+        Err(err) => {
+            eprintln!("Failed to open local file for read: {}", err);
+            return;
+        }
+    };
+    match ftp.append_file(dest, &mut reader) {
+        Ok(_) => println!("OK"),
+        Err(err) => eprintln!("APPE error: {}", err),
+    }
+}
+
 pub fn cdup(ftp: &mut FtpStream) {
     match ftp.cdup() {
         Ok(_) => println!("OK"),

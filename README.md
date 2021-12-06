@@ -80,7 +80,7 @@
 
 ## Introduction 👋
 
-SuppaFTP is a FTP/FTPS client library written in Rust, with both support for sync/async programming. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since the original library is currently unmaintened, I decided to keep working on this library by myself. Currently, I consider myself as the only maintainer of this project, indeed I've already added some features to the library and improved it with better error handling and test units. Then, feel free to use this library instead of the classic *rust-ftp* if you want, and if you have any feature request or issue to report, please open an issue on this repository; I will answer you as soon as possible.
+SuppaFTP is a FTP/FTPS client library written in Rust, with both support for sync/async programming. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since the original library is currently unmaintained, I decided to keep working on this library by myself. Currently, I consider myself as the only maintainer of this project, indeed I've already added some features to the library and improved it with better error handling and test units. Then, feel free to use this library instead of the classic *rust-ftp* if you want, and if you have any feature request or issue to report, please open an issue on this repository; I will answer you as soon as possible.
 
 ### Main differences between SuppaFTP and rust-ftp 🤔
 
@@ -89,7 +89,7 @@ SuppaFTP is a FTP/FTPS client library written in Rust, with both support for syn
 - Added `get_welcome_msg` method 👋
 - Supports for both sync/async rust
 - Some extra features, such as the **LIST** command output parser
-- Replaced openssl with native-tls 🔒
+- Replaced OpenSSL with native-tls 🔒
 - Removed deprecated statements 👴
 - Better error handling 🐛
 - Added test units keeping an eye on code coverage 👀
@@ -126,8 +126,8 @@ suppaftp = { version = "^4.2.0", features = ["async"] }
 
 #### Logging
 
-By default the library will log if there is any `log` crate consumer on the user implementation.
-Logging can be, if preferred, disabled via the `no-log` feature.
+By default, the library will log if there is any `log` crate consumer on the user implementation.
+Logging can be if preferred, disabled via the `no-log` feature.
 
 ### Example 📚
 
@@ -179,9 +179,9 @@ assert!(ftp_stream.quit().await.is_ok());
 
 ## Built-in CLI client 🖥️
 
-SuppaFTP comes also with a built-in command line FTP client. This CLI application provides all the commands to interact with a remote FTP server and supports FTPS too. You can also use it as a reference to implement your project. You can find it in the `cli/` directory.
+SuppaFTP comes also with a built-in command-line FTP client. This CLI application provides all the commands to interact with a remote FTP server and supports FTPS too. You can also use it as a reference to implement your project. You can find it in the `cli/` directory.
 
-You can just install as any other rust application via **Cargo**:
+You can simply install as any other rust application via **Cargo**:
 
 ```sh
 cargo install suppaftp --features="secure cli-bin"
