@@ -46,7 +46,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-default-features --features secure,async-secure,with-containers --no-fail-fast
+          args: --lib --no-default-features --features secure,async-secure,with-containers --no-fail-fast
         env:
           RUST_LOG: trace
       - name: Format
