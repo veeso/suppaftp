@@ -55,6 +55,8 @@ pub enum Command {
     RenameFrom(String),
     /// Rename selected file to
     RenameTo(String),
+    /// Resume transfer from offset
+    Rest(usize),
     /// Retrieve file
     Retr(String),
     /// Remove directory
@@ -114,6 +116,7 @@ impl ToString for Command {
             Self::Quit => "QUIT".to_string(),
             Self::RenameFrom(p) => format!("RNFR {}", p),
             Self::RenameTo(p) => format!("RNTO {}", p),
+            Self::Rest(offset) => format!("REST {}", offset),
             Self::Retr(p) => format!("RETR {}", p),
             Self::Rmd(p) => format!("RMD {}", p),
             Self::Size(p) => format!("SIZE {}", p),
@@ -209,10 +212,6 @@ mod test {
             Command::Prot(ProtectionLevel::Clear).to_string().as_str(),
             "PROT C\r\n"
         );
-        assert_eq!(
-            Command::Store(String::from("a.txt")).to_string().as_str(),
-            "STOR a.txt\r\n"
-        );
         assert_eq!(Command::Pwd.to_string().as_str(), "PWD\r\n");
         assert_eq!(Command::Quit.to_string().as_str(), "QUIT\r\n");
         assert_eq!(
@@ -227,6 +226,7 @@ mod test {
                 .as_str(),
             "RNTO b.txt\r\n"
         );
+        assert_eq!(Command::Rest(123).to_string().as_str(), "REST 123\r\n");
         assert_eq!(
             Command::Retr(String::from("a.txt")).to_string().as_str(),
             "RETR a.txt\r\n"
@@ -238,6 +238,10 @@ mod test {
         assert_eq!(
             Command::Size(String::from("a.txt")).to_string().as_str(),
             "SIZE a.txt\r\n"
+        );
+        assert_eq!(
+            Command::Store(String::from("a.txt")).to_string().as_str(),
+            "STOR a.txt\r\n"
         );
         assert_eq!(
             Command::Type(FileType::Binary).to_string().as_str(),

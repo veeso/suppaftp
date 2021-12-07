@@ -20,6 +20,7 @@ Released on ??
 - **New commands**
   - **Abort command**: implemented the `ABOR` FTP command
   - **Append command**: implemented the `APPE` FTP command
+  - **Resume transfer command**: implemented the `REST` FTP command
 - **Logging**: `log` crate has been implemented for debugging. You can disable logging with `no-log` feature
 - Security
   - **TlsStream shutdown**: fixed [issue 5](https://github.com/veeso/suppaftp/issues/5) (credit [@devbydav](https://github.com/devbydav))
