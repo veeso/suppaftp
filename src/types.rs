@@ -8,7 +8,7 @@ use thiserror::Error;
 /// ## Result
 ///
 /// A shorthand for a Result whose error type is always an FtpError.
-pub type Result<T> = std::result::Result<T, FtpError>;
+pub type FtpResult<T> = std::result::Result<T, FtpError>;
 
 /// ## FtpError
 ///

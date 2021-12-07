@@ -20,7 +20,7 @@ Released on ??
 - **Append command**: implemented the `APPE` FTP command
 - **Logging**: `log` crate has been implemented for debugging. You can disable logging with `no-log` feature
 - Security
-  - **TlsStream shutdown**: fixed [issue 5](https://github.com/veeso/suppaftp/issues/5)
+  - **TlsStream shutdown**: fixed [issue 5](https://github.com/veeso/suppaftp/issues/5) (credit [@devbydav](https://github.com/devbydav))
 
 ## 4.1.3
 
