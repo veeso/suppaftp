@@ -24,11 +24,6 @@ impl DataStream {
             DataStream::Ssl(stream) => stream.tcp_stream(),
         }
     }
-
-    /// Test if the stream is secured
-    pub fn is_ssl(&self) -> bool {
-        matches!(self, DataStream::Ssl(_))
-    }
 }
 
 impl DataStream {

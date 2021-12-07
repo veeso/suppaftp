@@ -73,7 +73,7 @@ pub enum Status {
     #[error("can't open data connection")]
     CannotOpenDataConnection = 425,
     #[error("connection closed; transfer aborted")]
-    TranserAborted = 426,
+    TransferAborted = 426,
     #[error("invalid username or password")]
     InvalidCredentials = 430,
     #[error("requested host unavailable")]
@@ -155,7 +155,7 @@ impl From<u32> for Status {
             350 => Self::RequestFilePending,
             421 => Self::NotAvailable,
             425 => Self::CannotOpenDataConnection,
-            426 => Self::TranserAborted,
+            426 => Self::TransferAborted,
             430 => Self::InvalidCredentials,
             434 => Self::HostUnavailable,
             450 => Self::RequestFileActionIgnored,
@@ -228,7 +228,7 @@ mod test {
         assert_eq!(Status::from(350), Status::RequestFilePending);
         assert_eq!(Status::from(421), Status::NotAvailable);
         assert_eq!(Status::from(425), Status::CannotOpenDataConnection);
-        assert_eq!(Status::from(426), Status::TranserAborted);
+        assert_eq!(Status::from(426), Status::TransferAborted);
         assert_eq!(Status::from(430), Status::InvalidCredentials);
         assert_eq!(Status::from(434), Status::HostUnavailable);
         assert_eq!(Status::from(450), Status::RequestFileActionIgnored);
