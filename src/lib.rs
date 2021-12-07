@@ -124,12 +124,13 @@ extern crate log;
 // -- private
 #[cfg(any(feature = "async", feature = "async-secure"))]
 mod async_ftp;
+pub(crate) mod command;
+mod status;
 #[cfg(any(test, not(any(feature = "async", feature = "async-secure"))))]
 mod sync_ftp;
 
 // -- public
 pub mod list;
-mod status;
 pub mod types;
 
 // -- secure deps

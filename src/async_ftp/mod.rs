@@ -6,6 +6,9 @@ mod data_stream;
 
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
 use super::Status;
+use crate::command::Command;
+#[cfg(feature = "async-secure")]
+use crate::command::ProtectionLevel;
 use data_stream::DataStream;
 
 #[cfg(feature = "async-secure")]
@@ -17,7 +20,6 @@ use async_std::prelude::*;
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use regex::Regex;
-use std::borrow::Cow;
 use std::str::FromStr;
 use std::string::String;
 
@@ -124,7 +126,7 @@ impl FtpStream {
     ) -> FtpResult<FtpStream> {
         debug!("Initializing TLS auth");
         // Ask the server to start securing data.
-        self.write_str("AUTH TLS\r\n").await?;
+        self.perform(Command::Auth).await?;
         self.read_response(Status::AuthOk).await?;
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
@@ -142,10 +144,12 @@ impl FtpStream {
             welcome_msg: self.welcome_msg,
         };
         // Set protection buffer size
-        secured_ftp_tream.write_str("PBSZ 0\r\n").await?;
+        secured_ftp_tream.perform(Command::Pbsz(0)).await?;
         secured_ftp_tream.read_response(Status::CommandOk).await?;
         // Change the level of data protectio to Private
-        secured_ftp_tream.write_str("PROT P\r\n").await?;
+        secured_ftp_tream
+            .perform(Command::Prot(ProtectionLevel::Private))
+            .await?;
         secured_ftp_tream.read_response(Status::CommandOk).await?;
         Ok(secured_ftp_tream)
     }
@@ -175,7 +179,7 @@ impl FtpStream {
     pub async fn into_insecure(mut self) -> FtpResult<FtpStream> {
         // Ask the server to stop securing data
         debug!("Going back to insecure mode");
-        self.write_str("CCC\r\n").await?;
+        self.perform(Command::ClearCommandChannel).await?;
         self.read_response(Status::CommandOk).await?;
         trace!("Insecure mode OK");
         let plain_ftp_stream = FtpStream {
@@ -205,19 +209,330 @@ impl FtpStream {
         self.mode = mode;
     }
 
+    /// Returns a reference to the underlying TcpStream.
+    pub async fn get_ref(&self) -> &TcpStream {
+        self.reader.get_ref().get_ref()
+    }
+
+    /// Log in to the FTP server.
+    pub async fn login<S: AsRef<str>>(&mut self, user: S, password: S) -> FtpResult<()> {
+        debug!("Signin in with user '{}'", user.as_ref());
+        self.perform(Command::User(user.as_ref().to_string()))
+            .await?;
+        let response = self
+            .read_response_in(&[Status::LoggedIn, Status::NeedPassword])
+            .await?;
+        if response.status == Status::NeedPassword {
+            debug!("Password is required");
+            self.perform(Command::Pass(password.as_ref().to_string()))
+                .await?;
+            self.read_response(Status::LoggedIn).await?;
+        }
+        debug!("Login OK");
+        Ok(())
+    }
+
+    /// Change the current directory to the path specified.
+    pub async fn cwd<S: AsRef<str>>(&mut self, path: S) -> FtpResult<()> {
+        debug!("Changing working directory to {}", path.as_ref());
+        self.perform(Command::Cwd(path.as_ref().to_string()))
+            .await?;
+        self.read_response(Status::RequestedFileActionOk)
+            .await
+            .map(|_| ())
+    }
+
+    /// Move the current directory to the parent directory.
+    pub async fn cdup(&mut self) -> FtpResult<()> {
+        debug!("Going to parent directory");
+        self.perform(Command::Cdup).await?;
+        self.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
+            .await
+            .map(|_| ())
+    }
+
+    /// Gets the current directory
+    pub async fn pwd(&mut self) -> FtpResult<String> {
+        debug!("Getting working directory");
+        self.perform(Command::Pwd).await?;
+        self.read_response(Status::PathCreated)
+            .await
+            .and_then(
+                |Response { status, body }| match (body.find('"'), body.rfind('"')) {
+                    (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
+                    _ => Err(FtpError::UnexpectedResponse(Response::new(status, body))),
+                },
+            )
+    }
+
+    /// This does nothing. This is usually just used to keep the connection open.
+    pub async fn noop(&mut self) -> FtpResult<()> {
+        debug!("Pinging server");
+        self.perform(Command::Noop).await?;
+        self.read_response(Status::CommandOk).await.map(|_| ())
+    }
+
+    /// This creates a new directory on the server.
+    pub async fn mkdir<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<()> {
+        debug!("Creating directory at {}", pathname.as_ref());
+        self.perform(Command::Mkd(pathname.as_ref().to_string()))
+            .await?;
+        self.read_response(Status::PathCreated).await.map(|_| ())
+    }
+
+    /// Sets the type of file to be transferred. That is the implementation
+    /// of `TYPE` command.
+    pub async fn transfer_type(&mut self, file_type: FileType) -> FtpResult<()> {
+        debug!("Setting transfer type {}", file_type.to_string());
+        self.perform(Command::Type(file_type)).await?;
+        self.read_response(Status::CommandOk).await.map(|_| ())
+    }
+
+    /// Quits the current FTP session.
+    pub async fn quit(&mut self) -> FtpResult<()> {
+        debug!("Quitting stream");
+        self.perform(Command::Quit).await?;
+        self.read_response(Status::Closing).await.map(|_| ())
+    }
+
+    /// Renames the file from_name to to_name
+    pub async fn rename<S: AsRef<str>>(&mut self, from_name: S, to_name: S) -> FtpResult<()> {
+        debug!(
+            "Renaming '{}' to '{}'",
+            from_name.as_ref(),
+            to_name.as_ref()
+        );
+        self.perform(Command::RenameFrom(from_name.as_ref().to_string()))
+            .await?;
+        self.read_response(Status::RequestFilePending).await?;
+        self.perform(Command::RenameTo(to_name.as_ref().to_string()))
+            .await?;
+        self.read_response(Status::RequestedFileActionOk)
+            .await
+            .map(|_| ())
+    }
+
+    /// The implementation of `RETR` command where `filename` is the name of the file
+    /// to download from FTP and `reader` is the function which operates with the
+    /// data stream opened.
+    pub async fn retr<S, F, T>(&mut self, file_name: S, mut reader: F) -> FtpResult<T>
+    where
+        F: FnMut(&mut dyn Read) -> FtpResult<T>,
+        S: AsRef<str>,
+    {
+        match self.retr_as_stream(file_name).await {
+            Ok(mut stream) => {
+                let result = reader(&mut stream)?;
+                self.finalize_retr_stream(stream).await.map(|_| result)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Retrieves the file name specified from the server as a readable stream.
+    /// This method is a more complicated way to retrieve a file.
+    /// The reader returned should be dropped.
+    /// Also you will have to read the response to make sure it has the correct value.
+    /// Once file has been read, call `finalize_retr_stream()`
+    pub async fn retr_as_stream<S: AsRef<str>>(&mut self, file_name: S) -> FtpResult<DataStream> {
+        debug!("Retrieving '{}'", file_name.as_ref());
+        let data_stream = self
+            .data_command(Command::Retr(file_name.as_ref().to_string()))
+            .await?;
+        self.read_response_in(&[Status::AboutToSend, Status::AlreadyOpen])
+            .await?;
+        Ok(data_stream)
+    }
+
+    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
+    pub async fn finalize_retr_stream(&mut self, stream: impl Read) -> FtpResult<()> {
+        debug!("Finalizing retr stream");
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(stream);
+        trace!("dropped stream");
+        // Then read response
+        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
+            .await
+            .map(|_| ())
+    }
+
+    /// Removes the remote pathname from the server.
+    pub async fn rmdir<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<()> {
+        debug!("Removing directory {}", pathname.as_ref());
+        self.perform(Command::Rmd(pathname.as_ref().to_string()))
+            .await?;
+        self.read_response(Status::RequestedFileActionOk)
+            .await
+            .map(|_| ())
+    }
+
+    /// Remove the remote file from the server.
+    pub async fn rm<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<()> {
+        debug!("Removing file {}", filename.as_ref());
+        self.perform(Command::Dele(filename.as_ref().to_string()))
+            .await?;
+        self.read_response(Status::RequestedFileActionOk)
+            .await
+            .map(|_| ())
+    }
+
+    /// This stores a file on the server.
+    /// r argument must be any struct which implemenents the Read trait
+    pub async fn put_file<S, R>(&mut self, filename: S, r: &mut R) -> FtpResult<u64>
+    where
+        R: Read + std::marker::Unpin,
+        S: AsRef<str>,
+    {
+        // Get stream
+        let mut data_stream = self.put_with_stream(filename).await?;
+        let bytes = copy(r, &mut data_stream)
+            .await
+            .map_err(FtpError::ConnectionError)?;
+        self.finalize_put_stream(data_stream).await?;
+        Ok(bytes)
+    }
+
+    /// Send PUT command and returns a BufWriter, which references the file created on the server
+    /// The returned stream must be then correctly manipulated to write the content of the source file to the remote destination
+    /// The stream must be then correctly dropped.
+    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
+    pub async fn put_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream> {
+        debug!("Put file {}", filename.as_ref());
+        let stream = self
+            .data_command(Command::Store(filename.as_ref().to_string()))
+            .await?;
+        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])
+            .await?;
+        Ok(stream)
+    }
+
+    /// Finalize put when using stream
+    /// This method must be called once the file has been written and
+    /// `put_with_stream` has been used to write the file
+    pub async fn finalize_put_stream(&mut self, stream: impl Write) -> FtpResult<()> {
+        debug!("Finalizing put stream");
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(stream);
+        trace!("Stream dropped");
+        // Read response
+        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
+            .await
+            .map(|_| ())
+    }
+
+    /// Open specified file for appending data. Returns the stream to append data to specified file.
+    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
+    pub async fn append_with_stream<S: AsRef<str>>(
+        &mut self,
+        filename: S,
+    ) -> FtpResult<DataStream> {
+        debug!("Appending to file {}", filename.as_ref());
+        let stream = self
+            .data_command(Command::Appe(filename.as_ref().to_string()))
+            .await?;
+        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])
+            .await?;
+        Ok(stream)
+    }
+
+    /// Append data from reader to file at `filename`
+    pub async fn append_file<R>(&mut self, filename: &str, r: &mut R) -> FtpResult<u64>
+    where
+        R: Read + std::marker::Unpin,
+    {
+        // Get stream
+        let mut data_stream = self.append_with_stream(filename).await?;
+        let bytes = copy(r, &mut data_stream)
+            .await
+            .map_err(FtpError::ConnectionError)?;
+        self.finalize_put_stream(Box::new(data_stream)).await?;
+        Ok(bytes)
+    }
+
+    /// Execute `LIST` command which returns the detailed file listing in human readable format.
+    /// If `pathname` is omited then the list of files in the current directory will be
+    /// returned otherwise it will the list of files on `pathname`.
+    pub async fn list(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
+        debug!(
+            "Reading {} directory content",
+            pathname.unwrap_or("working")
+        );
+
+        self.stream_lines(
+            Command::List(pathname.map(|x| x.to_string())),
+            Status::AboutToSend,
+        )
+        .await
+    }
+
+    /// Execute `NLST` command which returns the list of file names only.
+    /// If `pathname` is omited then the list of files in the current directory will be
+    /// returned otherwise it will the list of files on `pathname`.
+    pub async fn nlst(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
+        debug!(
+            "Getting file names for {} directory",
+            pathname.unwrap_or("working")
+        );
+        self.stream_lines(
+            Command::Nlst(pathname.map(|x| x.to_string())),
+            Status::AboutToSend,
+        )
+        .await
+    }
+
+    /// Retrieves the modification time of the file at `pathname` if it exists.
+    pub async fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<DateTime<Utc>> {
+        debug!("Getting modification time for {}", pathname.as_ref());
+        self.perform(Command::Mdtm(pathname.as_ref().to_string()))
+            .await?;
+        let response: Response = self.read_response(Status::File).await?;
+
+        match MDTM_RE.captures(&response.body) {
+            Some(caps) => {
+                let (year, month, day) = (
+                    caps[1].parse::<i32>().unwrap(),
+                    caps[2].parse::<u32>().unwrap(),
+                    caps[3].parse::<u32>().unwrap(),
+                );
+                let (hour, minute, second) = (
+                    caps[4].parse::<u32>().unwrap(),
+                    caps[5].parse::<u32>().unwrap(),
+                    caps[6].parse::<u32>().unwrap(),
+                );
+                Ok(Utc.ymd(year, month, day).and_hms(hour, minute, second))
+            }
+            None => Err(FtpError::BadResponse),
+        }
+    }
+
+    /// Retrieves the size of the file in bytes at `pathname` if it exists.
+    pub async fn size<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<usize> {
+        debug!("Getting file size for {}", pathname.as_ref());
+        self.perform(Command::Size(pathname.as_ref().to_string()))
+            .await?;
+        let response: Response = self.read_response(Status::File).await?;
+
+        match SIZE_RE.captures(&response.body) {
+            Some(caps) => Ok(caps[1].parse().unwrap()),
+            None => Err(FtpError::BadResponse),
+        }
+    }
+
+    // -- private
+
     /// Execute command which send data back in a separate stream
-    async fn data_command(&mut self, cmd: &str) -> FtpResult<DataStream> {
+    async fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream> {
         let stream = match self.mode {
             Mode::Passive => {
                 let addr = self.pasv().await?;
-                self.write_str(cmd).await?;
+                self.perform(cmd).await?;
                 TcpStream::connect(addr)
                     .await
                     .map_err(FtpError::ConnectionError)?
             }
             Mode::Active => {
                 let listener = self.active().await?;
-                self.write_str(cmd).await?;
+                self.perform(cmd).await?;
                 listener
                     .accept()
                     .await
@@ -242,77 +557,10 @@ impl FtpStream {
         }
     }
 
-    /// Returns a reference to the underlying TcpStream.
-    pub async fn get_ref(&self) -> &TcpStream {
-        self.reader.get_ref().get_ref()
-    }
-
-    /// Log in to the FTP server.
-    pub async fn login(&mut self, user: &str, password: &str) -> FtpResult<()> {
-        debug!("Signin in with user '{}'", user);
-        self.write_str(format!("USER {}\r\n", user)).await?;
-        let response = self
-            .read_response_in(&[Status::LoggedIn, Status::NeedPassword])
-            .await?;
-        if response.status == Status::NeedPassword {
-            debug!("Password is required");
-            self.write_str(format!("PASS {}\r\n", password)).await?;
-            self.read_response(Status::LoggedIn).await?;
-        }
-        debug!("Login OK");
-        Ok(())
-    }
-
-    /// Change the current directory to the path specified.
-    pub async fn cwd(&mut self, path: &str) -> FtpResult<()> {
-        debug!("Changing working directory to {}", path);
-        self.write_str(format!("CWD {}\r\n", path)).await?;
-        self.read_response(Status::RequestedFileActionOk)
-            .await
-            .map(|_| ())
-    }
-
-    /// Move the current directory to the parent directory.
-    pub async fn cdup(&mut self) -> FtpResult<()> {
-        debug!("Going to parent directory");
-        self.write_str("CDUP\r\n").await?;
-        self.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
-            .await
-            .map(|_| ())
-    }
-
-    /// Gets the current directory
-    pub async fn pwd(&mut self) -> FtpResult<String> {
-        debug!("Getting working directory");
-        self.write_str("PWD\r\n").await?;
-        self.read_response(Status::PathCreated)
-            .await
-            .and_then(
-                |Response { status, body }| match (body.find('"'), body.rfind('"')) {
-                    (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
-                    _ => Err(FtpError::UnexpectedResponse(Response::new(status, body))),
-                },
-            )
-    }
-
-    /// This does nothing. This is usually just used to keep the connection open.
-    pub async fn noop(&mut self) -> FtpResult<()> {
-        debug!("Pinging server");
-        self.write_str("NOOP\r\n").await?;
-        self.read_response(Status::CommandOk).await.map(|_| ())
-    }
-
-    /// This creates a new directory on the server.
-    pub async fn mkdir(&mut self, pathname: &str) -> FtpResult<()> {
-        debug!("Creating directory at {}", pathname);
-        self.write_str(format!("MKD {}\r\n", pathname)).await?;
-        self.read_response(Status::PathCreated).await.map(|_| ())
-    }
-
     /// Runs the PASV command.
     async fn pasv(&mut self) -> FtpResult<SocketAddr> {
         debug!("PASV command");
-        self.write_str("PASV\r\n").await?;
+        self.perform(Command::Pasv).await?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
         let response: Response = self.read_response(Status::PassiveMode).await?;
         PORT_RE
@@ -360,230 +608,10 @@ impl FtpStream {
         debug!("Active mode, listening on {}:{}", ip, addr.port());
 
         debug!("Running PORT command");
-        self.write_str(format!("PORT {}\r\n", ip_port)).await?;
+        self.perform(Command::Port(ip_port)).await?;
         self.read_response(Status::CommandOk).await?;
 
         Ok(conn)
-    }
-
-    /// Sets the type of file to be transferred. That is the implementation
-    /// of `TYPE` command.
-    pub async fn transfer_type(&mut self, file_type: FileType) -> FtpResult<()> {
-        debug!("Setting transfer type {}", file_type.to_string());
-        let type_command = format!("TYPE {}\r\n", file_type.to_string());
-        self.write_str(&type_command).await?;
-        self.read_response(Status::CommandOk).await.map(|_| ())
-    }
-
-    /// Quits the current FTP session.
-    pub async fn quit(&mut self) -> FtpResult<()> {
-        debug!("Quitting stream");
-        self.write_str("QUIT\r\n").await?;
-        self.read_response(Status::Closing).await.map(|_| ())
-    }
-
-    /// Renames the file from_name to to_name
-    pub async fn rename(&mut self, from_name: &str, to_name: &str) -> FtpResult<()> {
-        debug!("Renaming '{}' to '{}'", from_name, to_name);
-        self.write_str(format!("RNFR {}\r\n", from_name)).await?;
-        self.read_response(Status::RequestFilePending).await?;
-        self.write_str(format!("RNTO {}\r\n", to_name)).await?;
-        self.read_response(Status::RequestedFileActionOk)
-            .await
-            .map(|_| ())
-    }
-
-    /// The implementation of `RETR` command where `filename` is the name of the file
-    /// to download from FTP and `reader` is the function which operates with the
-    /// data stream opened.
-    pub async fn retr<F, T>(&mut self, file_name: &str, mut reader: F) -> FtpResult<T>
-    where
-        F: FnMut(&mut dyn Read) -> FtpResult<T>,
-    {
-        match self.retr_as_stream(file_name).await {
-            Ok(mut stream) => {
-                let result = reader(&mut stream)?;
-                self.finalize_retr_stream(stream).await.map(|_| result)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    /// Retrieves the file name specified from the server as a readable stream.
-    /// This method is a more complicated way to retrieve a file.
-    /// The reader returned should be dropped.
-    /// Also you will have to read the response to make sure it has the correct value.
-    /// Once file has been read, call `finalize_retr_stream()`
-    pub async fn retr_as_stream(&mut self, file_name: &str) -> FtpResult<DataStream> {
-        debug!("Retrieving '{}'", file_name);
-        let retr_command = format!("RETR {}\r\n", file_name);
-        let data_stream = self.data_command(&retr_command).await?;
-        self.read_response_in(&[Status::AboutToSend, Status::AlreadyOpen])
-            .await?;
-        Ok(data_stream)
-    }
-
-    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
-    pub async fn finalize_retr_stream(&mut self, stream: impl Read) -> FtpResult<()> {
-        debug!("Finalizing retr stream");
-        // Drop stream NOTE: must be done first, otherwise server won't return any response
-        drop(stream);
-        trace!("dropped stream");
-        // Then read response
-        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
-            .await
-            .map(|_| ())
-    }
-
-    /// Removes the remote pathname from the server.
-    pub async fn rmdir(&mut self, pathname: &str) -> FtpResult<()> {
-        debug!("Removing directory {}", pathname);
-        self.write_str(format!("RMD {}\r\n", pathname)).await?;
-        self.read_response(Status::RequestedFileActionOk)
-            .await
-            .map(|_| ())
-    }
-
-    /// Remove the remote file from the server.
-    pub async fn rm(&mut self, filename: &str) -> FtpResult<()> {
-        debug!("Removing file {}", filename);
-        self.write_str(format!("DELE {}\r\n", filename)).await?;
-        self.read_response(Status::RequestedFileActionOk)
-            .await
-            .map(|_| ())
-    }
-
-    /// This stores a file on the server.
-    /// r argument must be any struct which implemenents the Read trait
-    pub async fn put_file<R>(&mut self, filename: &str, r: &mut R) -> FtpResult<u64>
-    where
-        R: Read + std::marker::Unpin,
-    {
-        // Get stream
-        let mut data_stream = self.put_with_stream(filename).await?;
-        let bytes = copy(r, &mut data_stream)
-            .await
-            .map_err(FtpError::ConnectionError)?;
-        self.finalize_put_stream(data_stream).await?;
-        Ok(bytes)
-    }
-
-    /// Send PUT command and returns a BufWriter, which references the file created on the server
-    /// The returned stream must be then correctly manipulated to write the content of the source file to the remote destination
-    /// The stream must be then correctly dropped.
-    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
-    pub async fn put_with_stream(&mut self, filename: &str) -> FtpResult<DataStream> {
-        debug!("Put file {}", filename);
-        let stor_command = format!("STOR {}\r\n", filename);
-        let stream = self.data_command(&stor_command).await?;
-        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])
-            .await?;
-        Ok(stream)
-    }
-
-    /// Finalize put when using stream
-    /// This method must be called once the file has been written and
-    /// `put_with_stream` has been used to write the file
-    pub async fn finalize_put_stream(&mut self, stream: impl Write) -> FtpResult<()> {
-        debug!("Finalizing put stream");
-        // Drop stream NOTE: must be done first, otherwise server won't return any response
-        drop(stream);
-        trace!("Stream dropped");
-        // Read response
-        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
-            .await
-            .map(|_| ())
-    }
-
-    /// Open specified file for appending data. Returns the stream to append data to specified file.
-    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
-    pub async fn append_with_stream(&mut self, filename: &str) -> FtpResult<DataStream> {
-        debug!("Appending to file {}", filename);
-        let command = format!("APPE {}\r\n", filename);
-        let stream = self.data_command(&command).await?;
-        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])
-            .await?;
-        Ok(stream)
-    }
-
-    /// Append data from reader to file at `filename`
-    pub async fn append_file<R>(&mut self, filename: &str, r: &mut R) -> FtpResult<u64>
-    where
-        R: Read + std::marker::Unpin,
-    {
-        // Get stream
-        let mut data_stream = self.append_with_stream(filename).await?;
-        let bytes = copy(r, &mut data_stream)
-            .await
-            .map_err(FtpError::ConnectionError)?;
-        self.finalize_put_stream(Box::new(data_stream)).await?;
-        Ok(bytes)
-    }
-
-    /// Execute `LIST` command which returns the detailed file listing in human readable format.
-    /// If `pathname` is omited then the list of files in the current directory will be
-    /// returned otherwise it will the list of files on `pathname`.
-    pub async fn list(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
-        debug!(
-            "Reading {} directory content",
-            pathname.unwrap_or("working")
-        );
-        let command = pathname.map_or("LIST\r\n".into(), |path| {
-            format!("LIST {}\r\n", path).into()
-        });
-
-        self.stream_lines(command, Status::AboutToSend).await
-    }
-
-    /// Execute `NLST` command which returns the list of file names only.
-    /// If `pathname` is omited then the list of files in the current directory will be
-    /// returned otherwise it will the list of files on `pathname`.
-    pub async fn nlst(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
-        debug!(
-            "Getting file names for {} directory",
-            pathname.unwrap_or("working")
-        );
-        let command = pathname.map_or("NLST\r\n".into(), |path| {
-            format!("NLST {}\r\n", path).into()
-        });
-
-        self.stream_lines(command, Status::AboutToSend).await
-    }
-
-    /// Retrieves the modification time of the file at `pathname` if it exists.
-    pub async fn mdtm(&mut self, pathname: &str) -> FtpResult<DateTime<Utc>> {
-        debug!("Getting modification time for {}", pathname);
-        self.write_str(format!("MDTM {}\r\n", pathname)).await?;
-        let response: Response = self.read_response(Status::File).await?;
-
-        match MDTM_RE.captures(&response.body) {
-            Some(caps) => {
-                let (year, month, day) = (
-                    caps[1].parse::<i32>().unwrap(),
-                    caps[2].parse::<u32>().unwrap(),
-                    caps[3].parse::<u32>().unwrap(),
-                );
-                let (hour, minute, second) = (
-                    caps[4].parse::<u32>().unwrap(),
-                    caps[5].parse::<u32>().unwrap(),
-                    caps[6].parse::<u32>().unwrap(),
-                );
-                Ok(Utc.ymd(year, month, day).and_hms(hour, minute, second))
-            }
-            None => Err(FtpError::BadResponse),
-        }
-    }
-
-    /// Retrieves the size of the file in bytes at `pathname` if it exists.
-    pub async fn size(&mut self, pathname: &str) -> FtpResult<usize> {
-        debug!("Getting file size for {}", pathname);
-        self.write_str(format!("SIZE {}\r\n", pathname)).await?;
-        let response: Response = self.read_response(Status::File).await?;
-
-        match SIZE_RE.captures(&response.body) {
-            Some(caps) => Ok(caps[1].parse().unwrap()),
-            None => Err(FtpError::BadResponse),
-        }
     }
 
     /// Retrieve stream "message"
@@ -616,12 +644,13 @@ impl FtpStream {
     }
 
     /// Write data to stream
-    async fn write_str<S: AsRef<str>>(&mut self, command: S) -> FtpResult<()> {
-        trace!("CC OUT: {}", command.as_ref().trim_end_matches("\r\n"));
+    async fn perform(&mut self, command: Command) -> FtpResult<()> {
+        let command = command.to_string();
+        trace!("CC OUT: {}", command.trim_end_matches("\r\n"));
 
         let stream = self.reader.get_mut();
         stream
-            .write_all(command.as_ref().as_bytes())
+            .write_all(command.as_bytes())
             .await
             .map_err(FtpError::ConnectionError)
     }
@@ -671,12 +700,8 @@ impl FtpStream {
     }
 
     /// Execute a command which returns list of strings in a separate stream
-    async fn stream_lines(
-        &mut self,
-        cmd: Cow<'_, str>,
-        open_code: Status,
-    ) -> FtpResult<Vec<String>> {
-        let mut data_stream = BufReader::new(self.data_command(&cmd).await?);
+    async fn stream_lines(&mut self, cmd: Command, open_code: Status) -> FtpResult<Vec<String>> {
+        let mut data_stream = BufReader::new(self.data_command(cmd).await?);
         self.read_response_in(&[open_code, Status::AlreadyOpen])
             .await?;
         let lines = Self::get_lines_from_stream(&mut data_stream).await;
