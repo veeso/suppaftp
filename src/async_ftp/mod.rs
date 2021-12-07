@@ -442,6 +442,20 @@ impl FtpStream {
         Ok(())
     }
 
+    /// Tell the server to resume the transfer from a certain offset. The offset indicates the amount of bytes to skip
+    /// from the beginning of the file.
+    /// the REST command does not actually initiate the transfer.
+    /// After issuing a REST command, the client must send the appropriate FTP command to transfer the file
+    ///
+    /// It is possible to cancel the REST command, sending a REST command with offset 0
+    pub async fn resume_transfer(&mut self, offset: usize) -> FtpResult<()> {
+        debug!("Requesting to resume transfer at offset {}", offset);
+        self.perform(Command::Rest(offset)).await?;
+        self.read_response(Status::RequestFilePending).await?;
+        debug!("Resume transfer accepted");
+        Ok(())
+    }
+
     /// Execute `LIST` command which returns the detailed file listing in human readable format.
     /// If `pathname` is omited then the list of files in the current directory will be
     /// returned otherwise it will the list of files on `pathname`.
@@ -956,6 +970,58 @@ mod test {
         assert!(stream.rm("test.bin").await.is_ok());
         // Check whether data channel still works
         assert!(stream.list(None).await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[serial]
+    #[cfg(feature = "with-containers")]
+    async fn should_resume_transfer() {
+        crate::log_init();
+        let mut stream: FtpStream = setup_stream().await;
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        // get dir
+        let wrkdir = stream.pwd().await.ok().unwrap();
+        // put as stream
+        let mut transfer_stream = stream.put_with_stream("test.bin").await.ok().unwrap();
+        assert_eq!(
+            transfer_stream
+                .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
+                .await
+                .ok()
+                .unwrap(),
+            5
+        );
+        // Drop stream on purpose to simulate a failed connection
+        drop(stream);
+        drop(transfer_stream);
+        // Re-connect to server
+        let mut stream = FtpStream::connect("127.0.0.1:10021").await.unwrap();
+        assert!(stream.login("test", "test").await.is_ok());
+        // Go back to previous dir
+        assert!(stream.cwd(wrkdir).await.is_ok());
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        // Resume transfer
+        assert!(stream.resume_transfer(5).await.is_ok());
+        // Reopen stream
+        let mut transfer_stream = stream.put_with_stream("test.bin").await.ok().unwrap();
+        assert_eq!(
+            transfer_stream
+                .write(&[0x05, 0x06, 0x07, 0x08, 0x09, 0x0a])
+                .await
+                .ok()
+                .unwrap(),
+            6
+        );
+        // Finalize
+        assert!(stream.finalize_put_stream(transfer_stream).await.is_ok());
+        // Get size
+        assert_eq!(stream.size("test.bin").await.ok().unwrap(), 11);
+        // Remove file
+        assert!(stream.rm("test.bin").await.is_ok());
+        // Drop stream
         finalize_stream(stream).await;
     }
 

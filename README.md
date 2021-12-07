@@ -72,7 +72,7 @@
       - [Going Async](#going-async)
   - [Built-in CLI client 🖥️](#built-in-cli-client-️)
   - [Support the developer ☕](#support-the-developer-)
-  - [Changelog](#changelog)
+  - [Changelog ⌛](#changelog-)
   - [License 📜](#license-)
     - [Contribution 🤝](#contribution-)
 
@@ -87,10 +87,14 @@ SuppaFTP is a FTP/FTPS client library written in Rust, with both support for syn
 - Added methods to work with streams (e.g. `put_with_stream`) ⬇️
 - suppaftp supports **Active mode**
 - Added `get_welcome_msg` method 👋
-- Supports for both sync/async rust
+- Supports for both **sync/async** rust 🕙
+- Supports for more commands 🌟
+  - ABOR
+  - APPE
+  - REST
 - Some extra features, such as the **LIST** command output parser
 - Replaced OpenSSL with native-tls 🔒
-- Removed deprecated statements 👴
+- Removed deprecated statements ⚰️
 - Better error handling 🐛
 - Added test units keeping an eye on code coverage 👀
 
@@ -198,7 +202,7 @@ If you like **SuppaFTP**, please consider a little donation 🥳
 
 ---
 
-## Changelog
+## Changelog ⌛
 
 View Changelog [here](CHANGELOG.md)
 
