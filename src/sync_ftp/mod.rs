@@ -51,7 +51,7 @@ pub struct FtpStream {
 impl FtpStream {
     /// Creates an FTP Stream.
     #[cfg(not(feature = "secure"))]
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<FtpStream> {
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");
         TcpStream::connect(addr)
             .map_err(FtpError::ConnectionError)
@@ -76,7 +76,7 @@ impl FtpStream {
 
     /// Creates an FTP Stream.
     #[cfg(feature = "secure")]
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<FtpStream> {
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");
         TcpStream::connect(addr)
             .map_err(FtpError::ConnectionError)
@@ -134,11 +134,7 @@ impl FtpStream {
     /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").unwrap();
     /// ```
     #[cfg(feature = "secure")]
-    pub fn into_secure(
-        mut self,
-        tls_connector: TlsConnector,
-        domain: &str,
-    ) -> FtpResult<FtpStream> {
+    pub fn into_secure(mut self, tls_connector: TlsConnector, domain: &str) -> FtpResult<Self> {
         // Ask the server to start securing data.
         debug!("Initializing TLS auth");
         self.perform(Command::Auth)?;
@@ -162,43 +158,6 @@ impl FtpStream {
         secured_ftp_tream.perform(Command::Prot(ProtectionLevel::Private))?;
         secured_ftp_tream.read_response(Status::CommandOk)?;
         Ok(secured_ftp_tream)
-    }
-
-    /// Switch to insecure mode. If the connection is already
-    /// insecure does nothing.
-    ///
-    /// ## Example
-    ///
-    /// ```rust,no_run
-    /// use suppaftp::FtpStream;
-    /// use std::path::Path;
-    ///
-    /// use suppaftp::native_tls::{TlsConnector, TlsStream};
-    ///
-    /// // Create an TlsConnector
-    /// let mut ctx = TlsConnector::new().unwrap();
-    /// let mut ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap();
-    /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").unwrap();
-    /// // Do all secret things
-    /// // Switch back to the insecure mode
-    /// let mut ftp_stream = ftp_stream.into_insecure().unwrap();
-    /// // Do all public things
-    /// let _ = ftp_stream.quit();
-    /// ```
-    #[cfg(feature = "secure")]
-    pub fn into_insecure(mut self) -> FtpResult<FtpStream> {
-        // Ask the server to stop securing data
-        debug!("Going back to insecure mode");
-        self.perform(Command::ClearCommandChannel)?;
-        self.read_response(Status::CommandOk)?;
-        trace!("Insecure mode OK");
-        Ok(FtpStream {
-            reader: BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream())),
-            mode: self.mode,
-            tls_ctx: None,
-            domain: None,
-            welcome_msg: self.welcome_msg,
-        })
     }
 
     /// Returns welcome message retrieved from server (if available)
@@ -237,6 +196,20 @@ impl FtpStream {
                 debug!("Login OK");
                 Ok(())
             })
+    }
+
+    /// Perform clear command channel (CCC).
+    /// Once the command is performed, the command channel will be encrypted no more.
+    /// The data stream will still be secure.
+    #[cfg(feature = "secure")]
+    pub fn clear_command_channel(mut self) -> FtpResult<Self> {
+        // Ask the server to stop securing data
+        debug!("performing clear command channel");
+        self.perform(Command::ClearCommandChannel)?;
+        self.read_response(Status::CommandOk)?;
+        trace!("CCC OK");
+        self.reader = BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream()));
+        Ok(self)
     }
 
     /// Change the current directory to the path specified.
@@ -753,9 +726,28 @@ mod test {
         assert!(ftp_stream.login("demo", "password").is_ok());
         // PWD
         assert_eq!(ftp_stream.pwd().ok().unwrap().as_str(), "/");
-        // Go back to insecure
-        let mut ftp_stream = ftp_stream.into_insecure().ok().unwrap();
         // Quit
+        assert!(ftp_stream.quit().is_ok());
+    }
+
+    #[test]
+    #[serial]
+    #[cfg(feature = "secure")]
+    fn should_work_after_clear_command_channel() {
+        crate::log_init();
+        let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
+            .unwrap()
+            .into_secure(TlsConnector::new().unwrap(), "test.rebex.net")
+            .ok()
+            .unwrap()
+            .clear_command_channel()
+            .ok()
+            .unwrap();
+        // Login
+        assert!(ftp_stream.login("demo", "password").is_ok());
+        // CCC
+        assert!(ftp_stream.pwd().is_ok());
+        assert!(ftp_stream.list(None).is_ok());
         assert!(ftp_stream.quit().is_ok());
     }
 
