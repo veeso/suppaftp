@@ -437,6 +437,19 @@ impl FtpStream {
         Ok(bytes)
     }
 
+    /// abort the previous FTP service command
+    pub fn abort(&mut self, data_stream: impl Read) -> FtpResult<()> {
+        debug!("Aborting active file transfer");
+        self.perform(Command::Abor)?;
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(data_stream);
+        trace!("dropped stream");
+        self.read_response_in(&[Status::ClosingDataConnection, Status::TransferAborted])?;
+        self.read_response(Status::ClosingDataConnection)?;
+        trace!("Transfer aborted");
+        Ok(())
+    }
+
     /// Execute `LIST` command which returns the detailed file listing in human readable format.
     /// If `pathname` is omited then the list of files in the current directory will be
     /// returned otherwise it will the list of files on `pathname`.
@@ -912,6 +925,34 @@ mod test {
         assert!(stream.rm("toast.txt").is_ok());
         // List directory again
         assert_eq!(stream.list(None).ok().unwrap().len(), 0);
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    #[serial]
+    fn should_abort_transfer() {
+        crate::log_init();
+        let mut stream: FtpStream = setup_stream();
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).is_ok());
+        // cleanup
+        let _ = stream.rm("test.bin");
+        // put as stream
+        let mut transfer_stream = stream.put_with_stream("test.bin").ok().unwrap();
+        assert_eq!(
+            transfer_stream
+                .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
+                .ok()
+                .unwrap(),
+            5
+        );
+        // Abort
+        assert!(stream.abort(transfer_stream).is_ok());
+        // Check whether other commands still work after transfer
+        assert!(stream.rm("test.bin").is_ok());
+        // Check whether data channel still works
+        assert!(stream.list(None).is_ok());
         finalize_stream(stream);
     }
 

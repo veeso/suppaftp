@@ -28,11 +28,6 @@ impl DataStream {
             DataStream::Ssl(stream) => stream.get_ref().clone(),
         }
     }
-
-    /// Test if the stream is secured
-    pub fn is_ssl(&self) -> bool {
-        matches!(self, DataStream::Ssl(_))
-    }
 }
 
 impl DataStream {

@@ -9,6 +9,8 @@ use std::string::ToString;
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Ftp commands with their arguments
 pub enum Command {
+    /// Abort an active file transfer
+    Abor,
     /// Append to file
     Appe(String),
     /// Set auth to TLS
@@ -81,6 +83,7 @@ pub enum ProtectionLevel {
 impl ToString for Command {
     fn to_string(&self) -> String {
         let mut s = match self {
+            Self::Abor => "ABOR".to_string(),
             Self::Appe(f) => format!("APPE {}", f),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
             Self::Auth => "AUTH TLS".to_string(),
@@ -143,6 +146,7 @@ mod test {
 
     #[test]
     fn should_stringify_command() {
+        assert_eq!(Command::Abor.to_string().as_str(), "ABOR\r\n");
         assert_eq!(
             Command::Appe(String::from("foobar.txt"))
                 .to_string()
