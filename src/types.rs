@@ -5,13 +5,9 @@
 use std::convert::From;
 use thiserror::Error;
 
-/// ## Result
-///
 /// A shorthand for a Result whose error type is always an FtpError.
 pub type FtpResult<T> = std::result::Result<T, FtpError>;
 
-/// ## FtpError
-///
 /// `FtpError` is a library-global error type to describe the different kinds of
 /// errors that might occur while using FTP.
 #[derive(Debug, Error)]
@@ -36,8 +32,6 @@ pub enum FtpError {
     InvalidAddress(std::net::AddrParseError),
 }
 
-/// ## Response
-///
 /// Defines a response from the ftp server
 #[derive(Clone, Debug, Error)]
 #[error("[{code}] {body}")]
@@ -46,8 +40,6 @@ pub struct Response {
     pub body: String,
 }
 
-/// ## FormatControl
-///
 /// Text Format Control used in `TYPE` command
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FormatControl {
@@ -61,8 +53,6 @@ pub enum FormatControl {
     Asa,
 }
 
-/// ## FileType
-///
 /// File Type used in `TYPE` command
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileType {
@@ -78,8 +68,6 @@ pub enum FileType {
     Local(u8),
 }
 
-/// ## Mode
-///
 /// Connection mode for data channel
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -88,8 +76,6 @@ pub enum Mode {
 }
 
 impl Response {
-    /// ### new
-    ///
     /// Instantiates a new `Response`
     pub fn new<S: AsRef<str>>(code: u32, body: S) -> Self {
         Self {

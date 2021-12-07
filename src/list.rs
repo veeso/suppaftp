@@ -52,8 +52,6 @@ lazy_static! {
 
 // -- File entry
 
-/// ## File
-///
 /// Describes a file entry on the remote system.
 /// This data type is returned in a collection after parsing a LIST output
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -74,8 +72,6 @@ pub struct File {
     posix_pex: (PosixPex, PosixPex, PosixPex),
 }
 
-/// ## FileType
-///
 /// Describes the kind of file. Can be `Directory`, `File` or `Symlink`. If `Symlink` the path to the pointed file must be provided
 #[derive(Debug, Clone, Eq, PartialEq)]
 enum FileType {
@@ -94,8 +90,6 @@ pub enum PosixPexQuery {
     Others,
 }
 
-/// ## PosixPex
-///
 /// Describes the permissions on POSIX system.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 struct PosixPex {
@@ -119,92 +113,66 @@ pub enum ParseError {
 impl File {
     // -- getters
 
-    /// ### name
-    ///
     /// Get file name
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
 
-    /// ### is_directory
-    ///
     /// Get whether file is a directory
     pub fn is_directory(&self) -> bool {
         self.file_type.is_directory()
     }
 
-    /// ### is_file
-    ///
     /// Get whether file is a file
     pub fn is_file(&self) -> bool {
         self.file_type.is_file()
     }
 
-    /// ### is_symlink
-    ///
     /// Get whether file is a symlink
     pub fn is_symlink(&self) -> bool {
         self.file_type.is_symlink()
     }
 
-    /// ### symlink
-    ///
     /// Returns, if available, the file the symlink is pointing to
     pub fn symlink(&self) -> Option<&Path> {
         self.file_type.symlink()
     }
 
-    /// ### size
-    ///
     /// Returned file size in bytes
     pub fn size(&self) -> usize {
         self.size
     }
 
-    /// ### modified
-    ///
     //// Returns the last time the file was modified
     pub fn modified(&self) -> SystemTime {
         self.modified
     }
 
-    /// ### uid
-    ///
     /// Returns when available the owner user of the file. (POSIX only)
     pub fn uid(&self) -> Option<u32> {
         self.uid.to_owned()
     }
 
-    /// ### gid
-    ///
     /// Returns when available the owner group of the file. (POSIX only)
     pub fn gid(&self) -> Option<u32> {
         self.gid.to_owned()
     }
 
-    /// ### can_read
-    ///
     /// Returns whether `who` can read file
     pub fn can_read(&self, who: PosixPexQuery) -> bool {
         self.query_pex(who).can_read()
     }
 
-    /// ### can_write
-    ///
     /// Returns whether `who` can write file
     pub fn can_write(&self, who: PosixPexQuery) -> bool {
         self.query_pex(who).can_write()
     }
 
-    /// ### can_execute
-    ///
     /// Returns whether `who` can execute file
     pub fn can_execute(&self, who: PosixPexQuery) -> bool {
         self.query_pex(who).can_execute()
     }
 
-    /// ### query_pex
-    ///
     /// Returns the pex structure for selected query
     fn query_pex(&self, who: PosixPexQuery) -> &PosixPex {
         match who {
@@ -216,16 +184,12 @@ impl File {
 
     // -- parsers
 
-    /// ### from_line
-    ///
     /// Parse LIST output line. This function will try first to parse with POSIX parser and then, if failed, with the DOS parser.
     /// If you already know the syntax used by your server, you can directly use `from_posix_line` or `from_dos_line`.
     pub fn from_line(line: &str) -> Result<Self, ParseError> {
         Self::try_from(line)
     }
 
-    /// ### from_posix_line
-    ///
     /// Parse a POSIX LIST output line and if it is valid, return a `File` instance.
     /// In case of error a `ParseError` is returned
     pub fn from_posix_line(line: &str) -> Result<Self, ParseError> {
@@ -324,8 +288,6 @@ impl File {
         }
     }
 
-    /// ### from_dos_line
-    ///
     /// Try to parse a "LIST" output command line in DOS format.
     /// Returns error if syntax is not DOS compliant.
     /// DOS syntax has the following syntax:
@@ -389,8 +351,6 @@ impl File {
         }
     }
 
-    /// ### get_name_and_link
-    ///
     /// Returns from a `ls -l` command output file name token, the name of the file and the symbolic link (if there is any)
     fn get_name_and_link(token: &str) -> (String, Option<PathBuf>) {
         let tokens: Vec<&str> = token.split(" -> ").collect();
@@ -399,8 +359,6 @@ impl File {
         (filename, symlink)
     }
 
-    /// ### parse_lstime
-    ///
     /// Convert ls syntax time to System Time
     /// ls time has two possible syntax:
     /// 1. if year is current: %b %d %H:%M (e.g. Nov 5 13:46)
@@ -432,8 +390,6 @@ impl File {
             .unwrap_or(SystemTime::UNIX_EPOCH))
     }
 
-    /// ### parse_dostime
-    ///
     /// Parse date time string in DOS representation ("%d-%m-%y %I:%M%p")
     fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
         NaiveDateTime::parse_from_str(tm, "%d-%m-%y %I:%M%p")
@@ -470,29 +426,21 @@ impl TryFrom<String> for File {
 }
 
 impl FileType {
-    /// ### is_directory
-    ///
     /// Returns whether the file is a directory
     fn is_directory(&self) -> bool {
         matches!(self, &FileType::Directory)
     }
 
-    /// ### is_file
-    ///
     /// Returns whether the file is a file
     fn is_file(&self) -> bool {
         matches!(self, &FileType::File)
     }
 
-    /// ### is_symlink
-    ///
     /// Returns whether the file is a symlink
     fn is_symlink(&self) -> bool {
         matches!(self, &FileType::Symlink(_))
     }
 
-    /// ### symlink
-    ///
     /// get symlink if any
     fn symlink(&self) -> Option<&Path> {
         match self {
@@ -503,22 +451,16 @@ impl FileType {
 }
 
 impl PosixPex {
-    /// ### can_read
-    ///
     /// Returns whether read permission is true
     fn can_read(&self) -> bool {
         self.read
     }
 
-    /// ### can_write
-    ///
     /// Returns whether write permission is true
     fn can_write(&self) -> bool {
         self.write
     }
 
-    /// ### can_execute
-    ///
     /// Returns whether execute permission is true
     fn can_execute(&self) -> bool {
         self.execute
