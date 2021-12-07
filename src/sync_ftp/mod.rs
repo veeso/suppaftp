@@ -467,6 +467,20 @@ impl FtpStream {
     /// Execute `LIST` command which returns the detailed file listing in human readable format.
     /// If `pathname` is omited then the list of files in the current directory will be
     /// returned otherwise it will the list of files on `pathname`.
+    ///
+    /// ### Parse result
+    ///
+    /// You can parse the output of this command with
+    ///
+    /// ```rust
+    ///
+    /// use std::str::FromStr;
+    /// use suppaftp::list::File;
+    ///
+    /// let file: File = File::from_str("-rw-rw-r-- 1 0  1  8192 Nov 5 2018 omar.txt")
+    ///     .ok()
+    ///     .unwrap();
+    /// ```
     pub fn list(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
         debug!(
             "Reading {} directory content",

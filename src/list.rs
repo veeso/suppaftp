@@ -38,6 +38,7 @@ use regex::Regex;
 use std::convert::TryFrom;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
 
@@ -183,12 +184,6 @@ impl File {
     }
 
     // -- parsers
-
-    /// Parse LIST output line. This function will try first to parse with POSIX parser and then, if failed, with the DOS parser.
-    /// If you already know the syntax used by your server, you can directly use `from_posix_line` or `from_dos_line`.
-    pub fn from_line(line: &str) -> Result<Self, ParseError> {
-        Self::try_from(line)
-    }
 
     /// Parse a POSIX LIST output line and if it is valid, return a `File` instance.
     /// In case of error a `ParseError` is returned
@@ -402,6 +397,14 @@ impl File {
     }
 }
 
+impl FromStr for File {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
 impl TryFrom<&str> for File {
     type Error = ParseError;
 
@@ -529,7 +532,7 @@ mod test {
 
     #[test]
     fn parse_posix_line() {
-        let file: File = File::from_line("-rw-rw-r-- 1 0  1  8192 Nov 5 2018 omar.txt")
+        let file: File = File::from_str("-rw-rw-r-- 1 0  1  8192 Nov 5 2018 omar.txt")
             .ok()
             .unwrap();
         assert_eq!(file.name(), "omar.txt");
@@ -554,7 +557,7 @@ mod test {
             Duration::from_secs(1541376000)
         );
         // Group and user as strings; directory
-        let file: File = File::from_line("drwxrwxr-x 1 root  dialout  4096 Nov 5 2018 provola")
+        let file: File = File::from_str("drwxrwxr-x 1 root  dialout  4096 Nov 5 2018 provola")
             .ok()
             .unwrap();
         assert_eq!(file.name(), "provola");
