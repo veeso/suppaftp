@@ -4,8 +4,8 @@
 
 mod data_stream;
 
-use super::status;
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
+use super::Status;
 use data_stream::DataStream;
 
 #[cfg(feature = "secure")]
@@ -61,7 +61,7 @@ impl FtpStream {
                     welcome_msg: None,
                 };
                 debug!("Reading server response...");
-                match ftp_stream.read_response(status::READY) {
+                match ftp_stream.read_response(Status::Ready) {
                     Ok(response) => {
                         debug!("Server READY; response: {}", response.body);
                         ftp_stream.welcome_msg = Some(response.body);
@@ -88,7 +88,7 @@ impl FtpStream {
                     domain: None,
                 };
                 debug!("Reading server response...");
-                match ftp_stream.read_response(status::READY) {
+                match ftp_stream.read_response(Status::Ready) {
                     Ok(response) => {
                         debug!("Server READY; response: {}", response.body);
                         ftp_stream.welcome_msg = Some(response.body);
@@ -140,7 +140,7 @@ impl FtpStream {
         // Ask the server to start securing data.
         debug!("Initializing TLS auth");
         self.write_str("AUTH TLS\r\n")?;
-        self.read_response(status::AUTH_OK)?;
+        self.read_response(Status::AuthOk)?;
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
             .connect(domain, self.reader.into_inner().into_tcp_stream())
@@ -155,10 +155,10 @@ impl FtpStream {
         };
         // Set protection buffer size
         secured_ftp_tream.write_str("PBSZ 0\r\n")?;
-        secured_ftp_tream.read_response(status::COMMAND_OK)?;
+        secured_ftp_tream.read_response(Status::CommandOk)?;
         // Change the level of data protectio to Private
         secured_ftp_tream.write_str("PROT P\r\n")?;
-        secured_ftp_tream.read_response(status::COMMAND_OK)?;
+        secured_ftp_tream.read_response(Status::CommandOk)?;
         Ok(secured_ftp_tream)
     }
 
@@ -188,7 +188,7 @@ impl FtpStream {
         // Ask the server to stop securing data
         debug!("Going back to insecure mode");
         self.write_str("CCC\r\n")?;
-        self.read_response(status::COMMAND_OK)?;
+        self.read_response(Status::CommandOk)?;
         trace!("Insecure mode OK");
         Ok(FtpStream {
             reader: BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream())),
@@ -256,12 +256,12 @@ impl FtpStream {
     pub fn login(&mut self, user: &str, password: &str) -> FtpResult<()> {
         debug!("Signin in with user '{}'", user);
         self.write_str(format!("USER {}\r\n", user))?;
-        self.read_response_in(&[status::LOGGED_IN, status::NEED_PASSWORD])
-            .and_then(|Response { code, body: _ }| {
-                if code == status::NEED_PASSWORD {
+        self.read_response_in(&[Status::LoggedIn, Status::NeedPassword])
+            .and_then(|Response { status, body: _ }| {
+                if status == Status::NeedPassword {
                     debug!("Password is required");
                     self.write_str(format!("PASS {}\r\n", password))?;
-                    self.read_response(status::LOGGED_IN)?;
+                    self.read_response(Status::LoggedIn)?;
                 }
                 debug!("Login OK");
                 Ok(())
@@ -272,7 +272,7 @@ impl FtpStream {
     pub fn cwd(&mut self, path: &str) -> FtpResult<()> {
         debug!("Changing working directory to {}", path);
         self.write_str(format!("CWD {}\r\n", path))?;
-        self.read_response(status::REQUESTED_FILE_ACTION_OK)
+        self.read_response(Status::RequestedFileActionOk)
             .map(|_| ())
     }
 
@@ -280,7 +280,7 @@ impl FtpStream {
     pub fn cdup(&mut self) -> FtpResult<()> {
         debug!("Going to parent directory");
         self.write_str("CDUP\r\n")?;
-        self.read_response_in(&[status::COMMAND_OK, status::REQUESTED_FILE_ACTION_OK])
+        self.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
             .map(|_| ())
     }
 
@@ -288,11 +288,11 @@ impl FtpStream {
     pub fn pwd(&mut self) -> FtpResult<String> {
         debug!("Getting working directory");
         self.write_str("PWD\r\n")?;
-        self.read_response(status::PATH_CREATED)
+        self.read_response(Status::PathCreated)
             .and_then(
-                |Response { code, body }| match (body.find('"'), body.rfind('"')) {
+                |Response { status, body }| match (body.find('"'), body.rfind('"')) {
                     (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
-                    _ => Err(FtpError::UnexpectedResponse(Response::new(code, body))),
+                    _ => Err(FtpError::UnexpectedResponse(Response::new(status, body))),
                 },
             )
     }
@@ -301,14 +301,14 @@ impl FtpStream {
     pub fn noop(&mut self) -> FtpResult<()> {
         debug!("Pinging server");
         self.write_str("NOOP\r\n")?;
-        self.read_response(status::COMMAND_OK).map(|_| ())
+        self.read_response(Status::CommandOk).map(|_| ())
     }
 
     /// This creates a new directory on the server.
     pub fn mkdir(&mut self, pathname: &str) -> FtpResult<()> {
         debug!("Creating directory at {}", pathname);
         self.write_str(format!("MKD {}\r\n", pathname))?;
-        self.read_response(status::PATH_CREATED).map(|_| ())
+        self.read_response(Status::PathCreated).map(|_| ())
     }
 
     /// Runs the PASV command.
@@ -316,7 +316,7 @@ impl FtpStream {
         debug!("PASV command");
         self.write_str("PASV\r\n")?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
-        let response: Response = self.read_response(status::PASSIVE_MODE)?;
+        let response: Response = self.read_response(Status::PassiveMode)?;
         PORT_RE
             .captures(&response.body)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))
@@ -361,7 +361,7 @@ impl FtpStream {
 
         debug!("Running PORT command");
         self.write_str(format!("PORT {}\r\n", ip_port))?;
-        self.read_response(status::COMMAND_OK)?;
+        self.read_response(Status::CommandOk)?;
 
         Ok(conn)
     }
@@ -372,24 +372,24 @@ impl FtpStream {
         debug!("Setting transfer type {}", file_type.to_string());
         let type_command = format!("TYPE {}\r\n", file_type.to_string());
         self.write_str(&type_command)?;
-        self.read_response(status::COMMAND_OK).map(|_| ())
+        self.read_response(Status::CommandOk).map(|_| ())
     }
 
     /// Quits the current FTP session.
     pub fn quit(&mut self) -> FtpResult<()> {
         debug!("Quitting stream");
         self.write_str("QUIT\r\n")?;
-        self.read_response(status::CLOSING).map(|_| ())
+        self.read_response(Status::Closing).map(|_| ())
     }
 
     /// Renames the file from_name to to_name
     pub fn rename(&mut self, from_name: &str, to_name: &str) -> FtpResult<()> {
         debug!("Renaming '{}' to '{}'", from_name, to_name);
         self.write_str(format!("RNFR {}\r\n", from_name))?;
-        self.read_response(status::REQUEST_FILE_PENDING)
+        self.read_response(Status::RequestFilePending)
             .and_then(|_| {
                 self.write_str(format!("RNTO {}\r\n", to_name))?;
-                self.read_response(status::REQUESTED_FILE_ACTION_OK)
+                self.read_response(Status::RequestedFileActionOk)
                     .map(|_| ())
             })
     }
@@ -462,7 +462,7 @@ impl FtpStream {
         debug!("Retrieving '{}'", file_name);
         let retr_command = format!("RETR {}\r\n", file_name);
         let data_stream = self.data_command(&retr_command)?;
-        self.read_response_in(&[status::ABOUT_TO_SEND, status::ALREADY_OPEN])?;
+        self.read_response_in(&[Status::AboutToSend, Status::AlreadyOpen])?;
         Ok(data_stream)
     }
 
@@ -473,18 +473,15 @@ impl FtpStream {
         drop(stream);
         trace!("dropped stream");
         // Then read response
-        self.read_response_in(&[
-            status::CLOSING_DATA_CONNECTION,
-            status::REQUESTED_FILE_ACTION_OK,
-        ])
-        .map(|_| ())
+        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
+            .map(|_| ())
     }
 
     /// Removes the remote pathname from the server.
     pub fn rmdir(&mut self, pathname: &str) -> FtpResult<()> {
         debug!("Removing directory {}", pathname);
         self.write_str(format!("RMD {}\r\n", pathname))?;
-        self.read_response(status::REQUESTED_FILE_ACTION_OK)
+        self.read_response(Status::RequestedFileActionOk)
             .map(|_| ())
     }
 
@@ -492,7 +489,7 @@ impl FtpStream {
     pub fn rm(&mut self, filename: &str) -> FtpResult<()> {
         debug!("Removing file {}", filename);
         self.write_str(format!("DELE {}\r\n", filename))?;
-        self.read_response(status::REQUESTED_FILE_ACTION_OK)
+        self.read_response(Status::RequestedFileActionOk)
             .map(|_| ())
     }
 
@@ -515,7 +512,7 @@ impl FtpStream {
         debug!("Put file {}", filename);
         let stor_command = format!("STOR {}\r\n", filename);
         let stream = self.data_command(&stor_command)?;
-        self.read_response_in(&[status::ALREADY_OPEN, status::ABOUT_TO_SEND])?;
+        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])?;
         Ok(stream)
     }
 
@@ -528,11 +525,8 @@ impl FtpStream {
         drop(stream);
         trace!("Stream dropped");
         // Read response
-        self.read_response_in(&[
-            status::CLOSING_DATA_CONNECTION,
-            status::REQUESTED_FILE_ACTION_OK,
-        ])
-        .map(|_| ())
+        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
+            .map(|_| ())
     }
 
     /// Open specified file for appending data. Returns the stream to append data to specified file.
@@ -541,7 +535,7 @@ impl FtpStream {
         debug!("Appending to file {}", filename);
         let command = format!("APPE {}\r\n", filename);
         let stream = self.data_command(&command)?;
-        self.read_response_in(&[status::ALREADY_OPEN, status::ABOUT_TO_SEND])?;
+        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])?;
         Ok(stream)
     }
 
@@ -566,7 +560,7 @@ impl FtpStream {
             format!("LIST {}\r\n", path).into()
         });
 
-        self.stream_lines(command, status::ABOUT_TO_SEND)
+        self.stream_lines(command, Status::AboutToSend)
     }
 
     /// Execute `NLST` command which returns the list of file names only.
@@ -581,14 +575,14 @@ impl FtpStream {
             format!("NLST {}\r\n", path).into()
         });
 
-        self.stream_lines(command, status::ABOUT_TO_SEND)
+        self.stream_lines(command, Status::AboutToSend)
     }
 
     /// Retrieves the modification time of the file at `pathname` if it exists.
     pub fn mdtm(&mut self, pathname: &str) -> FtpResult<DateTime<Utc>> {
         debug!("Getting modification time for {}", pathname);
         self.write_str(format!("MDTM {}\r\n", pathname))?;
-        let response: Response = self.read_response(status::FILE)?;
+        let response: Response = self.read_response(Status::File)?;
 
         match MDTM_RE.captures(&response.body) {
             Some(caps) => {
@@ -612,7 +606,7 @@ impl FtpStream {
     pub fn size(&mut self, pathname: &str) -> FtpResult<usize> {
         debug!("Getting file size for {}", pathname);
         self.write_str(format!("SIZE {}\r\n", pathname))?;
-        let response: Response = self.read_response(status::FILE)?;
+        let response: Response = self.read_response(Status::File)?;
 
         match SIZE_RE.captures(&response.body) {
             Some(caps) => Ok(caps[1].parse().unwrap()),
@@ -659,12 +653,12 @@ impl FtpStream {
     }
 
     /// Read response from stream
-    pub fn read_response(&mut self, expected_code: u32) -> FtpResult<Response> {
+    pub fn read_response(&mut self, expected_code: Status) -> FtpResult<Response> {
         self.read_response_in(&[expected_code])
     }
 
     /// Retrieve single line response
-    pub fn read_response_in(&mut self, expected_code: &[u32]) -> FtpResult<Response> {
+    pub fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
         let mut line = String::new();
         self.reader
             .read_line(&mut line)
@@ -677,6 +671,7 @@ impl FtpStream {
         }
 
         let code: u32 = line[0..3].parse().map_err(|_| FtpError::BadResponse)?;
+        let code = Status::from(code);
 
         // multiple line reply
         // loop while the line does not begin with the code and a space
@@ -701,9 +696,13 @@ impl FtpStream {
     }
 
     /// Execute a command which returns list of strings in a separate stream
-    fn stream_lines(&mut self, cmd: Cow<'static, str>, open_code: u32) -> FtpResult<Vec<String>> {
+    fn stream_lines(
+        &mut self,
+        cmd: Cow<'static, str>,
+        open_code: Status,
+    ) -> FtpResult<Vec<String>> {
         let mut data_stream = BufReader::new(self.data_command(&cmd)?);
-        self.read_response_in(&[open_code, status::ALREADY_OPEN])?;
+        self.read_response_in(&[open_code, Status::AlreadyOpen])?;
         let lines = Self::get_lines_from_stream(&mut data_stream);
         self.finalize_retr_stream(data_stream)?;
         lines
@@ -843,8 +842,8 @@ mod test {
         assert!(stream.mkdir("omar").is_ok());
         // It shouldn't allow me to re-create the directory; should return error code 550
         match stream.mkdir("omar").err().unwrap() {
-            FtpError::UnexpectedResponse(Response { code, body: _ }) => {
-                assert_eq!(code, status::FILE_UNAVAILABLE)
+            FtpError::UnexpectedResponse(Response { status, body: _ }) => {
+                assert_eq!(status, Status::FileUnavailable)
             }
             err => panic!("Expected UnexpectedResponse, got {}", err),
         }

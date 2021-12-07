@@ -129,7 +129,7 @@ mod sync_ftp;
 
 // -- public
 pub mod list;
-pub mod status;
+mod status;
 pub mod types;
 
 // -- secure deps
@@ -146,6 +146,7 @@ pub use async_ftp::FtpStream;
 #[cfg(not(any(feature = "async", feature = "async-secure")))]
 pub use sync_ftp::FtpStream;
 // -- export (common)
+pub use status::Status;
 pub use types::{FtpError, FtpResult, Mode};
 
 // -- test logging

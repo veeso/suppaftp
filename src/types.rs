@@ -2,7 +2,9 @@
 //!
 //! The set of valid values for FTP commands
 
+use super::Status;
 use std::convert::From;
+use std::fmt;
 use thiserror::Error;
 
 /// A shorthand for a Result whose error type is always an FtpError.
@@ -34,9 +36,8 @@ pub enum FtpError {
 
 /// Defines a response from the ftp server
 #[derive(Clone, Debug, Error)]
-#[error("[{code}] {body}")]
 pub struct Response {
-    pub code: u32,
+    pub status: Status,
     pub body: String,
 }
 
@@ -75,11 +76,17 @@ pub enum Mode {
     Active,
 }
 
+impl fmt::Display for Response {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}] {}", self.status.code(), self.body)
+    }
+}
+
 impl Response {
     /// Instantiates a new `Response`
-    pub fn new<S: AsRef<str>>(code: u32, body: S) -> Self {
+    pub fn new<S: AsRef<str>>(status: Status, body: S) -> Self {
         Self {
-            code,
+            status,
             body: body.as_ref().to_string(),
         }
     }
@@ -129,10 +136,10 @@ mod test {
             "Secure error: omar"
         );
         assert_eq!(
-            FtpError::UnexpectedResponse(Response::new(0, "error"))
+            FtpError::UnexpectedResponse(Response::new(Status::ExceededStorage, "error"))
                 .to_string()
                 .as_str(),
-            "Invalid response: [0] error"
+            "Invalid response: [552] error"
         );
         assert_eq!(
             FtpError::BadResponse.to_string().as_str(),
@@ -142,14 +149,17 @@ mod test {
 
     #[test]
     fn response() {
-        let response: Response = Response::new(0, "error");
-        assert_eq!(response.code, 0);
+        let response: Response = Response::new(Status::AboutToSend, "error");
+        assert_eq!(response.status, Status::AboutToSend);
         assert_eq!(response.body.as_str(), "error");
     }
 
     #[test]
     fn fmt_response() {
-        let response: Response = Response::new(550, "Can't create directory: File exists");
+        let response: Response = Response::new(
+            Status::FileUnavailable,
+            "Can't create directory: File exists",
+        );
         assert_eq!(
             response.to_string().as_str(),
             "[550] Can't create directory: File exists"
