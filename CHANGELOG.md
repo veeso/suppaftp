@@ -26,6 +26,7 @@ Released on ??
   - status is no more a `u32`: from now on it will be an enum named `Status`.
     - The status enum implements the `code()` method which will return the `u32` representation
     - The status enum can be displayed and converted to string: this will return the description of the error code
+  - Changed `into_insecure()` to `clear_command_channel()`: the implementation of into_insecure was wrong and inconsistent. What it actually does is to make the server not to encrypt the communication on the command channel.
 
 ## 4.1.3
 
