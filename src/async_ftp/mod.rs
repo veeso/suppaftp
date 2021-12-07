@@ -617,7 +617,7 @@ impl FtpStream {
 
     /// Write data to stream
     async fn write_str<S: AsRef<str>>(&mut self, command: S) -> FtpResult<()> {
-        trace!("CMD {}", command.as_ref());
+        trace!("CC OUT: {}", command.as_ref().trim_end_matches("\r\n"));
 
         let stream = self.reader.get_mut();
         stream
@@ -639,7 +639,7 @@ impl FtpStream {
             .await
             .map_err(FtpError::ConnectionError)?;
 
-        trace!("FTP {}", line);
+        trace!("CC IN: {}", line.trim_end());
 
         if line.len() < 5 {
             return Err(FtpError::BadResponse);
@@ -657,7 +657,7 @@ impl FtpStream {
                 return Err(FtpError::ConnectionError(e));
             }
 
-            print!("FTP {}", line);
+            trace!("CC IN: {}", line.trim_end());
         }
 
         line = String::from(line.trim());
