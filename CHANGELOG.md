@@ -12,7 +12,7 @@
 
 ## 4.2.0
 
-Released on ??
+Released on 07/12/2021
 
 - **Active mode**
   - suppaftp now supports Active-mode (credit [@devbydav](https://github.com/devbydav))
@@ -30,6 +30,7 @@ Released on ??
     - The status enum implements the `code()` method which will return the `u32` representation
     - The status enum can be displayed and converted to string: this will return the description of the error code
   - Changed `into_insecure()` to `clear_command_channel()`: the implementation of into_insecure was wrong and inconsistent. What it actually does is to make the server not to encrypt the communication on the command channel.
+  - Removed `File::from_line`; use `File::try_from()` or `File::from_str()`
 
 ## 4.1.3
 
