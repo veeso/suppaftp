@@ -16,25 +16,23 @@ use data_stream::TlsStreamWrapper;
 
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
+use lazy_regex::{Lazy, Regex};
 #[cfg(feature = "secure")]
 use native_tls::TlsConnector;
-use regex::Regex;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
 use std::string::String;
 
-lazy_static! {
-    // This regex extracts IP and Port details from PASV command response.
-    // The regex looks for the pattern (h1,h2,h3,h4,p1,p2).
-    static ref PORT_RE: Regex = Regex::new(r"\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)").unwrap();
+// This regex extracts IP and Port details from PASV command response.
+// The regex looks for the pattern (h1,h2,h3,h4,p1,p2).
+static PORT_RE: Lazy<Regex> = lazy_regex!(r"\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)");
 
-    // This regex extracts modification time from MDTM command response.
-    static ref MDTM_RE: Regex = Regex::new(r"\b(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b").unwrap();
+// This regex extracts modification time from MDTM command response.
+static MDTM_RE: Lazy<Regex> = lazy_regex!(r"\b(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b");
 
-    // This regex extracts file size from SIZE command response.
-    static ref SIZE_RE: Regex = Regex::new(r"\s+(\d+)\s*$").unwrap();
-}
+// This regex extracts file size from SIZE command response.
+static SIZE_RE: Lazy<Regex> = lazy_regex!(r"\s+(\d+)\s*$");
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 #[derive(Debug)]
