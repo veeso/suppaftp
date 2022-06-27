@@ -47,6 +47,9 @@ serial_test = "^0.8.0"
 async = ["async-std", "pin-project"]
 async-secure = ["async-std", "async-native-tls", "pin-project"]
 
+# Enable deprecated FTP/FTPS methods
+deprecated = []
+
 # Enable support of FTPS which requires native-tls (openssl is required on Linux)
 secure = ["native-tls"]
 
