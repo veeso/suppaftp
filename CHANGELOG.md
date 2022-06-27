@@ -15,6 +15,10 @@
 
 Released on 27/06/2022
 
+- Added implicit FTPS support
+  - Added `connect_secure_implicit()` method
+  - Added `deprecated` feature to enable deprecated methods (required for implicit FTPS)
+
 ## 4.2.0
 
 Released on 07/12/2021

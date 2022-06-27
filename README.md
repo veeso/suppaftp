@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">Developed by <a href="https://veeso.github.io/">veeso</a> and <a href="https://github.com/mattnenterprise">Matt McCoy</a></p>
-<p align="center">Current version: 4.3.0 (07/12/2021)</p>
+<p align="center">Current version: 4.3.0 (27/06/2022)</p>
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"
@@ -67,6 +67,7 @@
     - [Features](#features)
       - [SSL/TLS Support](#ssltls-support)
       - [Async support](#async-support)
+      - [Deprecated methods](#deprecated-methods)
       - [Logging](#logging)
     - [Example 📚](#example-)
       - [Going Async](#going-async)
@@ -127,6 +128,14 @@ suppaftp = { version = "^4.3.0", features = ["async"] }
 ```
 
 ⚠️ If you want to enable both **secure** and **async** you must use the **async-secure** feature ⚠️
+
+#### Deprecated methods
+
+If you want to enable deprecated methods of FTPS, please enable the `deprecated` feature in your cargo dependencies.
+
+This feature enables these methods:
+
+- `connect_secure_implicit()`: used to connect via implicit FTPS
 
 #### Logging
 
