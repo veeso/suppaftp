@@ -96,12 +96,8 @@ impl FtpStream {
         }
     }
 
-    /// Switch to a secure mode if possible, using a provided SSL configuration.
+    /// Switch to secure mode if possible (FTPS), using a provided SSL configuration.
     /// This method does nothing if the connect is already secured.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the plain TCP connection cannot be switched to TLS mode.
     ///
     /// ## Example
     ///
@@ -150,6 +146,60 @@ impl FtpStream {
             .await?;
         secured_ftp_tream.read_response(Status::CommandOk).await?;
         Ok(secured_ftp_tream)
+    }
+
+    /// Switch to implicit secure mode (FTPS), using a provided SSL configuration.
+    ///
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use suppaftp::FtpStream;
+    /// use suppaftp::async_native_tls::{TlsConnector, TlsStream};
+    /// use std::path::Path;
+    ///
+    /// // Create a TlsConnector
+    /// // NOTE: For custom options see <https://docs.rs/native-tls/0.2.6/native_tls/struct.TlsConnectorBuilder.html>
+    /// let mut ctx = TlsConnector::new();
+    /// let mut ftp_stream = FtpStream::connect("127.0.0.1:21").await.unwrap();
+    /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost:990", "localhost").await.unwrap();
+    /// ```
+    #[cfg(feature = "async-secure")]
+    pub async fn into_secure_implicit<A: ToSocketAddrs>(
+        mut self,
+        tls_connector: TlsConnector,
+        addr: A,
+        domain: &str,
+    ) -> FtpResult<Self> {
+        debug!("Switching to FTPS (implicit)");
+        self.reader = TcpStream::connect(addr)
+            .await
+            .map_err(FtpError::ConnectionError)
+            .map(|stream| BufReader::new(DataStream::Tcp(stream)))?;
+        debug!("Established connection with server");
+        debug!("TLS OK; initializing ssl stream");
+        let stream = tls_connector
+            .connect(domain, self.reader.into_inner().into_tcp_stream())
+            .await
+            .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+        debug!("TLS Steam OK");
+        let mut stream = FtpStream {
+            reader: BufReader::new(DataStream::Ssl(stream)),
+            mode: self.mode,
+            tls_ctx: Some(tls_connector),
+            domain: Some(String::from(domain)),
+            welcome_msg: self.welcome_msg,
+        };
+        debug!("Reading server response...");
+        match stream.read_response(Status::Ready).await {
+            Ok(response) => {
+                debug!("Server READY; response: {}", response.body);
+                self.welcome_msg = Some(response.body);
+            }
+            Err(err) => return Err(err),
+        }
+
+        Ok(stream)
     }
 
     /// Enable active mode for data channel
@@ -609,7 +659,7 @@ impl FtpStream {
 
         let msb = addr.port() / 256;
         let lsb = addr.port() % 256;
-        let ip_port = format!("{},{},{}", ip.to_string().replace(".", ","), msb, lsb);
+        let ip_port = format!("{},{},{}", ip.to_string().replace('.', ","), msb, lsb);
         debug!("Active mode, listening on {}:{}", ip, addr.port());
 
         debug!("Running PORT command");
@@ -741,11 +791,32 @@ mod test {
     #[async_attributes::test]
     #[cfg(feature = "async-secure")]
     #[serial]
-    async fn connect_ssl() {
+    async fn should_connect_ssl() {
         crate::log_init();
         let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
         let mut ftp_stream = ftp_stream
             .into_secure(TlsConnector::new(), "test.rebex.net")
+            .await
+            .ok()
+            .unwrap();
+        // Set timeout (to test ref to ssl)
+        assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
+        // Login
+        assert!(ftp_stream.login("demo", "password").await.is_ok());
+        // PWD
+        assert_eq!(ftp_stream.pwd().await.ok().unwrap().as_str(), "/");
+        // Quit
+        assert!(ftp_stream.quit().await.is_ok());
+    }
+
+    #[async_attributes::test]
+    #[serial]
+    #[cfg(feature = "async-secure")]
+    async fn should_connect_ssl_implicit() {
+        crate::log_init();
+        let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
+        let mut ftp_stream = ftp_stream
+            .into_secure_implicit(TlsConnector::new(), "test.rebex.net:990", "test.rebex.net")
             .await
             .ok()
             .unwrap();
