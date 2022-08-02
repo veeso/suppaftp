@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">Developed by <a href="https://veeso.github.io/">veeso</a> and <a href="https://github.com/mattnenterprise">Matt McCoy</a></p>
-<p align="center">Current version: 4.3.0 (27/06/2022)</p>
+<p align="center">Current version: 4.4.0 (02/08/2022)</p>
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"
@@ -106,7 +106,7 @@ SuppaFTP is a FTP/FTPS client library written in Rust, with both support for syn
 To get started, first add **suppaftp** to your dependencies:
 
 ```toml
-suppaftp = "^4.3.0"
+suppaftp = "^4.4.0"
 ```
 
 ### Features
@@ -116,7 +116,7 @@ suppaftp = "^4.3.0"
 If you want to enable **support for FTPS**, you must enable the `secure` feature in your cargo dependencies. FTPS support is achieved through [rust-native-tls](https://github.com/sfackler/rust-native-tls), so check if your target systems are compatible.
 
 ```toml
-suppaftp = { version = "^4.3.0", features = ["secure"] }
+suppaftp = { version = "^4.4.0", features = ["secure"] }
 ```
 
 #### Async support
@@ -124,7 +124,7 @@ suppaftp = { version = "^4.3.0", features = ["secure"] }
 If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
 
 ```toml
-suppaftp = { version = "^4.3.0", features = ["async"] }
+suppaftp = { version = "^4.4.0", features = ["async"] }
 ```
 
 ⚠️ If you want to enable both **secure** and **async** you must use the **async-secure** feature ⚠️

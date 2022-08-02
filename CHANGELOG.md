@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.4.0](#440)
   - [4.3.0](#430)
   - [4.2.0](#420)
   - [4.1.3](#413)
@@ -10,6 +11,12 @@
   - [4.0.2](#402)
   - [4.0.1](#401)
   - [4.0.0](#400)
+
+## 4.4.0
+
+Released on 02/08/2022
+
+- Added `set_passive_nat_workaround()` method to allow PASV with server behind NAT/proxy
 
 ## 4.3.0
 

@@ -21,21 +21,21 @@
 //! First of you need to add **suppaftp** to your project dependencies:
 //!
 //! ```toml
-//! suppaftp = "^4.3.0"
+//! suppaftp = "^4.4.0"
 //! ```
 //!
 //! If you want to enable TLS support to work with **FTPS** you need to enable the **secure** feature in your dependencies:
 //!
 //! ```toml
-//! suppaftp = { version = "^4.3.0", features = ["secure"] }
+//! suppaftp = { version = "^4.4.0", features = ["secure"] }
 //! ```
 //!
 //! While if you want to go async, then you must enable the **async** feature or if you want to mix secure and async then there is the super feature **async-secure**!
 //!
 //! ```toml
-//! suppaftp = { version = "^4.3.0", features = ["async"] }
+//! suppaftp = { version = "^4.4.0", features = ["async"] }
 //! # or
-//! suppaftp = { version = "^4.3.0", features = ["async-secure"] }
+//! suppaftp = { version = "^4.4.0", features = ["async-secure"] }
 //! ```
 //!
 //! Keep in mind that you **can't** use the **sync** and the **async** version of this library at the same time!
