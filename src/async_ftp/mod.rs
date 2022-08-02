@@ -918,7 +918,7 @@ mod test {
     fn should_set_passive_nat_workaround() {
         crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
-        stream.set_passive_nat_workaround();
+        stream.set_passive_nat_workaround(true);
         assert!(stream.nat_workaround);
         finalize_stream(stream).await;
     }
