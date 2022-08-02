@@ -20,8 +20,7 @@ use lazy_regex::{Lazy, Regex};
 #[cfg(feature = "secure")]
 use native_tls::TlsConnector;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::str::FromStr;
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::string::String;
 
 // This regex extracts IP and Port details from PASV command response.
@@ -747,26 +746,41 @@ impl FtpStream {
         self.perform(Command::Pasv)?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
         let response: Response = self.read_response(Status::PassiveMode)?;
-        PORT_RE
+        let caps = PORT_RE
             .captures(&response.body)
-            .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))
-            .and_then(|caps| {
-                // If the regex matches we can be sure groups contains numbers
-                let (oct1, oct2, oct3, oct4) = (
-                    caps[1].parse::<u8>().unwrap(),
-                    caps[2].parse::<u8>().unwrap(),
-                    caps[3].parse::<u8>().unwrap(),
-                    caps[4].parse::<u8>().unwrap(),
-                );
-                let (msb, lsb) = (
-                    caps[5].parse::<u8>().unwrap(),
-                    caps[6].parse::<u8>().unwrap(),
-                );
-                let port = ((msb as u16) << 8) + lsb as u16;
-                let addr = format!("{}.{}.{}.{}:{}", oct1, oct2, oct3, oct4, port);
-                trace!("Passive address: {}", addr);
-                SocketAddr::from_str(&addr).map_err(FtpError::InvalidAddress)
-            })
+            .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
+        // If the regex matches we can be sure groups contains numbers
+        let (oct1, oct2, oct3, oct4) = (
+            caps[1].parse::<u8>().unwrap(),
+            caps[2].parse::<u8>().unwrap(),
+            caps[3].parse::<u8>().unwrap(),
+            caps[4].parse::<u8>().unwrap(),
+        );
+        let (msb, lsb) = (
+            caps[5].parse::<u8>().unwrap(),
+            caps[6].parse::<u8>().unwrap(),
+        );
+        let ip = Ipv4Addr::new(oct1, oct2, oct3, oct4);
+        let port = (u16::from(msb) << 8) | u16::from(lsb);
+        let addr = SocketAddr::new(ip.into(), port);
+        trace!("Passive address: {}", addr);
+        if cfg!(feature = "nat") {
+            if ip.is_private() {
+                let mut remote = self
+                    .reader
+                    .get_ref()
+                    .get_ref()
+                    .peer_addr()
+                    .map_err(FtpError::ConnectionError)?;
+                remote.set_port(port);
+                trace!("Replacing site local address {} with {}", addr, remote);
+                Ok(remote)
+            } else {
+                Ok(addr)
+            }
+        } else {
+            Ok(addr)
+        }
     }
 
     /// Execute a command which returns list of strings in a separate stream
