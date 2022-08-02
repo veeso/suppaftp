@@ -915,7 +915,7 @@ mod test {
     #[async_attributes::test]
     #[cfg(feature = "with-containers")]
     #[serial]
-    fn should_set_passive_nat_workaround() {
+    async fn should_set_passive_nat_workaround() {
         crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
         stream.set_passive_nat_workaround(true);
