@@ -38,6 +38,7 @@ static SIZE_RE: Lazy<Regex> = lazy_regex!(r"\s+(\d+)\s*$");
 pub struct FtpStream {
     reader: BufReader<DataStream>,
     mode: Mode,
+    nat_workaround: bool,
     welcome_msg: Option<String>,
     #[cfg(feature = "secure")]
     tls_ctx: Option<TlsConnector>,
@@ -57,6 +58,7 @@ impl FtpStream {
                 let mut ftp_stream = FtpStream {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
+                    nat_workaround: false,
                     welcome_msg: None,
                 };
                 debug!("Reading server response...");
@@ -82,6 +84,7 @@ impl FtpStream {
                 let mut ftp_stream = FtpStream {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
+                    nat_workaround: false,
                     welcome_msg: None,
                     tls_ctx: None,
                     domain: None,
@@ -108,6 +111,11 @@ impl FtpStream {
     pub fn set_mode(&mut self, mode: Mode) {
         debug!("Changed mode to {:?}", mode);
         self.mode = mode;
+    }
+
+    /// Set NAT workaround for passive mode
+    pub fn set_nat_workaround(&mut self, nat_workaround: bool) {
+        self.nat_workaround = nat_workaround;
     }
 
     /// Switch to explicit secure mode if possible (FTPS), using a provided SSL configuration.
@@ -140,6 +148,7 @@ impl FtpStream {
         let mut secured_ftp_tream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(stream.into())),
             mode: self.mode,
+            nat_workaround: self.nat_workaround,
             tls_ctx: Some(tls_connector),
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
@@ -764,20 +773,16 @@ impl FtpStream {
         let port = (u16::from(msb) << 8) | u16::from(lsb);
         let addr = SocketAddr::new(ip.into(), port);
         trace!("Passive address: {}", addr);
-        if cfg!(feature = "nat") {
-            if ip.is_private() {
-                let mut remote = self
-                    .reader
-                    .get_ref()
-                    .get_ref()
-                    .peer_addr()
-                    .map_err(FtpError::ConnectionError)?;
-                remote.set_port(port);
-                trace!("Replacing site local address {} with {}", addr, remote);
-                Ok(remote)
-            } else {
-                Ok(addr)
-            }
+        if self.nat_workaround && ip.is_private() {
+            let mut remote = self
+                .reader
+                .get_ref()
+                .get_ref()
+                .peer_addr()
+                .map_err(FtpError::ConnectionError)?;
+            remote.set_port(port);
+            trace!("Replacing site local address {} with {}", addr, remote);
+            Ok(remote)
         } else {
             Ok(addr)
         }
