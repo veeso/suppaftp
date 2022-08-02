@@ -56,9 +56,6 @@ secure = ["native-tls"]
 # Disable logging
 no-log = [ "log/max_level_off" ]
 
-# Enable support of FTP servers running behind a NAT/proxy
-nat = []
-
 # Must be enabled whenever testing with docker containers
 with-containers = []
 
