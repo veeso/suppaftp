@@ -26,17 +26,17 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features secure
+          args: --features secure,deprecated
       - name: Build async
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features async
+          args: --features async,deprecated
       - name: Build async-secure
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features async-secure
+          args: --features async-secure,deprecated
       - name: Build suppaftp-cli
         uses: actions-rs/cargo@v1
         with:

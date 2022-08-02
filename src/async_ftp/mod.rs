@@ -183,6 +183,7 @@ impl FtpStream {
                 FtpStream {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
+                    nat_workaround: false,
                     welcome_msg: None,
                     tls_ctx: None,
                     domain: None,
@@ -198,6 +199,7 @@ impl FtpStream {
         let mut stream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(stream.into())),
             mode: Mode::Passive,
+            nat_workaround: false,
             tls_ctx: Some(tls_connector),
             domain: Some(String::from(domain)),
             welcome_msg: None,
@@ -232,7 +234,7 @@ impl FtpStream {
     }
 
     /// Set NAT workaround for passive mode
-    pub fn set_nat_workaround(&mut self, nat_workaround: bool) {
+    pub fn set_passive_nat_workaround(&mut self, nat_workaround: bool) {
         self.nat_workaround = nat_workaround;
     }
 
@@ -907,6 +909,17 @@ mod test {
             stream.get_welcome_msg().unwrap(),
             "220 You will be disconnected after 15 minutes of inactivity."
         );
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    #[serial]
+    fn should_set_passive_nat_workaround() {
+        crate::log_init();
+        let mut stream: FtpStream = setup_stream().await;
+        stream.set_passive_nat_workaround();
+        assert!(stream.nat_workaround);
         finalize_stream(stream).await;
     }
 
