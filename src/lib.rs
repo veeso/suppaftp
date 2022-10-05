@@ -76,7 +76,7 @@
 //!
 //! let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
 //! // Switch to the secure mode
-//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().unwrap(), "test.rebex.net").unwrap();
+//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().unwrap().into(), "test.rebex.net").unwrap();
 //! ftp_stream.login("demo", "password").unwrap();
 //! // Do other secret stuff
 //! // Switch back to the insecure mode (if required)
@@ -99,7 +99,7 @@
 //!
 //! let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
 //! // Switch to the secure mode
-//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new(), "test.rebex.net").await.unwrap();
+//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().into(), "test.rebex.net").await.unwrap();
 //! ftp_stream.login("demo", "password").await.unwrap();
 //! // Do other secret stuff
 //! // Do all public stuff
@@ -134,11 +134,13 @@ pub mod list;
 pub mod types;
 
 // -- secure deps
-#[cfg(feature = "secure")]
-pub extern crate native_tls;
+#[cfg(feature = "native-tls")]
+pub extern crate native_tls_crate as native_tls;
+#[cfg(feature = "rustls")]
+pub extern crate rustls_crate as rustls;
 // -- async deps
-#[cfg(feature = "async-secure")]
-pub extern crate async_native_tls;
+#[cfg(feature = "async-native-tls")]
+pub extern crate async_native_tls_crate as async_native_tls;
 
 // -- export async
 #[cfg(any(feature = "async", feature = "async-secure"))]
@@ -146,6 +148,9 @@ pub use async_ftp::FtpStream;
 // -- export sync
 #[cfg(not(any(feature = "async", feature = "async-secure")))]
 pub use sync_ftp::FtpStream;
+// -- export secure
+#[cfg(feature = "secure")]
+pub use sync_ftp::TlsConnector;
 // -- export (common)
 pub use status::Status;
 pub use types::{FtpError, FtpResult, Mode};

@@ -3,6 +3,8 @@
 //! This module contains the definition for all async implementation of suppaftp
 
 mod data_stream;
+#[cfg(feature = "async-secure")]
+mod tls;
 
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
 use super::Status;
@@ -10,9 +12,9 @@ use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
 use data_stream::DataStream;
-
 #[cfg(feature = "async-secure")]
-use async_native_tls::TlsConnector;
+use tls::TlsConnector;
+
 use async_std::io::{copy, BufReader, Read, Write};
 use async_std::net::ToSocketAddrs;
 use async_std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
@@ -133,7 +135,7 @@ impl FtpStream {
             .await
             .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
         let mut secured_ftp_tream = FtpStream {
-            reader: BufReader::new(DataStream::Ssl(stream)),
+            reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
             nat_workaround: self.nat_workaround,
             tls_ctx: Some(tls_connector),
@@ -625,7 +627,7 @@ impl FtpStream {
             Some(ref tls_ctx) => tls_ctx
                 .connect(self.domain.as_ref().unwrap(), stream)
                 .await
-                .map(DataStream::Ssl)
+                .map(|x| DataStream::Ssl(Box::new(x)))
                 .map_err(|e| FtpError::SecureError(format!("{}", e))),
             None => Ok(DataStream::Tcp(stream)),
         }
@@ -802,6 +804,10 @@ mod test {
     #[cfg(feature = "with-containers")]
     use crate::types::FormatControl;
 
+    #[cfg(feature = "async-native-tls")]
+    use async_native_tls::TlsConnector as NativeTlsConnector;
+    #[cfg(feature = "async-rustls")]
+    use async_tls::TlsConnector as RustlsTlsConnector;
     #[cfg(any(feature = "with-containers", feature = "async-secure"))]
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
@@ -819,70 +825,82 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "async-secure")]
+    #[cfg(feature = "async-native-tls")]
     #[serial]
-    async fn should_connect_ssl() {
+    async fn should_connect_ssl_native_tls() {
         crate::log_init();
         let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
         let mut ftp_stream = ftp_stream
-            .into_secure(TlsConnector::new(), "test.rebex.net")
+            .into_secure(NativeTlsConnector::new().into(), "test.rebex.net")
             .await
-            .ok()
             .unwrap();
         // Set timeout (to test ref to ssl)
         assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
         // Login
         assert!(ftp_stream.login("demo", "password").await.is_ok());
         // PWD
-        assert_eq!(ftp_stream.pwd().await.ok().unwrap().as_str(), "/");
+        assert_eq!(ftp_stream.pwd().await.unwrap().as_str(), "/");
         // Quit
         assert!(ftp_stream.quit().await.is_ok());
     }
 
     #[async_attributes::test]
     #[serial]
-    #[cfg(all(feature = "async-secure", feature = "deprecated"))]
-    async fn should_connect_ssl_implicit() {
+    #[cfg(all(feature = "async-native-tls", feature = "deprecated"))]
+    async fn should_connect_ssl_implicit_native_tls() {
         crate::log_init();
         let mut ftp_stream = FtpStream::connect_secure_implicit(
             "test.rebex.net:990",
-            TlsConnector::new(),
+            NativeTlsConnector::new().into(),
             "test.rebex.net",
         )
         .await
-        .ok()
         .unwrap();
         // Set timeout (to test ref to ssl)
         assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
         // Login
         assert!(ftp_stream.login("demo", "password").await.is_ok());
         // PWD
-        assert_eq!(ftp_stream.pwd().await.ok().unwrap().as_str(), "/");
+        assert_eq!(ftp_stream.pwd().await.unwrap().as_str(), "/");
         // Quit
         assert!(ftp_stream.quit().await.is_ok());
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "async-secure")]
+    #[cfg(feature = "async-native-tls")]
     #[serial]
-    async fn should_work_after_clear_command_channel() {
+    async fn should_work_after_clear_command_channel_native_tls() {
         crate::log_init();
         let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
             .await
             .unwrap()
-            .into_secure(TlsConnector::new(), "test.rebex.net")
+            .into_secure(NativeTlsConnector::new().into(), "test.rebex.net")
             .await
-            .ok()
             .unwrap()
             .clear_command_channel()
             .await
-            .ok()
             .unwrap();
         // Login
         assert!(ftp_stream.login("demo", "password").await.is_ok());
         // CCC
         assert!(ftp_stream.pwd().await.is_ok());
         assert!(ftp_stream.list(None).await.is_ok());
+        assert!(ftp_stream.quit().await.is_ok());
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "async-rustls")]
+    #[serial]
+    async fn should_connect_ssl_rustls() {
+        crate::log_init();
+        let ftp_stream = FtpStream::connect("ftp.uni-bayreuth.de:21").await.unwrap();
+        let mut ftp_stream = ftp_stream
+            .into_secure(RustlsTlsConnector::new().into(), "ftp.uni-bayreuth.de")
+            .await
+            .unwrap();
+        // Set timeout (to test ref to ssl)
+        assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
+        // Quit
         assert!(ftp_stream.quit().await.is_ok());
     }
 
@@ -939,9 +957,9 @@ mod test {
     async fn change_wrkdir() {
         crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
-        let wrkdir: String = stream.pwd().await.ok().unwrap();
+        let wrkdir: String = stream.pwd().await.unwrap();
         assert!(stream.cwd("/").await.is_ok());
-        assert_eq!(stream.pwd().await.ok().unwrap().as_str(), "/");
+        assert_eq!(stream.pwd().await.unwrap().as_str(), "/");
         assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
         finalize_stream(stream).await;
     }
@@ -952,9 +970,9 @@ mod test {
     async fn cd_up() {
         crate::log_init();
         let mut stream: FtpStream = setup_stream().await;
-        let wrkdir: String = stream.pwd().await.ok().unwrap();
+        let wrkdir: String = stream.pwd().await.unwrap();
         assert!(stream.cdup().await.is_ok());
-        assert_eq!(stream.pwd().await.ok().unwrap().as_str(), "/");
+        assert_eq!(stream.pwd().await.unwrap().as_str(), "/");
         assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
         finalize_stream(stream).await;
     }
@@ -1021,7 +1039,7 @@ mod test {
         let mut reader = Cursor::new(file_data.as_bytes());
         assert!(stream.append_file("test.txt", &mut reader).await.is_ok());
         // Read file
-        let mut reader = stream.retr_as_stream("test.txt").await.ok().unwrap();
+        let mut reader = stream.retr_as_stream("test.txt").await.unwrap();
         let mut buffer = Vec::new();
         assert!(reader.read_to_end(&mut buffer).await.is_ok());
         // Verify file matches
@@ -1029,16 +1047,13 @@ mod test {
         // Finalize
         assert!(stream.finalize_retr_stream(reader).await.is_ok());
         // Get size
-        assert_eq!(stream.size("test.txt").await.ok().unwrap(), 20);
+        assert_eq!(stream.size("test.txt").await.unwrap(), 20);
         // Size of non-existing file
         assert!(stream.size("omarone.txt").await.is_err());
         // List directory
-        assert_eq!(stream.list(None).await.ok().unwrap().len(), 1);
+        assert_eq!(stream.list(None).await.unwrap().len(), 1);
         // list names
-        assert_eq!(
-            stream.nlst(None).await.ok().unwrap().as_slice(),
-            &["test.txt"]
-        );
+        assert_eq!(stream.nlst(None).await.unwrap().as_slice(), &["test.txt"]);
         // modification time
         assert!(stream.mdtm("test.txt").await.is_ok());
         // Remove file
@@ -1051,7 +1066,7 @@ mod test {
         assert!(stream.rename("test.txt", "toast.txt").await.is_ok());
         assert!(stream.rm("toast.txt").await.is_ok());
         // List directory again
-        assert_eq!(stream.list(None).await.ok().unwrap().len(), 0);
+        assert_eq!(stream.list(None).await.unwrap().len(), 0);
         finalize_stream(stream).await;
     }
 
@@ -1066,12 +1081,11 @@ mod test {
         // cleanup
         let _ = stream.rm("test.bin").await;
         // put as stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").await.ok().unwrap();
+        let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
         assert_eq!(
             transfer_stream
                 .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
                 .await
-                .ok()
                 .unwrap(),
             5
         );
@@ -1094,14 +1108,13 @@ mod test {
         // Set transfer type to Binary
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
         // get dir
-        let wrkdir = stream.pwd().await.ok().unwrap();
+        let wrkdir = stream.pwd().await.unwrap();
         // put as stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").await.ok().unwrap();
+        let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
         assert_eq!(
             transfer_stream
                 .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
                 .await
-                .ok()
                 .unwrap(),
             5
         );
@@ -1118,19 +1131,18 @@ mod test {
         // Resume transfer
         assert!(stream.resume_transfer(5).await.is_ok());
         // Reopen stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").await.ok().unwrap();
+        let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
         assert_eq!(
             transfer_stream
                 .write(&[0x05, 0x06, 0x07, 0x08, 0x09, 0x0a])
                 .await
-                .ok()
                 .unwrap(),
             6
         );
         // Finalize
         assert!(stream.finalize_put_stream(transfer_stream).await.is_ok());
         // Get size
-        assert_eq!(stream.size("test.bin").await.ok().unwrap(), 11);
+        assert_eq!(stream.size("test.bin").await.unwrap(), 11);
         // Remove file
         assert!(stream.rm("test.bin").await.is_ok());
         // Drop stream
@@ -1156,7 +1168,7 @@ mod test {
     async fn finalize_stream(mut stream: FtpStream) {
         crate::log_init();
         // Get working directory
-        let wrkdir: String = stream.pwd().await.ok().unwrap();
+        let wrkdir: String = stream.pwd().await.unwrap();
         // Remove directory
         assert!(stream.rmdir(wrkdir.as_str()).await.is_ok());
         assert!(stream.quit().await.is_ok());

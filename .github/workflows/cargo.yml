@@ -22,36 +22,56 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-      - name: Build secure
+      - name: Build secure (native-tls)
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features secure,deprecated
+          args: --features native-tls,deprecated
+      - name: Build secure (rustls)
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --features rustls,deprecated
       - name: Build async
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --features async,deprecated
-      - name: Build async-secure
+      - name: Build async-native-tls
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features async-secure,deprecated
+          args: --features async-native-tls,deprecated
       - name: Build suppaftp-cli
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features secure --features cli-bin --bin suppaftp
-      - name: Run tests
+          args: --features native-tls --features cli-bin --bin suppaftp
+      - name: Run tests (native-tls)
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --lib --no-default-features --features secure,async-secure,with-containers --no-fail-fast
+          args: --lib --no-default-features --features native-tls,async-native-tls,with-containers --no-fail-fast
+        env:
+          RUST_LOG: trace
+      - name: Run tests (rustls)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --lib --no-default-features --features rustls,async-rustls,with-containers --no-fail-fast
         env:
           RUST_LOG: trace
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Clippy without secure
-        run: cargo clippy --features async -- -Dwarnings
-      - name: Clippy with secure feature
-        run: cargo clippy --features secure --features async-secure -- -Dwarnings
+      - name: Clippy
+        run: cargo clippy --features deprecated -- -Dwarnings
+      - name: Clippy (async)
+        run: cargo clippy --features async,deprecated -- -Dwarnings
+      - name: Clippy (native-tls)
+        run: cargo clippy --features native-tls,deprecated -- -Dwarnings
+      - name: Clippy (async-native-tls)
+        run: cargo clippy --features async-native-tls,deprecated -- -Dwarnings
+      - name: Clippy (rustls)
+        run: cargo clippy --features rustls,deprecated -- -Dwarnings
+      - name: Clippy (async-rustls)
+        run: cargo clippy --features async-rustls,deprecated -- -Dwarnings

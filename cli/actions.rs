@@ -60,7 +60,7 @@ pub fn connect(remote: &str, secure: bool) -> Option<FtpStream> {
         };
         // Get address without port
         let address: &str = remote.split(':').next().unwrap();
-        stream = match stream.into_secure(ctx, address) {
+        stream = match stream.into_secure(ctx.into(), address) {
             Ok(s) => s,
             Err(err) => {
                 eprintln!("Failed to setup TLS stream: {}", err);

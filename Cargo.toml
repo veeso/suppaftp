@@ -27,12 +27,15 @@ lazy-regex = "^2.3.0"
 log = "^0.4.0"
 thiserror = "^1.0.0"
 # async
-async-std = { version = "^1.10.0", optional = true }
-async-native-tls = { version = "^0.4.0", optional = true }
-native-tls = { version = "^0.2", optional = true }
-pin-project = { version = "^1.0.8", optional = true }
+async-std = { version = "^1.10", optional = true }
+async-native-tls-crate = { package = "async-native-tls", version = "^0.4", optional = true }
+async-tls = { version = "^0.11", optional = true }
+pin-project = { version = "^1", optional = true }
+# secure
+native-tls-crate = { package = "native-tls", version = "^0.2", optional = true }
+rustls-crate = { package = "rustls", version = "^0.20", optional = true }
 # cli-bin
-env_logger = { version = "^0.9.0", optional = true }
+env_logger = { version = "^0.9", optional = true }
 rpassword = { version = "5.0.1", optional = true }
 
 [dev-dependencies]
@@ -41,17 +44,24 @@ env_logger = "^0.9.0"
 pretty_assertions = "^1.0.0"
 rand = "^0.8.4"
 serial_test = "^0.8.0"
+webpki-roots = "0.22.5"
 
 [features]
 # Enable async support for suppaftp
 async = ["async-std", "pin-project"]
-async-secure = ["async-std", "async-native-tls", "pin-project"]
+async-default-tls = [ "async-native-tls" ]
+async-native-tls = [ "async-native-tls-crate", "async-secure" ]
+async-rustls = [ "async-tls", "async-secure" ]
+async-secure = [ "async" ]
 
 # Enable deprecated FTP/FTPS methods
 deprecated = []
 
-# Enable support of FTPS which requires native-tls (openssl is required on Linux)
-secure = ["native-tls"]
+# Enable support for FTPS which requires native-tls (openssl is required on Linux) or RustTLS
+default-tls = [ "native-tls" ]
+native-tls = [ "native-tls-crate", "secure" ]
+rustls = [ "rustls-crate", "secure" ]
+secure = []
 
 # Disable logging
 no-log = [ "log/max_level_off" ]
