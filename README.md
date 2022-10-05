@@ -69,7 +69,9 @@
       - [Async support](#async-support)
       - [Deprecated methods](#deprecated-methods)
       - [Logging](#logging)
-    - [Example 📚](#example-)
+    - [Examples 📚](#examples-)
+      - [Ftp with TLS (native-tls)](#ftp-with-tls-native-tls)
+      - [Ftp with TLS (rustls)](#ftp-with-tls-rustls)
       - [Going Async](#going-async)
   - [Built-in CLI client 🖥️](#built-in-cli-client-️)
   - [Support the developer ☕](#support-the-developer-)
@@ -113,11 +115,15 @@ suppaftp = "^4.4.0"
 
 #### SSL/TLS Support
 
-If you want to enable **support for FTPS**, you must enable the `secure` feature in your cargo dependencies. FTPS support is achieved through [rust-native-tls](https://github.com/sfackler/rust-native-tls), so check if your target systems are compatible.
+If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 
 ```toml
-suppaftp = { version = "^4.4.0", features = ["secure"] }
+suppaftp = { version = "^4.4.0", features = ["native-tls"] }
+# or
+suppaftp = { version = "^4.4.0", features = ["rustls"] }
 ```
+
+> 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
 
 #### Async support
 
@@ -127,7 +133,8 @@ If you want to enable **async** support, you must enable `async` feature in your
 suppaftp = { version = "^4.4.0", features = ["async"] }
 ```
 
-⚠️ If you want to enable both **secure** and **async** you must use the **async-secure** feature ⚠️
+> ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️
+> ⚠️ If you want to enable both **rustls** and **async** you must use the **async-rustls** feature ⚠️
 
 #### Deprecated methods
 
@@ -142,11 +149,9 @@ This feature enables these methods:
 By default, the library will log if there is any `log` crate consumer on the user implementation.
 Logging can be if preferred, disabled via the `no-log` feature.
 
-### Example 📚
+### Examples 📚
 
 ```rust
-extern crate suppaftp;
-
 use std::str;
 use std::io::Cursor;
 use suppaftp::FtpStream;
@@ -176,6 +181,57 @@ fn main() {
 }
 ```
 
+#### Ftp with TLS (native-tls)
+
+```rust
+use std::str;
+use std::io::Cursor;
+use suppaftp::{FtpStream};
+use suppaftp::native_tls::TlsConnector;
+
+fn main() {
+    // Create a connection to an FTP server and authenticate to it.
+    let mut ftp_stream = FtpStream::connect("127.0.0.1:21")
+        .into_secure(NativeTlsConnector::new().unwrap().into(), "domain-name")
+        .unwrap();
+    // Terminate the connection to the server.
+    let _ = ftp_stream.quit();
+}
+```
+
+#### Ftp with TLS (rustls)
+
+```rust
+use std::str;
+use std::io::Cursor;
+use std::sync::Arc;
+use suppaftp::{FtpStream};
+use suppaftp::rustls::ClientConfig;
+
+fn main() {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+    let config = ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    // Create a connection to an FTP server and authenticate to it.
+    let config = Arc::new(rustls_config());
+    let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
+        .unwrap()
+        .into_secure(Arc::clone(&config).into(), "test.rebex.net")
+        .unwrap();
+    // Terminate the connection to the server.
+    let _ = ftp_stream.quit();
+}
+```
+
 #### Going Async
 
 ```rust
@@ -183,7 +239,7 @@ use suppaftp::FtpStream;
 use suppaftp::async_native_tls::{TlsConnector, TlsStream};
 let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
 // Switch to the secure mode
-let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new(), "test.rebex.net").await.unwrap();
+let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().into(), "test.rebex.net").await.unwrap();
 ftp_stream.login("demo", "password").await.unwrap();
 // Do other secret stuff
 // Do all public stuff

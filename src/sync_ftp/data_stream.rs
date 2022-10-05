@@ -3,7 +3,8 @@
 //! This module exposes the data stream where bytes must be written to/read from
 
 #[cfg(feature = "secure")]
-use native_tls::TlsStream;
+use super::tls::TlsStream;
+
 use std::io::{Read, Result, Write};
 use std::net::TcpStream;
 
@@ -12,7 +13,7 @@ use std::net::TcpStream;
 pub enum DataStream {
     Tcp(TcpStream),
     #[cfg(feature = "secure")]
-    Ssl(TlsStreamWrapper),
+    Ssl(Box<TlsStream>),
 }
 
 #[cfg(feature = "secure")]
@@ -63,66 +64,6 @@ impl Write for DataStream {
             DataStream::Tcp(ref mut stream) => stream.flush(),
             #[cfg(feature = "secure")]
             DataStream::Ssl(ref mut stream) => stream.mut_ref().flush(),
-        }
-    }
-}
-
-// -- tls stream wrapper to implement drop...
-
-#[cfg(feature = "secure")]
-#[derive(Debug)]
-/// Tls stream wrapper. This type is a garbage data type used to impl the drop trait for the tls stream.
-/// This allows me to keep returning `Read` and `Write` traits in stream methods
-pub struct TlsStreamWrapper {
-    stream: TlsStream<TcpStream>,
-    ssl_shutdown: bool,
-}
-
-#[cfg(feature = "secure")]
-impl TlsStreamWrapper {
-    /// Get underlying tcp stream
-    pub(crate) fn tcp_stream(mut self) -> TcpStream {
-        let mut stream = self.stream.get_ref().try_clone().unwrap();
-        // Don't perform shutdown later
-        self.ssl_shutdown = false;
-        // flush stream (otherwise can cause bad chars on channel)
-        if let Err(err) = stream.flush() {
-            error!("Error in flushing tcp stream: {}", err);
-        }
-        trace!("TLS stream terminated");
-        stream
-    }
-
-    /// Get ref to underlying tcp stream
-    pub(crate) fn get_ref(&self) -> &TcpStream {
-        self.stream.get_ref()
-    }
-
-    /// Get mutable reference to tls stream
-    pub(crate) fn mut_ref(&mut self) -> &mut TlsStream<TcpStream> {
-        &mut self.stream
-    }
-}
-
-#[cfg(feature = "secure")]
-impl From<TlsStream<TcpStream>> for TlsStreamWrapper {
-    fn from(stream: TlsStream<TcpStream>) -> Self {
-        Self {
-            stream,
-            ssl_shutdown: true,
-        }
-    }
-}
-
-#[cfg(feature = "secure")]
-impl Drop for TlsStreamWrapper {
-    fn drop(&mut self) {
-        if self.ssl_shutdown {
-            if let Err(err) = self.stream.shutdown() {
-                error!("Failed to shutdown stream: {}", err);
-            } else {
-                debug!("TLS Stream shut down");
-            }
         }
     }
 }

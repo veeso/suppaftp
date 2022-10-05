@@ -3,6 +3,7 @@
 //! This module contains the definition for all Sync implementation of suppaftp
 
 mod data_stream;
+mod tls;
 
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
 use super::Status;
@@ -12,16 +13,17 @@ use crate::command::ProtectionLevel;
 use data_stream::DataStream;
 
 #[cfg(feature = "secure")]
-use data_stream::TlsStreamWrapper;
+use tls::TlsStream;
 
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
 use lazy_regex::{Lazy, Regex};
-#[cfg(feature = "secure")]
-use native_tls::TlsConnector;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::string::String;
+
+#[cfg(feature = "secure")]
+pub use tls::TlsConnector;
 
 // This regex extracts IP and Port details from PASV command response.
 // The regex looks for the pattern (h1,h2,h3,h4,p1,p2).
@@ -146,7 +148,7 @@ impl FtpStream {
             .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
         debug!("TLS Steam OK");
         let mut secured_ftp_tream = FtpStream {
-            reader: BufReader::new(DataStream::Ssl(stream.into())),
+            reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
             nat_workaround: self.nat_workaround,
             tls_ctx: Some(tls_connector),
@@ -206,7 +208,7 @@ impl FtpStream {
             .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
         debug!("TLS Steam OK");
         let mut stream = FtpStream {
-            reader: BufReader::new(DataStream::Ssl(stream.into())),
+            reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: Mode::Passive,
             nat_workaround: false,
             tls_ctx: Some(tls_connector),
@@ -543,7 +545,7 @@ impl FtpStream {
     /// use suppaftp::list::File;
     ///
     /// let file: File = File::from_str("-rw-rw-r-- 1 0  1  8192 Nov 5 2018 omar.txt")
-    ///     .ok()
+    ///     
     ///     .unwrap();
     /// ```
     pub fn list(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
@@ -717,8 +719,8 @@ impl FtpStream {
         match self.tls_ctx {
             Some(ref tls_ctx) => tls_ctx
                 .connect(self.domain.as_ref().unwrap(), stream)
-                .map(TlsStreamWrapper::from)
-                .map(DataStream::Ssl)
+                .map(TlsStream::from)
+                .map(|x| DataStream::Ssl(Box::new(x)))
                 .map_err(|e| FtpError::SecureError(format!("{}", e))),
             None => Ok(DataStream::Tcp(stream)),
         }
@@ -734,9 +736,8 @@ impl FtpStream {
 
         let ip = match self.reader.get_mut() {
             DataStream::Tcp(stream) => stream.local_addr().unwrap().ip(),
-
             #[cfg(feature = "secure")]
-            DataStream::Ssl(stream) => stream.mut_ref().get_mut().local_addr().unwrap().ip(),
+            DataStream::Ssl(stream) => stream.get_ref().local_addr().unwrap().ip(),
         };
 
         let msb = addr.port() / 256;
@@ -808,12 +809,17 @@ mod test {
     #[cfg(feature = "with-containers")]
     use crate::types::FormatControl;
 
+    #[cfg(feature = "native-tls")]
+    use native_tls::TlsConnector as NativeTlsConnector;
     #[cfg(any(feature = "with-containers", feature = "secure"))]
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
-
+    #[cfg(feature = "rustls")]
+    use rustls::ClientConfig;
     use serial_test::serial;
+    #[cfg(feature = "rustls")]
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[test]
@@ -826,13 +832,12 @@ mod test {
 
     #[test]
     #[serial]
-    #[cfg(feature = "secure")]
-    fn should_connect_ssl() {
+    #[cfg(feature = "native-tls")]
+    fn should_connect_ssl_native_tls() {
         crate::log_init();
         let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
         let mut ftp_stream = ftp_stream
-            .into_secure(TlsConnector::new().unwrap(), "test.rebex.net")
-            .ok()
+            .into_secure(NativeTlsConnector::new().unwrap().into(), "test.rebex.net")
             .unwrap();
         // Set timeout (to test ref to ssl)
         assert!(ftp_stream
@@ -842,23 +847,21 @@ mod test {
         // Login
         assert!(ftp_stream.login("demo", "password").is_ok());
         // PWD
-        assert_eq!(ftp_stream.pwd().ok().unwrap().as_str(), "/");
+        assert_eq!(ftp_stream.pwd().unwrap().as_str(), "/");
         // Quit
         assert!(ftp_stream.quit().is_ok());
     }
 
     #[test]
     #[serial]
-    #[cfg(feature = "secure")]
-    fn should_work_after_clear_command_channel() {
+    #[cfg(feature = "native-tls")]
+    fn should_work_after_clear_command_channel_native_tls() {
         crate::log_init();
         let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
             .unwrap()
-            .into_secure(TlsConnector::new().unwrap(), "test.rebex.net")
-            .ok()
+            .into_secure(NativeTlsConnector::new().unwrap().into(), "test.rebex.net")
             .unwrap()
             .clear_command_channel()
-            .ok()
             .unwrap();
         // Login
         assert!(ftp_stream.login("demo", "password").is_ok());
@@ -870,15 +873,14 @@ mod test {
 
     #[test]
     #[serial]
-    #[cfg(all(feature = "secure", feature = "deprecated"))]
-    fn should_connect_ssl_implicit() {
+    #[cfg(all(feature = "native-tls", feature = "deprecated"))]
+    fn should_connect_ssl_implicit_native_tls() {
         crate::log_init();
         let mut ftp_stream = FtpStream::connect_secure_implicit(
             "test.rebex.net:990",
-            TlsConnector::new().unwrap(),
+            NativeTlsConnector::new().unwrap().into(),
             "test.rebex.net",
         )
-        .ok()
         .unwrap();
         // Set timeout (to test ref to ssl)
         assert!(ftp_stream
@@ -888,7 +890,21 @@ mod test {
         // Login
         assert!(ftp_stream.login("demo", "password").is_ok());
         // PWD
-        assert_eq!(ftp_stream.pwd().ok().unwrap().as_str(), "/");
+        assert_eq!(ftp_stream.pwd().unwrap().as_str(), "/");
+        // Quit
+        assert!(ftp_stream.quit().is_ok());
+    }
+
+    #[test]
+    #[serial]
+    #[cfg(feature = "rustls")]
+    fn should_connect_ssl_rustls() {
+        crate::log_init();
+        let config = Arc::new(rustls_config());
+        let mut ftp_stream = FtpStream::connect("ftp.uni-bayreuth.de:21")
+            .unwrap()
+            .into_secure(Arc::clone(&config).into(), "ftp.uni-bayreuth.de")
+            .unwrap();
         // Quit
         assert!(ftp_stream.quit().is_ok());
     }
@@ -948,9 +964,9 @@ mod test {
     fn change_wrkdir() {
         crate::log_init();
         let mut stream: FtpStream = setup_stream();
-        let wrkdir: String = stream.pwd().ok().unwrap();
+        let wrkdir: String = stream.pwd().unwrap();
         assert!(stream.cwd("/").is_ok());
-        assert_eq!(stream.pwd().ok().unwrap().as_str(), "/");
+        assert_eq!(stream.pwd().unwrap().as_str(), "/");
         assert!(stream.cwd(wrkdir.as_str()).is_ok());
         finalize_stream(stream);
     }
@@ -961,9 +977,9 @@ mod test {
     fn cd_up() {
         crate::log_init();
         let mut stream: FtpStream = setup_stream();
-        let wrkdir: String = stream.pwd().ok().unwrap();
+        let wrkdir: String = stream.pwd().unwrap();
         assert!(stream.cdup().is_ok());
-        assert_eq!(stream.pwd().ok().unwrap().as_str(), "/");
+        assert_eq!(stream.pwd().unwrap().as_str(), "/");
         assert!(stream.cwd(wrkdir.as_str()).is_ok());
         finalize_stream(stream);
     }
@@ -1028,18 +1044,17 @@ mod test {
             stream
                 .retr_as_buffer("test.txt")
                 .map(|bytes| bytes.into_inner())
-                .ok()
                 .unwrap(),
             file_data.as_bytes()
         );
         // Get size
-        assert_eq!(stream.size("test.txt").ok().unwrap(), 10);
+        assert_eq!(stream.size("test.txt").unwrap(), 10);
         // Size of non-existing file
         assert!(stream.size("omarone.txt").is_err());
         // List directory
-        assert_eq!(stream.list(None).ok().unwrap().len(), 1);
+        assert_eq!(stream.list(None).unwrap().len(), 1);
         // list names
-        assert_eq!(stream.nlst(None).ok().unwrap().as_slice(), &["test.txt"]);
+        assert_eq!(stream.nlst(None).unwrap().as_slice(), &["test.txt"]);
         // modification time
         assert!(stream.mdtm("test.txt").is_ok());
         // Remove file
@@ -1053,7 +1068,7 @@ mod test {
         let mut reader = Cursor::new(file_data.as_bytes());
         assert!(stream.append_file("test.txt", &mut reader).is_ok());
         // Read file
-        let mut reader = stream.retr_as_stream("test.txt").ok().unwrap();
+        let mut reader = stream.retr_as_stream("test.txt").unwrap();
         let mut buffer = Vec::new();
         assert!(reader.read_to_end(&mut buffer).is_ok());
         // Finalize
@@ -1064,7 +1079,7 @@ mod test {
         assert!(stream.rename("test.txt", "toast.txt").is_ok());
         assert!(stream.rm("toast.txt").is_ok());
         // List directory again
-        assert_eq!(stream.list(None).ok().unwrap().len(), 0);
+        assert_eq!(stream.list(None).unwrap().len(), 0);
         finalize_stream(stream);
     }
 
@@ -1077,11 +1092,10 @@ mod test {
         // Set transfer type to Binary
         assert!(stream.transfer_type(FileType::Binary).is_ok());
         // put as stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").ok().unwrap();
+        let mut transfer_stream = stream.put_with_stream("test.bin").unwrap();
         assert_eq!(
             transfer_stream
                 .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
-                .ok()
                 .unwrap(),
             5
         );
@@ -1103,13 +1117,12 @@ mod test {
         // Set transfer type to Binary
         assert!(stream.transfer_type(FileType::Binary).is_ok());
         // get dir
-        let wrkdir = stream.pwd().ok().unwrap();
+        let wrkdir = stream.pwd().unwrap();
         // put as stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").ok().unwrap();
+        let mut transfer_stream = stream.put_with_stream("test.bin").unwrap();
         assert_eq!(
             transfer_stream
                 .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
-                .ok()
                 .unwrap(),
             5
         );
@@ -1126,18 +1139,17 @@ mod test {
         // Resume transfer
         assert!(stream.resume_transfer(5).is_ok());
         // Reopen stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").ok().unwrap();
+        let mut transfer_stream = stream.put_with_stream("test.bin").unwrap();
         assert_eq!(
             transfer_stream
                 .write(&[0x05, 0x06, 0x07, 0x08, 0x09, 0x0a])
-                .ok()
                 .unwrap(),
             6
         );
         // Finalize
         assert!(stream.finalize_put_stream(transfer_stream).is_ok());
         // Get size
-        assert_eq!(stream.size("test.bin").ok().unwrap(), 11);
+        assert_eq!(stream.size("test.bin").unwrap(), 11);
         // Remove file
         assert!(stream.rm("test.bin").is_ok());
         // Drop stream
@@ -1161,7 +1173,7 @@ mod test {
     #[cfg(feature = "with-containers")]
     fn finalize_stream(mut stream: FtpStream) {
         // Get working directory
-        let wrkdir: String = stream.pwd().ok().unwrap();
+        let wrkdir: String = stream.pwd().unwrap();
         // Remove directory
         assert!(stream.rmdir(wrkdir.as_str()).is_ok());
         assert!(stream.quit().is_ok());
@@ -1176,5 +1188,21 @@ mod test {
             .take(5)
             .collect();
         format!("temp_{}", name)
+    }
+
+    #[cfg(feature = "rustls")]
+    fn rustls_config() -> ClientConfig {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        }));
+        ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
     }
 }
