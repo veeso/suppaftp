@@ -162,6 +162,9 @@ pub extern crate async_native_tls_crate as async_native_tls;
 // -- export async
 #[cfg(any(feature = "async", feature = "async-secure"))]
 pub use async_ftp::FtpStream;
+// -- export async secure
+#[cfg(feature = "async-secure")]
+pub use async_ftp::TlsConnector;
 // -- export sync
 #[cfg(not(any(feature = "async", feature = "async-secure")))]
 pub use sync_ftp::FtpStream;
