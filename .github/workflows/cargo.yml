@@ -8,70 +8,65 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v2
-      - name: Setup containers
-        run: docker-compose -f "tests/docker-compose.yml" up -d --build
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: rustfmt, clippy
+      - name: Setup containers
+        run: docker-compose -f "tests/docker-compose.yml" up -d --build
       - name: Build simple
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --package suppaftp
       - name: Build secure (native-tls)
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features native-tls,deprecated
+          args: --features native-tls,deprecated --package suppaftp
       - name: Build secure (rustls)
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features rustls,deprecated
+          args: --features rustls,deprecated --package suppaftp
       - name: Build async
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features async,deprecated
+          args: --features async,deprecated --package suppaftp
       - name: Build async-native-tls
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features async-native-tls,deprecated
-      - name: Build suppaftp-cli
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --features native-tls --features cli-bin --bin suppaftp
+          args: --features async-native-tls,deprecated --package suppaftp
       - name: Run tests (native-tls)
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --lib --no-default-features --features native-tls,async-native-tls,with-containers --no-fail-fast
+          args: --lib --package suppaftp --no-default-features --features native-tls,async-native-tls,with-containers --no-fail-fast
         env:
           RUST_LOG: trace
       - name: Run tests (rustls)
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --lib --no-default-features --features rustls,async-rustls,with-containers --no-fail-fast
+          args: --lib --package suppaftp --no-default-features --features rustls,async-rustls,with-containers --no-fail-fast
         env:
           RUST_LOG: trace
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --features deprecated -- -Dwarnings
+        run: cargo clippy --package suppaftp --features deprecated -- -Dwarnings
       - name: Clippy (async)
-        run: cargo clippy --features async,deprecated -- -Dwarnings
+        run: cargo clippy --package suppaftp --features async,deprecated -- -Dwarnings
       - name: Clippy (native-tls)
-        run: cargo clippy --features native-tls,deprecated -- -Dwarnings
+        run: cargo clippy --package suppaftp --features native-tls,deprecated -- -Dwarnings
       - name: Clippy (async-native-tls)
-        run: cargo clippy --features async-native-tls,deprecated -- -Dwarnings
+        run: cargo clippy --package suppaftp --features async-native-tls,deprecated -- -Dwarnings
       - name: Clippy (rustls)
-        run: cargo clippy --features rustls,deprecated -- -Dwarnings
+        run: cargo clippy --package suppaftp --features rustls,deprecated -- -Dwarnings
       - name: Clippy (async-rustls)
-        run: cargo clippy --features async-rustls,deprecated -- -Dwarnings
+        run: cargo clippy --package suppaftp --features async-rustls,deprecated -- -Dwarnings

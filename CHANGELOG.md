@@ -18,6 +18,7 @@
 Released on 08/10/2022
 
 - Added `native-tls-vendored` and `async-native-tls-vendored` features to link OpenSSL statically
+- suppaftp-cli as a separate package.
 - Rustls support
 - **‼️ BREAKING CHANGE**: refactored secure features:
   - **REMOVED** `secure`/`async-secure` feature

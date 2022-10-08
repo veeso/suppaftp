@@ -6,3 +6,4 @@ ignore:
   - "/*"
   - "C:/*"
   - "../*"
+  - "suppaftp-cli/*"

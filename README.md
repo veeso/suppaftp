@@ -44,7 +44,12 @@
   <a href="https://github.com/veeso/suppaftp/actions"
     ><img
       src="https://github.com/veeso/suppaftp/workflows/Build/badge.svg"
-      alt="Linux CI"
+      alt="Lib-CI"
+  /></a>
+  <a href="https://github.com/veeso/suppaftp/actions"
+    ><img
+      src="https://github.com/veeso/suppaftp/workflows/cli-bin/badge.svg"
+      alt="Cli-bin-ci"
   /></a>
   <a href="https://coveralls.io/github/veeso/suppaftp"
     ><img
@@ -255,7 +260,8 @@ SuppaFTP comes also with a built-in command-line FTP client. This CLI applicatio
 You can simply install as any other rust application via **Cargo**:
 
 ```sh
-cargo install suppaftp --features="secure cli-bin"
+cargo install suppaftp-cli
+suppaftp --version
 ```
 
 ---

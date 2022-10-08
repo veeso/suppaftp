@@ -11,7 +11,7 @@
 //! - Method to retrieve the welcome message
 //! - Supports for both sync and **async** rust
 //! - Some extra features, such as the parser for the **LIST** command output
-//! - Replaced openssl with [native-tls](https://crates.io/crates/native-tls) to make it compatible with all the operating system (without forcing users to install openssl).
+//! - Replaced openssl with rustls or native-tls as you prefer
 //! - All the old statements have been replaced with modern rust
 //! - Better error handling and possibility to retrieve error codes
 //! - Test units and high code coverage to provide the community with a reliable library

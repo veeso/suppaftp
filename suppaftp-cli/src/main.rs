@@ -3,30 +3,26 @@
 //! This is a client you can install via `cargo install suppaftp` on your system to connect and work with FTP servers
 //!
 
-const SUPPAFTP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
-const SUPPAFTP_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 // -- mods
 mod actions;
+mod args;
 mod command;
-use actions::*;
-use command::Command;
-// -- locals
 
-use suppaftp::{FtpError, FtpStream};
-// -- ext
-use std::env;
+use actions::*;
+use args::Args;
+use command::Command;
+
+use env_logger::Builder as LogBuilder;
+use log::LevelFilter;
 use std::io;
 use std::io::Write;
-use std::process::exit;
 use std::str::FromStr;
+use suppaftp::{FtpError, FtpStream};
+
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const APP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
 fn usage() {
-    println!(
-        "suppaftp {} ~ Developed by {}",
-        SUPPAFTP_VERSION, SUPPAFTP_AUTHORS
-    );
-    println!();
     println!("Available commands:");
     println!("APPE <file> <dest>                  Append content of local file `file` to `dest`");
     println!("CDUP                                Go to parent directory");
@@ -47,10 +43,6 @@ fn usage() {
     println!("RM <file>                           Remove file");
     println!("RMDIR <dir>                         Remove directory");
     println!("SIZE <file>                         Get `file` size");
-    println!();
-    println!("Please, report issues to <https://github.com/veeso/suppaftp>");
-    println!("Please, consider supporting the author <https://ko-fi.com/veeso>");
-    println!();
 }
 
 fn input() -> Command {
@@ -70,13 +62,21 @@ fn input() -> Command {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if let Some("-h") = args.get(1).map(|x| x.as_str()) {
-        usage();
-        exit(255);
+    let args: Args = argh::from_env();
+    // print version
+    if args.version {
+        println!("suppaftp {} - developed by {}", APP_VERSION, APP_AUTHORS)
     }
     // init logger
-    env_logger::init();
+    LogBuilder::new()
+        .filter_level(if args.debug {
+            LevelFilter::Debug
+        } else if args.verbose {
+            LevelFilter::Info
+        } else {
+            LevelFilter::Off
+        })
+        .init();
     // Main loop
     let mut ftp: Option<FtpStream> = None;
     loop {
