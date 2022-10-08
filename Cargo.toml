@@ -60,6 +60,8 @@ deprecated = []
 # Enable support for FTPS which requires native-tls (openssl is required on Linux) or RustTLS
 default-tls = [ "native-tls" ]
 native-tls = [ "native-tls-crate", "secure" ]
+native-tls-vendored = [ "native-tls", "native-tls-crate/vendored" ]
+async-native-tls-vendored = [ "async-native-tls", "async-native-tls-crate/vendored" ]
 rustls = [ "rustls-crate", "secure" ]
 secure = []
 

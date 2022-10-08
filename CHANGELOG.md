@@ -17,6 +17,15 @@
 
 Released on 08/10/2022
 
+- Added `native-tls-vendored` and `async-native-tls-vendored` features to link OpenSSL statically
+- Rustls support
+- **‼️ BREAKING CHANGE**: refactored secure features:
+  - **REMOVED** `secure`/`async-secure` feature
+  - Use `native-tls` to enable TLS support with native-tls crate
+  - Use `async-native-tls` to enable async TLS support with async-native-tls crate
+  - Use `rustls` to enable TLS support with rustls crate
+  - Use `async-rustls` to enable TLS support with async-tls crate
+
 ## 4.4.0
 
 Released on 02/08/2022
