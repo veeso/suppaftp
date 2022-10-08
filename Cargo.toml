@@ -1,7 +1,7 @@
 [package]
 name = "suppaftp"
-version = "4.4.0"
-authors = ["Matt McCoy <mattnenterprise@yahoo.com>", "Christian Visintin <christian.visintin1997@gmail.com>"]
+version = "4.5.0"
+authors = ["Christian Visintin <christian.visintin1997@gmail.com>", "Matt McCoy <mattnenterprise@yahoo.com>"]
 edition = "2021" 
 documentation = "https://docs.rs/suppaftp/"
 repository = "https://github.com/veeso/suppaftp"
@@ -22,10 +22,10 @@ path = "cli/main.rs"
 required-features = ["secure", "cli-bin"]
 
 [dependencies]
-chrono  = "^0.4.19"
-lazy-regex = "^2.3.0"
-log = "^0.4.0"
-thiserror = "^1.0.0"
+chrono  = "^0.4"
+lazy-regex = "^2.3"
+log = "^0.4"
+thiserror = "^1"
 # async
 async-std = { version = "^1.10", optional = true }
 async-native-tls-crate = { package = "async-native-tls", version = "^0.4", optional = true }

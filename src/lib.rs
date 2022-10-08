@@ -18,27 +18,44 @@
 //!
 //! ## Get started
 //!
-//! First of you need to add **suppaftp** to your project dependencies:
+//! To get started, first add **suppaftp** to your dependencies:
 //!
 //! ```toml
-//! suppaftp = "^4.4.0"
+//! suppaftp = "^4.5.0"
 //! ```
 //!
-//! If you want to enable TLS support to work with **FTPS** you need to enable the **secure** feature in your dependencies:
+//! ### Features
+//!
+//! #### SSL/TLS Support
+//!
+//! If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 //!
 //! ```toml
-//! suppaftp = { version = "^4.4.0", features = ["secure"] }
-//! ```
-//!
-//! While if you want to go async, then you must enable the **async** feature or if you want to mix secure and async then there is the super feature **async-secure**!
-//!
-//! ```toml
-//! suppaftp = { version = "^4.4.0", features = ["async"] }
+//! suppaftp = { version = "^4.5.0", features = ["native-tls"] }
 //! # or
-//! suppaftp = { version = "^4.4.0", features = ["async-secure"] }
+//! suppaftp = { version = "^4.5.0", features = ["rustls"] }
 //! ```
 //!
-//! Keep in mind that you **can't** use the **sync** and the **async** version of this library at the same time!
+//! > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
+//!
+//! #### Async support
+//!
+//! If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
+//!
+//! ```toml
+//! suppaftp = { version = "^4.5.0", features = ["async"] }
+//! ```
+//!
+//! > ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️
+//! > ⚠️ If you want to enable both **rustls** and **async** you must use the **async-rustls** feature ⚠️
+//!
+//! #### Deprecated methods
+//!
+//! If you want to enable deprecated methods of FTPS, please enable the `deprecated` feature in your cargo dependencies.
+//!
+//! This feature enables these methods:
+//!
+//! - `connect_secure_implicit()`: used to connect via implicit FTPS
 //!
 //! ## Usage
 //!
