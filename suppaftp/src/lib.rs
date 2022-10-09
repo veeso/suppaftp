@@ -166,7 +166,7 @@ pub use async_ftp::FtpStream;
 #[cfg(not(any(feature = "async", feature = "async-secure")))]
 pub use sync_ftp::FtpStream;
 // -- export secure
-#[cfg(feature = "secure")]
+#[cfg(all(feature = "secure", not(feature = "async")))]
 pub use sync_ftp::TlsConnector;
 // -- export async secure
 #[cfg(feature = "async-secure")]
