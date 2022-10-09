@@ -13,7 +13,7 @@ use crate::command::Command;
 use crate::command::ProtectionLevel;
 use data_stream::DataStream;
 #[cfg(feature = "async-secure")]
-use tls::TlsConnector;
+pub use tls::TlsConnector;
 
 use async_std::io::{copy, BufReader, Read, Write};
 use async_std::net::ToSocketAddrs;
