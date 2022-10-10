@@ -1,6 +1,6 @@
 [package]
 name = "suppaftp"
-version = "4.5.1"
+version = "4.5.2"
 authors = ["Christian Visintin <christian.visintin1997@gmail.com>", "Matt McCoy <mattnenterprise@yahoo.com>"]
 edition = "2021" 
 documentation = "https://docs.rs/suppaftp/"
@@ -39,6 +39,7 @@ serial_test = "^0.8.0"
 webpki-roots = "0.22.5"
 
 [features]
+default = [ ]
 # Enable async support for suppaftp
 async = ["async-std", "pin-project"]
 async-default-tls = [ "async-native-tls" ]

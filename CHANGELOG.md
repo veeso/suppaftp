@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.5.2](#452)
   - [4.5.1](#451)
   - [4.5.0](#450)
   - [4.4.0](#440)
@@ -15,6 +16,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 4.5.2
+
+Released on 10/10/2022
+
+- Fixed missing export of tls stream
 
 ## 4.5.1
 
