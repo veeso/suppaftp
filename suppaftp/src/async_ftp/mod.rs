@@ -92,8 +92,9 @@ impl FtpStream {
         debug!("Reading server response...");
         match ftp_stream.read_response(Status::Ready).await {
             Ok(response) => {
-                debug!("Server READY; response: {}", response.body);
-                ftp_stream.welcome_msg = Some(response.body);
+                let welcome_msg = response.as_string().ok();
+                debug!("Server READY; response: {:?}", welcome_msg);
+                ftp_stream.welcome_msg = welcome_msg;
                 Ok(ftp_stream)
             }
             Err(err) => Err(err),
@@ -209,8 +210,9 @@ impl FtpStream {
         debug!("Reading server response...");
         match stream.read_response(Status::Ready).await {
             Ok(response) => {
-                debug!("Server READY; response: {}", response.body);
-                stream.welcome_msg = Some(response.body);
+                let welcome_msg = response.as_string().ok();
+                debug!("Server READY; response: {:?}", welcome_msg);
+                stream.welcome_msg = welcome_msg;
             }
             Err(err) => return Err(err),
         }
@@ -300,14 +302,16 @@ impl FtpStream {
     pub async fn pwd(&mut self) -> FtpResult<String> {
         debug!("Getting working directory");
         self.perform(Command::Pwd).await?;
-        self.read_response(Status::PathCreated)
-            .await
-            .and_then(
-                |Response { status, body }| match (body.find('"'), body.rfind('"')) {
-                    (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
-                    _ => Err(FtpError::UnexpectedResponse(Response::new(status, body))),
-                },
-            )
+        let response = self.read_response(Status::PathCreated).await?;
+        let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
+        let status = response.status;
+        match (body.find('"'), body.rfind('"')) {
+            (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
+            _ => Err(FtpError::UnexpectedResponse(Response::new(
+                status,
+                response.body,
+            ))),
+        }
     }
 
     /// This does nothing. This is usually just used to keep the connection open.
@@ -562,8 +566,9 @@ impl FtpStream {
         self.perform(Command::Mdtm(pathname.as_ref().to_string()))
             .await?;
         let response: Response = self.read_response(Status::File).await?;
+        let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
 
-        match MDTM_RE.captures(&response.body) {
+        match MDTM_RE.captures(&body) {
             Some(caps) => {
                 let (year, month, day) = (
                     caps[1].parse::<i32>().unwrap(),
@@ -587,8 +592,9 @@ impl FtpStream {
         self.perform(Command::Size(pathname.as_ref().to_string()))
             .await?;
         let response: Response = self.read_response(Status::File).await?;
+        let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
 
-        match SIZE_RE.captures(&response.body) {
+        match SIZE_RE.captures(&body) {
             Some(caps) => Ok(caps[1].parse().unwrap()),
             None => Err(FtpError::BadResponse),
         }
@@ -639,8 +645,9 @@ impl FtpStream {
         self.perform(Command::Pasv).await?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
         let response: Response = self.read_response(Status::PassiveMode).await?;
+        let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
         let caps = PORT_RE
-            .captures(&response.body)
+            .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
         // If the regex matches we can be sure groups contains numbers
         let (oct1, oct2, oct3, oct4) = (
@@ -749,34 +756,26 @@ impl FtpStream {
 
     /// Retrieve single line response
     pub async fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
-        let mut line = String::new();
-        self.reader
-            .read_line(&mut line)
-            .await
-            .map_err(FtpError::ConnectionError)?;
+        let mut line = Vec::new();
+        self.read_line(&mut line).await?;
 
-        trace!("CC IN: {}", line.trim_end());
+        trace!("CC IN: {:?}", line);
 
         if line.len() < 5 {
             return Err(FtpError::BadResponse);
         }
 
-        let code: u32 = line[0..3].parse().map_err(|_| FtpError::BadResponse)?;
-        let code = Status::from(code);
+        let code_word: u32 = self.code_from_buffer(&line, 3)?;
+        let code = Status::from(code_word);
 
         // multiple line reply
         // loop while the line does not begin with the code and a space
-        let expected = format!("{} ", &line[0..3]);
-        while line.len() < 5 || line[0..4] != expected {
+        while line.len() < 5 || self.code_from_buffer(&line, 3)? != code_word {
             line.clear();
-            if let Err(e) = self.reader.read_line(&mut line).await {
-                return Err(FtpError::ConnectionError(e));
-            }
-
-            trace!("CC IN: {}", line.trim_end());
+            self.read_line(&mut line).await?;
+            trace!("CC IN: {:?}", line);
         }
 
-        line = String::from(line.trim());
         let response: Response = Response::new(code, line);
         // Return Ok or error with response
         if expected_code.iter().any(|ec| code == *ec) {
@@ -784,6 +783,24 @@ impl FtpStream {
         } else {
             Err(FtpError::UnexpectedResponse(response))
         }
+    }
+
+    async fn read_line(&mut self, line: &mut Vec<u8>) -> FtpResult<usize> {
+        self.reader
+            .read_until(0x0A, line.as_mut())
+            .await
+            .map_err(FtpError::ConnectionError)?;
+        Ok(line.len())
+    }
+
+    /// Get code from buffer
+    fn code_from_buffer(&self, buf: &[u8], len: usize) -> Result<u32, FtpError> {
+        if buf.len() < len {
+            return Err(FtpError::BadResponse);
+        }
+        let buffer = buf[0..len].to_vec();
+        let as_string = String::from_utf8(buffer).map_err(|_| FtpError::BadResponse)?;
+        as_string.parse::<u32>().map_err(|_| FtpError::BadResponse)
     }
 
     /// Execute a command which returns list of strings in a separate stream
