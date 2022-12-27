@@ -65,8 +65,9 @@ impl FtpStream {
                 debug!("Reading server response...");
                 match ftp_stream.read_response(Status::Ready) {
                     Ok(response) => {
-                        debug!("Server READY; response: {}", response.body);
-                        ftp_stream.welcome_msg = Some(response.body);
+                        let welcome_msg = response.as_string().ok();
+                        debug!("Server READY; response: {:?}", welcome_msg);
+                        ftp_stream.welcome_msg = welcome_msg;
                         Ok(ftp_stream)
                     }
                     Err(err) => Err(err),
