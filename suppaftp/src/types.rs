@@ -96,7 +96,7 @@ impl Response {
 
     /// Get response as string
     pub fn as_string(&self) -> Result<String, FromUtf8Error> {
-        String::from_utf8(self.body.clone())
+        String::from_utf8(self.body.clone()).map(|x| x.trim_end().to_string())
     }
 }
 
