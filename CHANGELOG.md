@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.5.3](#453)
   - [4.5.2](#452)
   - [4.5.1](#451)
   - [4.5.0](#450)
@@ -16,6 +17,14 @@
   - [4.0.0](#400)
 
 ---
+
+## 4.5.3
+
+Released on 27/12/2022
+
+- Don't use read to string from stream, but read line
+- Response body is now bytes
+- Fixed [issue 24](https://github.com/veeso/suppaftp/issues/24)
 
 ## 4.5.2
 
