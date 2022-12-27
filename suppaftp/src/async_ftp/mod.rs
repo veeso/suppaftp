@@ -775,7 +775,7 @@ impl FtpStream {
         // multiple line reply
         // loop while the line does not begin with the code and a space
         let expected = [line[0], line[1], line[2], 0x20];
-        while line.len() < 5 || &line[0..4] != expected {
+        while line.len() < 5 || line[0..4] != expected {
             line.clear();
             self.read_line(&mut line).await?;
             trace!("CC IN: {:?}", line);
