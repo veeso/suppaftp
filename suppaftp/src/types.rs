@@ -5,6 +5,7 @@
 use super::Status;
 use std::convert::From;
 use std::fmt;
+use std::string::FromUtf8Error;
 use thiserror::Error;
 
 /// A shorthand for a Result whose error type is always an FtpError.
@@ -38,7 +39,7 @@ pub enum FtpError {
 #[derive(Clone, Debug, Error)]
 pub struct Response {
     pub status: Status,
-    pub body: String,
+    pub body: Vec<u8>,
 }
 
 /// Text Format Control used in `TYPE` command
@@ -78,17 +79,24 @@ pub enum Mode {
 
 impl fmt::Display for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}] {}", self.status.code(), self.body)
+        write!(
+            f,
+            "[{}] {}",
+            self.status.code(),
+            self.as_string().ok().unwrap_or_default()
+        )
     }
 }
 
 impl Response {
     /// Instantiates a new `Response`
-    pub fn new<S: AsRef<str>>(status: Status, body: S) -> Self {
-        Self {
-            status,
-            body: body.as_ref().to_string(),
-        }
+    pub fn new(status: Status, body: Vec<u8>) -> Self {
+        Self { status, body }
+    }
+
+    /// Get response as string
+    pub fn as_string(&self) -> Result<String, FromUtf8Error> {
+        String::from_utf8(self.body.clone()).map(|x| x.trim_end().to_string())
     }
 }
 
@@ -136,9 +144,12 @@ mod test {
             "Secure error: omar"
         );
         assert_eq!(
-            FtpError::UnexpectedResponse(Response::new(Status::ExceededStorage, "error"))
-                .to_string()
-                .as_str(),
+            FtpError::UnexpectedResponse(Response::new(
+                Status::ExceededStorage,
+                "error".as_bytes().to_vec()
+            ))
+            .to_string()
+            .as_str(),
             "Invalid response: [552] error"
         );
         assert_eq!(
@@ -149,16 +160,16 @@ mod test {
 
     #[test]
     fn response() {
-        let response: Response = Response::new(Status::AboutToSend, "error");
+        let response: Response = Response::new(Status::AboutToSend, "error".as_bytes().to_vec());
         assert_eq!(response.status, Status::AboutToSend);
-        assert_eq!(response.body.as_str(), "error");
+        assert_eq!(response.as_string().unwrap(), "error");
     }
 
     #[test]
     fn fmt_response() {
         let response: Response = Response::new(
             Status::FileUnavailable,
-            "Can't create directory: File exists",
+            "Can't create directory: File exists".as_bytes().to_vec(),
         );
         assert_eq!(
             response.to_string().as_str(),

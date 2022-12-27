@@ -364,7 +364,7 @@ impl File {
             Ok(date) => {
                 // Case 2.
                 // Return NaiveDateTime from NaiveDate with time 00:00:00
-                date.and_hms(0, 0, 0)
+                date.and_hms_opt(0, 0, 0).unwrap()
             }
             Err(_) => {
                 // Might be case 1.
