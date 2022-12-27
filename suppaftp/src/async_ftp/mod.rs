@@ -580,7 +580,10 @@ impl FtpStream {
                     caps[5].parse::<u32>().unwrap(),
                     caps[6].parse::<u32>().unwrap(),
                 );
-                Ok(Utc.ymd(year, month, day).and_hms(hour, minute, second))
+                Utc.with_ymd_and_hms(year, month, day, hour, minute, second)
+                    .single()
+                    .map(Ok)
+                    .unwrap_or(Err(FtpError::BadResponse))
             }
             None => Err(FtpError::BadResponse),
         }
