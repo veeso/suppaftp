@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [4.6.0](#460)
   - [4.5.3](#453)
   - [4.5.2](#452)
   - [4.5.1](#451)
@@ -17,6 +18,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 4.6.0
+
+Released on 09/01/2023
+
+- `MDTM` now returns `NaiveDateTime` since the command won't provide timezone
 
 ## 4.5.3
 

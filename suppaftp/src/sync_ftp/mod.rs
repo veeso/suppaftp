@@ -15,8 +15,7 @@ use data_stream::DataStream;
 #[cfg(feature = "secure")]
 use tls::TlsStream;
 
-use chrono::offset::TimeZone;
-use chrono::{DateTime, Utc};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use lazy_regex::{Lazy, Regex};
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -583,7 +582,7 @@ impl FtpStream {
     }
 
     /// Retrieves the modification time of the file at `pathname` if it exists.
-    pub fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<DateTime<Utc>> {
+    pub fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<NaiveDateTime> {
         debug!("Getting modification time for {}", pathname.as_ref());
         self.perform(Command::Mdtm(pathname.as_ref().to_string()))?;
         let response: Response = self.read_response(Status::File)?;
@@ -602,10 +601,17 @@ impl FtpStream {
                     caps[6].parse::<u32>().unwrap(),
                 );
 
-                Utc.with_ymd_and_hms(year, month, day, hour, minute, second)
-                    .single()
-                    .map(Ok)
-                    .unwrap_or(Err(FtpError::BadResponse))
+                let date = match NaiveDate::from_ymd_opt(year, month, day) {
+                    Some(d) => d,
+                    None => return Err(FtpError::BadResponse),
+                };
+
+                let time = match NaiveTime::from_hms_opt(hour, minute, second) {
+                    Some(t) => t,
+                    None => return Err(FtpError::BadResponse),
+                };
+
+                Ok(NaiveDateTime::new(date, time))
             }
             None => Err(FtpError::BadResponse),
         }
