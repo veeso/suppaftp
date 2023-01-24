@@ -56,7 +56,7 @@ static DOS_LS_RE: Lazy<Regex> =
 
 /// Describes a file entry on the remote system.
 /// This data type is returned in a collection after parsing a LIST output
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct File {
     /// File name
     name: String,
@@ -75,7 +75,7 @@ pub struct File {
 }
 
 /// Describes the kind of file. Can be `Directory`, `File` or `Symlink`. If `Symlink` the path to the pointed file must be provided
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum FileType {
     Directory,
     File,
@@ -93,7 +93,7 @@ pub enum PosixPexQuery {
 }
 
 /// Describes the permissions on POSIX system.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 struct PosixPex {
     read: bool,
     write: bool,
