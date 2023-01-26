@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [PR27](#pr27)
   - [4.6.0](#460)
   - [4.5.3](#453)
   - [4.5.2](#452)
@@ -18,6 +19,9 @@
   - [4.0.0](#400)
 
 ---
+## PR27
+
+- `suppaftp::list::File` now derives the `core::hash::Hash` trait
 
 ## 4.6.0
 
