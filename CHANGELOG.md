@@ -23,7 +23,7 @@
 
 ## 4.7.0
 
-Released on ??/02/2023
+Released on 01/02/2023
 
 - [RFC 2428](https://www.rfc-editor.org/rfc/rfc2428) implementation
   - [Issue 28](https://github.com/veeso/suppaftp/issues/28): Implemented Extended Passive mode (**EPSV**)
