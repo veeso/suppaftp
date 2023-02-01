@@ -124,7 +124,7 @@ impl FtpStream {
                 self.reader.into_inner().into_tcp_stream().to_owned(),
             )
             .await
-            .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+            .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         let mut secured_ftp_tream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
@@ -187,7 +187,7 @@ impl FtpStream {
         let stream = tls_connector
             .connect(domain, stream.reader.into_inner().into_tcp_stream())
             .await
-            .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+            .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut stream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(stream.into())),
@@ -641,7 +641,7 @@ impl FtpStream {
                 .connect(self.domain.as_ref().unwrap(), stream)
                 .await
                 .map(|x| DataStream::Ssl(Box::new(x)))
-                .map_err(|e| FtpError::SecureError(format!("{}", e))),
+                .map_err(|e| FtpError::SecureError(format!("{e}"))),
             None => Ok(DataStream::Tcp(stream)),
         }
     }
