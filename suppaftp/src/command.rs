@@ -111,7 +111,7 @@ impl ToString for Command {
             Self::Pass(p) => format!("PASS {p}"),
             Self::Pasv => "PASV".to_string(),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
-            Self::Pbsz(sz) => format!("PBSZ {}", sz),
+            Self::Pbsz(sz) => format!("PBSZ {sz}"),
             Self::Port(p) => format!("PORT {p}"),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
             Self::Prot(l) => format!("PROT {}", l.to_string()),
