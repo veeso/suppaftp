@@ -33,7 +33,7 @@ fn usage() {
     println!("LIST [dir]                          List files. If directory is not provided, current directory is used");
     println!("LOGIN                               Login to remote");
     println!("MDTM <file>                         Get modification time for `file`");
-    println!("MODE <PASSIVE|ACTIVE>               Set mode");
+    println!("MODE <PASSIVE|EXTPASSIVE|ACTIVE>    Set mode");
     println!("NOOP                                Ping server");
     println!("PUT <file> <dest>                   Upload local file `file` to `dest`");
     println!("PWD                                 Print working directory");

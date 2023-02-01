@@ -28,6 +28,7 @@ Released on ??/02/2023
 - [RFC 2428](https://www.rfc-editor.org/rfc/rfc2428) implementation
   - [Issue 28](https://github.com/veeso/suppaftp/issues/28): Implemented Extended Passive mode (**EPSV**)
   - [Issue 30](https://github.com/veeso/suppaftp/issues/30): Implemented EPRT
+- Updated suppaftp-cli to suppaftp 4.7.0
 
 ## 4.6.1
 
