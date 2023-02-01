@@ -118,7 +118,7 @@ impl ToString for FileType {
             FileType::Ascii(fc) => format!("A {}", fc.to_string()),
             FileType::Ebcdic(fc) => format!("E {}", fc.to_string()),
             FileType::Image | FileType::Binary => String::from("I"),
-            FileType::Local(bits) => format!("L {}", bits),
+            FileType::Local(bits) => format!("L {bits}"),
         }
     }
 }

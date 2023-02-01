@@ -871,7 +871,7 @@ mod test {
     use serial_test::serial;
     #[cfg(feature = "rustls")]
     use std::sync::Arc;
-    use std::time::Duration;
+    
 
     #[test]
     #[cfg(feature = "with-containers")]
