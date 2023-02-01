@@ -25,6 +25,8 @@ pub enum Command {
     Cwd(String),
     /// Remove file at specified path
     Dele(String),
+    /// Extended passive mode <https://www.rfc-editor.org/rfc/rfc2428#section-3>
+    Epsv,
     /// List entries at specified path. If path is not provided list entries at current working directory
     List(Option<String>),
     /// Get modification time for file at specified path
@@ -86,43 +88,44 @@ impl ToString for Command {
     fn to_string(&self) -> String {
         let mut s = match self {
             Self::Abor => "ABOR".to_string(),
-            Self::Appe(f) => format!("APPE {}", f),
+            Self::Appe(f) => format!("APPE {f}"),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
             Self::Auth => "AUTH TLS".to_string(),
             Self::Cdup => "CDUP".to_string(),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
             Self::ClearCommandChannel => "CCC".to_string(),
-            Self::Cwd(d) => format!("CWD {}", d),
-            Self::Dele(f) => format!("DELE {}", f),
+            Self::Cwd(d) => format!("CWD {d}"),
+            Self::Dele(f) => format!("DELE {f}"),
+            Self::Epsv => "EPSV".to_string(),
             Self::List(p) => p
                 .as_deref()
-                .map(|x| format!("LIST {}", x))
+                .map(|x| format!("LIST {x}"))
                 .unwrap_or_else(|| "LIST".to_string()),
-            Self::Mdtm(p) => format!("MDTM {}", p),
-            Self::Mkd(p) => format!("MKD {}", p),
+            Self::Mdtm(p) => format!("MDTM {p}"),
+            Self::Mkd(p) => format!("MKD {p}"),
             Self::Nlst(p) => p
                 .as_deref()
-                .map(|x| format!("NLST {}", x))
+                .map(|x| format!("NLST {x}"))
                 .unwrap_or_else(|| "NLST".to_string()),
             Self::Noop => "NOOP".to_string(),
-            Self::Pass(p) => format!("PASS {}", p),
+            Self::Pass(p) => format!("PASS {p}"),
             Self::Pasv => "PASV".to_string(),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
-            Self::Pbsz(sz) => format!("PBSZ {}", sz),
-            Self::Port(p) => format!("PORT {}", p),
+            Self::Pbsz(sz) => format!("PBSZ {sz}"),
+            Self::Port(p) => format!("PORT {p}"),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
             Self::Prot(l) => format!("PROT {}", l.to_string()),
             Self::Pwd => "PWD".to_string(),
             Self::Quit => "QUIT".to_string(),
-            Self::RenameFrom(p) => format!("RNFR {}", p),
-            Self::RenameTo(p) => format!("RNTO {}", p),
-            Self::Rest(offset) => format!("REST {}", offset),
-            Self::Retr(p) => format!("RETR {}", p),
-            Self::Rmd(p) => format!("RMD {}", p),
-            Self::Size(p) => format!("SIZE {}", p),
-            Self::Store(p) => format!("STOR {}", p),
+            Self::RenameFrom(p) => format!("RNFR {p}"),
+            Self::RenameTo(p) => format!("RNTO {p}"),
+            Self::Rest(offset) => format!("REST {offset}"),
+            Self::Retr(p) => format!("RETR {p}"),
+            Self::Rmd(p) => format!("RMD {p}"),
+            Self::Size(p) => format!("SIZE {p}"),
+            Self::Store(p) => format!("STOR {p}"),
             Self::Type(t) => format!("TYPE {}", t.to_string()),
-            Self::User(u) => format!("USER {}", u),
+            Self::User(u) => format!("USER {u}"),
         };
         s.push_str("\r\n");
         s
@@ -169,6 +172,7 @@ mod test {
             Command::Dele(String::from("a.txt")).to_string().as_str(),
             "DELE a.txt\r\n"
         );
+        assert_eq!(Command::Epsv.to_string().as_str(), "EPSV\r\n");
         assert_eq!(
             Command::List(Some(String::from("/tmp")))
                 .to_string()

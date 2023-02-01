@@ -5,6 +5,7 @@
 mod data_stream;
 mod tls;
 
+use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
 use super::Status;
 use crate::command::Command;
@@ -16,22 +17,12 @@ use data_stream::DataStream;
 use tls::TlsStream;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use lazy_regex::{Lazy, Regex};
+
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 
 #[cfg(feature = "secure")]
 pub use tls::TlsConnector;
-
-// This regex extracts IP and Port details from PASV command response.
-// The regex looks for the pattern (h1,h2,h3,h4,p1,p2).
-static PORT_RE: Lazy<Regex> = lazy_regex!(r"\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)");
-
-// This regex extracts modification time from MDTM command response.
-static MDTM_RE: Lazy<Regex> = lazy_regex!(r"\b(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b");
-
-// This regex extracts file size from SIZE command response.
-static SIZE_RE: Lazy<Regex> = lazy_regex!(r"\s+(\d+)\s*$");
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 #[derive(Debug)]
@@ -145,7 +136,7 @@ impl FtpStream {
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
             .connect(domain, self.reader.into_inner().into_tcp_stream())
-            .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+            .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut secured_ftp_tream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
@@ -205,7 +196,7 @@ impl FtpStream {
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
             .connect(domain, stream.reader.into_inner().into_tcp_stream())
-            .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+            .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut stream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
@@ -731,16 +722,19 @@ impl FtpStream {
     /// Execute command which send data back in a separate stream
     fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream> {
         let stream = match self.mode {
-            Mode::Passive => self
-                .pasv()
-                .and_then(|addr| self.perform(cmd).map(|_| addr))
-                .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))?,
-
             Mode::Active => self
                 .active()
                 .and_then(|listener| self.perform(cmd).map(|_| listener))
                 .and_then(|listener| listener.accept().map_err(FtpError::ConnectionError))
                 .map(|(stream, _)| stream)?,
+            Mode::ExtendedPassive => self
+                .epsv()
+                .and_then(|addr| self.perform(cmd).map(|_| addr))
+                .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))?,
+            Mode::Passive => self
+                .pasv()
+                .and_then(|addr| self.perform(cmd).map(|_| addr))
+                .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))?,
         };
 
         #[cfg(not(feature = "secure"))]
@@ -754,7 +748,7 @@ impl FtpStream {
                 .connect(self.domain.as_ref().unwrap(), stream)
                 .map(TlsStream::from)
                 .map(|x| DataStream::Ssl(Box::new(x)))
-                .map_err(|e| FtpError::SecureError(format!("{}", e))),
+                .map_err(|e| FtpError::SecureError(format!("{e}"))),
             None => Ok(DataStream::Tcp(stream)),
         }
     }
@@ -785,14 +779,37 @@ impl FtpStream {
         Ok(conn)
     }
 
-    /// Runs the PASV command.
+    /// Runs the EPSV to enter Extended passive mode.
+    fn epsv(&mut self) -> FtpResult<SocketAddr> {
+        debug!("EPSV command");
+        self.perform(Command::Epsv)?;
+        // PASV response format : 229 Entering Extended Passive Mode (|||PORT|)
+        let response: Response = self.read_response(Status::ExtendedPassiveMode)?;
+        let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
+        let caps = EPSV_PORT_RE
+            .captures(&response_str)
+            .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
+        let new_port = caps[1].parse::<u16>().unwrap();
+        trace!("Got port number from EPSV: {}", new_port);
+        let mut remote = self
+            .reader
+            .get_ref()
+            .get_ref()
+            .peer_addr()
+            .map_err(FtpError::ConnectionError)?;
+        remote.set_port(new_port);
+        trace!("Remote address for extended passive mode is {}", remote);
+        Ok(remote)
+    }
+
+    /// Runs the PASV command  to enter passive mode.
     fn pasv(&mut self) -> FtpResult<SocketAddr> {
         debug!("PASV command");
         self.perform(Command::Pasv)?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
         let response: Response = self.read_response(Status::PassiveMode)?;
         let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
-        let caps = PORT_RE
+        let caps = PASV_PORT_RE
             .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
         // If the regex matches we can be sure groups contains numbers
@@ -854,7 +871,6 @@ mod test {
     use serial_test::serial;
     #[cfg(feature = "rustls")]
     use std::sync::Arc;
-    use std::time::Duration;
 
     #[test]
     #[cfg(feature = "with-containers")]
@@ -869,6 +885,7 @@ mod test {
     #[cfg(feature = "native-tls")]
     fn should_connect_ssl_native_tls() {
         crate::log_init();
+        use std::time::Duration;
         let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
         let mut ftp_stream = ftp_stream
             .into_secure(NativeTlsConnector::new().unwrap().into(), "test.rebex.net")
@@ -909,6 +926,7 @@ mod test {
     #[serial]
     #[cfg(all(feature = "native-tls", feature = "deprecated"))]
     fn should_connect_ssl_implicit_native_tls() {
+        use std::time::Duration;
         crate::log_init();
         let mut ftp_stream = FtpStream::connect_secure_implicit(
             "test.rebex.net:990",
@@ -983,6 +1001,7 @@ mod test {
     #[serial]
     #[cfg(feature = "with-containers")]
     fn get_ref() {
+        use std::time::Duration;
         crate::log_init();
         let stream: FtpStream = setup_stream();
         assert!(stream
@@ -1064,7 +1083,7 @@ mod test {
     #[test]
     #[serial]
     #[cfg(feature = "with-containers")]
-    fn transfer_file() {
+    fn should_transfer_file() {
         crate::log_init();
         let mut stream: FtpStream = setup_stream();
         // Set transfer type to Binary
@@ -1187,6 +1206,24 @@ mod test {
         // Remove file
         assert!(stream.rm("test.bin").is_ok());
         // Drop stream
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[serial]
+    #[cfg(feature = "with-containers")]
+    fn should_transfer_file_with_extended_passive_mode() {
+        crate::log_init();
+        let mut stream: FtpStream = setup_stream();
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).is_ok());
+        stream.set_mode(Mode::ExtendedPassive);
+        // Write file
+        let file_data = "test data\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("test.txt", &mut reader).is_ok());
+        // Remove file
+        assert!(stream.rm("test.txt").is_ok());
         finalize_stream(stream);
     }
 

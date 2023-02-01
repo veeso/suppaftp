@@ -6,6 +6,7 @@ mod data_stream;
 #[cfg(feature = "async-secure")]
 mod tls;
 
+use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
 use super::Status;
 use crate::command::Command;
@@ -20,18 +21,7 @@ use async_std::net::ToSocketAddrs;
 use async_std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use lazy_regex::{Lazy, Regex};
 use std::string::String;
-
-// This regex extracts IP and Port details from PASV command response.
-// The regex looks for the pattern (h1,h2,h3,h4,p1,p2).
-static PORT_RE: Lazy<Regex> = lazy_regex!(r"\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)");
-
-// This regex extracts modification time from MDTM command response.
-static MDTM_RE: Lazy<Regex> = lazy_regex!(r"\b(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b");
-
-// This regex extracts file size from SIZE command response.
-static SIZE_RE: Lazy<Regex> = lazy_regex!(r"\s+(\d+)\s*$");
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct FtpStream {
@@ -134,7 +124,7 @@ impl FtpStream {
                 self.reader.into_inner().into_tcp_stream().to_owned(),
             )
             .await
-            .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+            .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         let mut secured_ftp_tream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
@@ -197,7 +187,7 @@ impl FtpStream {
         let stream = tls_connector
             .connect(domain, stream.reader.into_inner().into_tcp_stream())
             .await
-            .map_err(|e| FtpError::SecureError(format!("{}", e)))?;
+            .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut stream = FtpStream {
             reader: BufReader::new(DataStream::Ssl(stream.into())),
@@ -615,13 +605,6 @@ impl FtpStream {
     /// Execute command which send data back in a separate stream
     async fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream> {
         let stream = match self.mode {
-            Mode::Passive => {
-                let addr = self.pasv().await?;
-                self.perform(cmd).await?;
-                TcpStream::connect(addr)
-                    .await
-                    .map_err(FtpError::ConnectionError)?
-            }
             Mode::Active => {
                 let listener = self.active().await?;
                 self.perform(cmd).await?;
@@ -630,6 +613,20 @@ impl FtpStream {
                     .await
                     .map_err(FtpError::ConnectionError)?
                     .0
+            }
+            Mode::ExtendedPassive => {
+                let addr = self.epsv().await?;
+                self.perform(cmd).await?;
+                TcpStream::connect(addr)
+                    .await
+                    .map_err(FtpError::ConnectionError)?
+            }
+            Mode::Passive => {
+                let addr = self.pasv().await?;
+                self.perform(cmd).await?;
+                TcpStream::connect(addr)
+                    .await
+                    .map_err(FtpError::ConnectionError)?
             }
         };
 
@@ -644,9 +641,32 @@ impl FtpStream {
                 .connect(self.domain.as_ref().unwrap(), stream)
                 .await
                 .map(|x| DataStream::Ssl(Box::new(x)))
-                .map_err(|e| FtpError::SecureError(format!("{}", e))),
+                .map_err(|e| FtpError::SecureError(format!("{e}"))),
             None => Ok(DataStream::Tcp(stream)),
         }
+    }
+
+    /// Runs the EPSV to enter Extended passive mode.
+    async fn epsv(&mut self) -> FtpResult<SocketAddr> {
+        debug!("EPSV command");
+        self.perform(Command::Epsv).await?;
+        // PASV response format : 229 Entering Extended Passive Mode (|||PORT|)
+        let response: Response = self.read_response(Status::ExtendedPassiveMode).await?;
+        let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
+        let caps = EPSV_PORT_RE
+            .captures(&response_str)
+            .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
+        let new_port = caps[1].parse::<u16>().unwrap();
+        trace!("Got port number from EPSV: {}", new_port);
+        let mut remote = self
+            .reader
+            .get_ref()
+            .get_ref()
+            .peer_addr()
+            .map_err(FtpError::ConnectionError)?;
+        remote.set_port(new_port);
+        trace!("Remote address for extended passive mode is {}", remote);
+        Ok(remote)
     }
 
     /// Runs the PASV command.
@@ -656,7 +676,7 @@ impl FtpStream {
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
         let response: Response = self.read_response(Status::PassiveMode).await?;
         let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
-        let caps = PORT_RE
+        let caps = PASV_PORT_RE
             .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
         // If the regex matches we can be sure groups contains numbers
@@ -1174,6 +1194,26 @@ mod test {
         // Remove file
         assert!(stream.rm("test.bin").await.is_ok());
         // Drop stream
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[serial]
+    #[cfg(feature = "with-containers")]
+    async fn should_transfer_file_with_extended_passive_mode() {
+        crate::log_init();
+        use async_std::io::Cursor;
+
+        let mut stream: FtpStream = setup_stream().await;
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        stream.set_mode(Mode::ExtendedPassive);
+        // Write file
+        let file_data = "test data\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+        // Remove file
+        assert!(stream.rm("test.txt").await.is_ok());
         finalize_stream(stream).await;
     }
 

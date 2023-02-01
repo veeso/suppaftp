@@ -11,7 +11,7 @@ pub fn quit(mut ftp: Option<FtpStream>) {
     if let Some(mut ftp) = ftp.take() {
         match ftp.quit() {
             Ok(_) => println!("OK"),
-            Err(err) => eprintln!("Failed to disconnect from remote: {}", err),
+            Err(err) => eprintln!("Failed to disconnect from remote: {err}"),
         }
     }
 }
@@ -20,20 +20,20 @@ pub fn appe(ftp: &mut FtpStream, local: &Path, dest: &str) {
     let mut reader = match File::open(local) {
         Ok(r) => r,
         Err(err) => {
-            eprintln!("Failed to open local file for read: {}", err);
+            eprintln!("Failed to open local file for read: {err}");
             return;
         }
     };
     match ftp.append_file(dest, &mut reader) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("APPE error: {}", err),
+        Err(err) => eprintln!("APPE error: {err}"),
     }
 }
 
 pub fn cdup(ftp: &mut FtpStream) {
     match ftp.cdup() {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("CDUP error: {}", err),
+        Err(err) => eprintln!("CDUP error: {err}"),
     }
 }
 
@@ -41,7 +41,7 @@ pub fn connect(remote: &str, secure: bool) -> Option<FtpStream> {
     let mut stream: FtpStream = match FtpStream::connect(remote) {
         Ok(c) => c,
         Err(err) => {
-            eprintln!("Failed to connect to remote: {}", err);
+            eprintln!("Failed to connect to remote: {err}");
             return None;
         }
     };
@@ -54,7 +54,7 @@ pub fn connect(remote: &str, secure: bool) -> Option<FtpStream> {
         {
             Ok(tls) => tls,
             Err(err) => {
-                eprintln!("Failed to setup TLS stream: {}", err);
+                eprintln!("Failed to setup TLS stream: {err}");
                 return None;
             }
         };
@@ -63,14 +63,14 @@ pub fn connect(remote: &str, secure: bool) -> Option<FtpStream> {
         stream = match stream.into_secure(ctx.into(), address) {
             Ok(s) => s,
             Err(err) => {
-                eprintln!("Failed to setup TLS stream: {}", err);
+                eprintln!("Failed to setup TLS stream: {err}");
                 return None;
             }
         };
     }
     // Set transfer type to binary
     if let Err(err) = stream.transfer_type(FileType::Binary) {
-        eprintln!("Failed to set transfer type to binary: {}", err);
+        eprintln!("Failed to set transfer type to binary: {err}");
     }
     println!("OK");
     Some(stream)
@@ -79,34 +79,34 @@ pub fn connect(remote: &str, secure: bool) -> Option<FtpStream> {
 pub fn cwd(ftp: &mut FtpStream, dir: &str) {
     match ftp.cwd(dir) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("CWD error: {}", err),
+        Err(err) => eprintln!("CWD error: {err}"),
     }
 }
 
 pub fn list(ftp: &mut FtpStream, p: Option<&str>) {
     match ftp.list(p) {
         Ok(files) => {
-            files.iter().for_each(|f| println!("{}", f));
+            files.iter().for_each(|f| println!("{f}"));
         }
-        Err(err) => eprintln!("LIST error: {}", err),
+        Err(err) => eprintln!("LIST error: {err}"),
     }
 }
 
 pub fn login(ftp: &mut FtpStream) {
     // Read username
-    let username: String = match rpassword::read_password_from_tty(Some("Username: ")) {
+    let username: String = match rpassword::prompt_password("Username: ") {
         Ok(u) => u,
         Err(err) => {
-            eprintln!("Could not read username: {}", err);
+            eprintln!("Could not read username: {err}");
             return;
         }
     };
     println!();
     // Read password
-    let password: String = match rpassword::read_password_from_tty(Some("Password: ")) {
+    let password: String = match rpassword::prompt_password("Password: ") {
         Ok(p) => p,
         Err(err) => {
-            eprintln!("Could not read password: {}", err);
+            eprintln!("Could not read password: {err}");
             return;
         }
     };
@@ -114,21 +114,21 @@ pub fn login(ftp: &mut FtpStream) {
     // Login
     match ftp.login(username.as_str(), password.as_str()) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("LOGIN error: {}", err),
+        Err(err) => eprintln!("LOGIN error: {err}"),
     }
 }
 
 pub fn mdtm(ftp: &mut FtpStream, f: &str) {
     match ftp.mdtm(f) {
-        Ok(time) => println!("OK: {}", time),
-        Err(err) => eprintln!("MDTM error: {}", err),
+        Ok(time) => println!("OK: {time}"),
+        Err(err) => eprintln!("MDTM error: {err}"),
     }
 }
 
 pub fn mkdir(ftp: &mut FtpStream, f: &str) {
     match ftp.mkdir(f) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("MDTM error: {}", err),
+        Err(err) => eprintln!("MDTM error: {err}"),
     }
 }
 
@@ -140,7 +140,7 @@ pub fn set_mode(ftp: &mut FtpStream, mode: Mode) {
 pub fn noop(ftp: &mut FtpStream) {
     match ftp.noop() {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("NOOP error: {}", err),
+        Err(err) => eprintln!("NOOP error: {err}"),
     }
 }
 
@@ -148,27 +148,27 @@ pub fn put(ftp: &mut FtpStream, local: &Path, dest: &str) {
     let mut reader = match File::open(local) {
         Ok(r) => r,
         Err(err) => {
-            eprintln!("Failed to open local file for read: {}", err);
+            eprintln!("Failed to open local file for read: {err}");
             return;
         }
     };
     match ftp.put_file(dest, &mut reader) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("PUT error: {}", err),
+        Err(err) => eprintln!("PUT error: {err}"),
     }
 }
 
 pub fn pwd(ftp: &mut FtpStream) {
     match ftp.pwd() {
-        Ok(p) => println!("OK: {}", p),
-        Err(err) => eprintln!("PWD error: {}", err),
+        Ok(p) => println!("OK: {p}"),
+        Err(err) => eprintln!("PWD error: {err}"),
     }
 }
 
 pub fn rename(ftp: &mut FtpStream, src: &str, dest: &str) {
     match ftp.rename(src, dest) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("RENAME error: {}", err),
+        Err(err) => eprintln!("RENAME error: {err}"),
     }
 }
 
@@ -176,7 +176,7 @@ pub fn retr(ftp: &mut FtpStream, file: &str, dest: &Path) {
     let mut dest: File = match File::create(dest) {
         Ok(d) => d,
         Err(err) => {
-            eprintln!("Failed to open destination file: {}", err);
+            eprintln!("Failed to open destination file: {err}");
             return;
         }
     };
@@ -186,27 +186,27 @@ pub fn retr(ftp: &mut FtpStream, file: &str, dest: &Path) {
             .map_err(FtpError::ConnectionError)
     }) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("RETR error: {}", err),
+        Err(err) => eprintln!("RETR error: {err}"),
     }
 }
 
 pub fn rm(ftp: &mut FtpStream, file: &str) {
     match ftp.rm(file) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("RM error: {}", err),
+        Err(err) => eprintln!("RM error: {err}"),
     }
 }
 
 pub fn rmdir(ftp: &mut FtpStream, dir: &str) {
     match ftp.rmdir(dir) {
         Ok(_) => println!("OK"),
-        Err(err) => eprintln!("RMDIR error: {}", err),
+        Err(err) => eprintln!("RMDIR error: {err}"),
     }
 }
 
 pub fn size(ftp: &mut FtpStream, file: &str) {
     match ftp.size(file) {
-        Ok(size) => println!("OK: {}", size),
-        Err(err) => eprintln!("SIZE error: {}", err),
+        Ok(size) => println!("OK: {size}"),
+        Err(err) => eprintln!("SIZE error: {err}"),
     }
 }

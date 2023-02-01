@@ -73,8 +73,10 @@ pub enum FileType {
 /// Connection mode for data channel
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    Passive,
     Active,
+    /// Required by some servers (ipv6); defined in rfc 2428 <https://www.rfc-editor.org/rfc/rfc2428#section-3>
+    ExtendedPassive,
+    Passive,
 }
 
 impl fmt::Display for Response {
@@ -116,7 +118,7 @@ impl ToString for FileType {
             FileType::Ascii(fc) => format!("A {}", fc.to_string()),
             FileType::Ebcdic(fc) => format!("E {}", fc.to_string()),
             FileType::Image | FileType::Binary => String::from("I"),
-            FileType::Local(bits) => format!("L {}", bits),
+            FileType::Local(bits) => format!("L {bits}"),
         }
     }
 }
