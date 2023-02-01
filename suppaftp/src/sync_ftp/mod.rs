@@ -871,7 +871,6 @@ mod test {
     use serial_test::serial;
     #[cfg(feature = "rustls")]
     use std::sync::Arc;
-    
 
     #[test]
     #[cfg(feature = "with-containers")]
@@ -886,6 +885,7 @@ mod test {
     #[cfg(feature = "native-tls")]
     fn should_connect_ssl_native_tls() {
         crate::log_init();
+        use std::time::Duration;
         let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
         let mut ftp_stream = ftp_stream
             .into_secure(NativeTlsConnector::new().unwrap().into(), "test.rebex.net")
@@ -926,6 +926,7 @@ mod test {
     #[serial]
     #[cfg(all(feature = "native-tls", feature = "deprecated"))]
     fn should_connect_ssl_implicit_native_tls() {
+        use std::time::Duration;
         crate::log_init();
         let mut ftp_stream = FtpStream::connect_secure_implicit(
             "test.rebex.net:990",
@@ -1000,6 +1001,7 @@ mod test {
     #[serial]
     #[cfg(feature = "with-containers")]
     fn get_ref() {
+        use std::time::Duration;
         crate::log_init();
         let stream: FtpStream = setup_stream();
         assert!(stream
