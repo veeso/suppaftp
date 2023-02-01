@@ -4,7 +4,7 @@
 
 use crate::types::FileType;
 
-use std::string::ToString;
+use std::{net::SocketAddr, string::ToString};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Ftp commands with their arguments
@@ -25,6 +25,8 @@ pub enum Command {
     Cwd(String),
     /// Remove file at specified path
     Dele(String),
+    /// Allows specification for protocol and address for data connections
+    Eprt(SocketAddr),
     /// Extended passive mode <https://www.rfc-editor.org/rfc/rfc2428#section-3>
     Epsv,
     /// List entries at specified path. If path is not provided list entries at current working directory
@@ -82,6 +84,16 @@ pub enum ProtectionLevel {
     Private,
 }
 
+impl Command {
+    fn encode_eprt(addr: &SocketAddr) -> String {
+        let (protocol, network_addr, tcp_port) = match addr {
+            SocketAddr::V4(addr) => (1, addr.ip().to_string(), addr.port()),
+            SocketAddr::V6(addr) => (2, addr.ip().to_string(), addr.port()),
+        };
+        format!("EPRT |{protocol}|{network_addr}|{tcp_port}|")
+    }
+}
+
 // -- stringify
 
 impl ToString for Command {
@@ -96,6 +108,7 @@ impl ToString for Command {
             Self::ClearCommandChannel => "CCC".to_string(),
             Self::Cwd(d) => format!("CWD {d}"),
             Self::Dele(f) => format!("DELE {f}"),
+            Self::Eprt(addr) => Self::encode_eprt(addr),
             Self::Epsv => "EPSV".to_string(),
             Self::List(p) => p
                 .as_deref()
@@ -171,6 +184,26 @@ mod test {
         assert_eq!(
             Command::Dele(String::from("a.txt")).to_string().as_str(),
             "DELE a.txt\r\n"
+        );
+        assert_eq!(
+            Command::Eprt(SocketAddr::V4(std::net::SocketAddrV4::new(
+                std::net::Ipv4Addr::new(127, 0, 0, 1),
+                8080
+            )))
+            .to_string()
+            .as_str(),
+            "EPRT |1|127.0.0.1|8080|\r\n"
+        );
+        assert_eq!(
+            Command::Eprt(SocketAddr::V6(std::net::SocketAddrV6::new(
+                std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
+                8080,
+                0,
+                0
+            )))
+            .to_string()
+            .as_str(),
+            "EPRT |2|2001:db8::1|8080|\r\n"
         );
         assert_eq!(Command::Epsv.to_string().as_str(), "EPSV\r\n");
         assert_eq!(

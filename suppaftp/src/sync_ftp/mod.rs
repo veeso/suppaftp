@@ -312,6 +312,15 @@ impl FtpStream {
         self.read_response(Status::CommandOk).map(|_| ())
     }
 
+    /// The EPRT command allows for the specification of an extended address
+    /// for the data connection. The extended address MUST consist of the
+    /// network protocol as well as the network and transport addresses
+    pub fn eprt(&mut self, address: SocketAddr) -> FtpResult<()> {
+        debug!("EPRT with address {address}");
+        self.perform(Command::Eprt(address))?;
+        self.read_response(Status::CommandOk).map(|_| ())
+    }
+
     /// This creates a new directory on the server.
     pub fn mkdir<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<()> {
         debug!("Creating directory at {}", pathname.as_ref());
