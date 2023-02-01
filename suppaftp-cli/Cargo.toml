@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 argh = "^0.1"
-env_logger = "^0.9"
+env_logger = "^0.10"
 log = "^0.4"
-rpassword = "^5"
+rpassword = "^7.2"
 suppaftp = { path = "../suppaftp", version = "^4.7", features = [ "native-tls" ] }

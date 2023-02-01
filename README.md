@@ -101,7 +101,10 @@ SuppaFTP is the main FTP/FTPS client library for Rust, with both support for syn
   - ABOR
   - APPE
   - REST
+  - EPSV
+  - EPRT
 - Some extra features, such as the **LIST** command output parser
+- Implementation of [RFC 2428](https://www.rfc-editor.org/rfc/rfc2428.html)
 - Removed deprecated statements ⚰️
 - Better error handling 🐛
 - Added test units keeping an eye on code coverage 👀

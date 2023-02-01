@@ -94,7 +94,7 @@ pub fn list(ftp: &mut FtpStream, p: Option<&str>) {
 
 pub fn login(ftp: &mut FtpStream) {
     // Read username
-    let username: String = match rpassword::read_password_from_tty(Some("Username: ")) {
+    let username: String = match rpassword::prompt_password("Username: ") {
         Ok(u) => u,
         Err(err) => {
             eprintln!("Could not read username: {err}");
@@ -103,7 +103,7 @@ pub fn login(ftp: &mut FtpStream) {
     };
     println!();
     // Read password
-    let password: String = match rpassword::read_password_from_tty(Some("Password: ")) {
+    let password: String = match rpassword::prompt_password("Password: ") {
         Ok(p) => p,
         Err(err) => {
             eprintln!("Could not read password: {err}");

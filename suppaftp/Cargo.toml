@@ -18,7 +18,7 @@ path = "src/lib.rs"
 
 [dependencies]
 chrono  = "^0.4"
-lazy-regex = "^2.3"
+lazy-regex = "^2.4"
 log = "^0.4"
 thiserror = "^1"
 # async
@@ -32,10 +32,10 @@ rustls-crate = { package = "rustls", version = "^0.20", optional = true }
 
 [dev-dependencies]
 async-attributes = "1.1.2"
-env_logger = "^0.9.0"
+env_logger = "^0.10"
 pretty_assertions = "^1.0.0"
 rand = "^0.8.4"
-serial_test = "^0.8.0"
+serial_test = "^1.0"
 webpki-roots = "0.22.5"
 
 [features]
