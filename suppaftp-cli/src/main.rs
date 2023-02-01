@@ -65,7 +65,7 @@ fn main() {
     let args: Args = argh::from_env();
     // print version
     if args.version {
-        println!("suppaftp {} - developed by {}", APP_VERSION, APP_AUTHORS)
+        println!("suppaftp {APP_VERSION} - developed by {APP_AUTHORS}")
     }
     // init logger
     LogBuilder::new()
