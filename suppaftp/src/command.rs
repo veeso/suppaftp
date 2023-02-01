@@ -25,6 +25,8 @@ pub enum Command {
     Cwd(String),
     /// Remove file at specified path
     Dele(String),
+    /// Extended passive mode <https://www.rfc-editor.org/rfc/rfc2428#section-3>
+    Epsv,
     /// List entries at specified path. If path is not provided list entries at current working directory
     List(Option<String>),
     /// Get modification time for file at specified path
@@ -94,6 +96,7 @@ impl ToString for Command {
             Self::ClearCommandChannel => "CCC".to_string(),
             Self::Cwd(d) => format!("CWD {}", d),
             Self::Dele(f) => format!("DELE {}", f),
+            Self::Epsv => "EPSV".to_string(),
             Self::List(p) => p
                 .as_deref()
                 .map(|x| format!("LIST {}", x))
@@ -169,6 +172,7 @@ mod test {
             Command::Dele(String::from("a.txt")).to_string().as_str(),
             "DELE a.txt\r\n"
         );
+        assert_eq!(Command::Epsv.to_string().as_str(), "EPSV\r\n");
         assert_eq!(
             Command::List(Some(String::from("/tmp")))
                 .to_string()

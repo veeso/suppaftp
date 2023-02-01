@@ -73,8 +73,10 @@ pub enum FileType {
 /// Connection mode for data channel
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    Passive,
     Active,
+    /// Required by some servers (ipv6); defined in rfc 2428 <https://www.rfc-editor.org/rfc/rfc2428#section-3>
+    ExtendedPassive,
+    Passive,
 }
 
 impl fmt::Display for Response {

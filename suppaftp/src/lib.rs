@@ -142,6 +142,7 @@ extern crate log;
 #[cfg(any(feature = "async", feature = "async-secure"))]
 mod async_ftp;
 pub(crate) mod command;
+mod regex;
 mod status;
 #[cfg(any(test, not(any(feature = "async", feature = "async-secure"))))]
 mod sync_ftp;
