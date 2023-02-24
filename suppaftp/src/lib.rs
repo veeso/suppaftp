@@ -108,12 +108,12 @@
 //! ```rust
 //! extern crate suppaftp;
 //!
-//! use suppaftp::FtpStream;
+//! use suppaftp::{AsyncFtpStream, AsyncNativeTlsConnector};
 //! use suppaftp::async_native_tls::{TlsConnector, TlsStream};
 //!
-//! let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
+//! let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
 //! // Switch to the secure mode
-//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().into(), "test.rebex.net").await.unwrap();
+//! let mut ftp_stream = ftp_stream.into_secure(AsyncNativeTlsConnector::from(TlsConnector::new()), "test.rebex.net").await.unwrap();
 //! ftp_stream.login("demo", "password").await.unwrap();
 //! // Do other secret stuff
 //! // Do all public stuff
@@ -136,12 +136,11 @@ extern crate lazy_regex;
 extern crate log;
 
 // -- private
-#[cfg(any(feature = "async", feature = "async-secure"))]
+#[cfg(feature = "async")]
 mod async_ftp;
 pub(crate) mod command;
 mod regex;
 mod status;
-#[cfg(any(test, not(any(feature = "async", feature = "async-secure"))))]
 mod sync_ftp;
 
 // -- public
@@ -181,10 +180,25 @@ pub type RustlsFtpStream = ImplFtpStream<RustlsStream>;
 
 // -- export async
 #[cfg(feature = "async")]
-pub use async_ftp::FtpStream;
-// -- export async secure
-#[cfg(feature = "async-secure")]
-pub use async_ftp::TlsConnector;
+use async_ftp::AsyncNoTlsStream;
+#[cfg(feature = "async")]
+use async_ftp::ImplAsyncFtpStream;
+#[cfg(feature = "async")]
+pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
+// -- export async secure (native-tls)
+#[cfg(feature = "async-native-tls")]
+pub use async_ftp::AsyncNativeTlsConnector;
+#[cfg(feature = "async-native-tls")]
+use async_ftp::AsyncNativeTlsStream;
+#[cfg(feature = "async-native-tls")]
+pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
+// -- export async secure (rustls)
+#[cfg(feature = "async-rustls")]
+pub use async_ftp::AsyncRustlsConnector;
+#[cfg(feature = "async-rustls")]
+use async_ftp::AsyncRustlsStream;
+#[cfg(feature = "async-rustls")]
+pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
 
 // -- test logging
 #[cfg(test)]

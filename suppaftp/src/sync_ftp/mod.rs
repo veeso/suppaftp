@@ -12,17 +12,16 @@ use crate::command::Command;
 #[cfg(feature = "secure")]
 use crate::command::ProtectionLevel;
 use data_stream::DataStream;
-
 use tls::TlsStream;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-
 use std::fmt::Debug;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 #[cfg(not(feature = "secure"))]
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 
+// export
 pub use tls::NoTlsStream;
 #[cfg(feature = "secure")]
 pub use tls::TlsConnector;
@@ -404,7 +403,8 @@ where
         match self.retr_as_stream(file_name) {
             Ok(mut stream) => {
                 let result = reader(&mut stream)?;
-                self.finalize_retr_stream(stream).map(|_| result)
+                self.finalize_retr_stream(stream)?;
+                Ok(result)
             }
             Err(err) => Err(err),
         }

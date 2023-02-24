@@ -24,6 +24,7 @@ thiserror = "^1"
 # async
 async-std = { version = "^1.10", optional = true }
 async-native-tls-crate = { package = "async-native-tls", version = "^0.4", optional = true }
+async-trait = { version = "0.1.64", optional = true }
 async-tls = { version = "^0.11", optional = true }
 pin-project = { version = "^1", optional = true }
 # secure
@@ -41,7 +42,7 @@ webpki-roots = "0.22.5"
 [features]
 default = [ ]
 # Enable async support for suppaftp
-async = ["async-std", "pin-project"]
+async = ["async-std", "async-trait", "pin-project"]
 async-default-tls = [ "async-native-tls" ]
 async-native-tls = [ "async-native-tls-crate", "async-secure" ]
 async-rustls = [ "async-tls", "async-secure" ]

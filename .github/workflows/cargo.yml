@@ -42,31 +42,19 @@ jobs:
         with:
           command: build
           args: --features async-native-tls,deprecated --package suppaftp
-      - name: Run tests (native-tls)
+      - name: Build all features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-features --package suppaftp
+      - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --lib --package suppaftp --no-default-features --features native-tls,async-native-tls,with-containers --no-fail-fast
-        env:
-          RUST_LOG: trace
-      - name: Run tests (rustls)
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --lib --package suppaftp --no-default-features --features rustls,async-rustls,with-containers --no-fail-fast
+          args: --lib --package suppaftp  --all-features --no-fail-fast
         env:
           RUST_LOG: trace
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --package suppaftp --features deprecated -- -Dwarnings
-      - name: Clippy (async)
-        run: cargo clippy --package suppaftp --features async,deprecated -- -Dwarnings
-      - name: Clippy (native-tls)
-        run: cargo clippy --package suppaftp --features native-tls,deprecated -- -Dwarnings
-      - name: Clippy (async-native-tls)
-        run: cargo clippy --package suppaftp --features async-native-tls,deprecated -- -Dwarnings
-      - name: Clippy (rustls)
-        run: cargo clippy --package suppaftp --features rustls,deprecated -- -Dwarnings
-      - name: Clippy (async-rustls)
-        run: cargo clippy --package suppaftp --features async-rustls,deprecated -- -Dwarnings
+        run: cargo clippy --package suppaftp  --all-features -- -Dwarnings
