@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.0.0](#500)
   - [4.7.0](#470)
   - [4.6.1](#461)
   - [4.6.0](#460)
@@ -20,6 +21,20 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.0.0
+
+Released on 24/02/2023
+
+- [Issue 33](https://github.com/veeso/suppaftp/issues/33) **‼️ BREAKING CHANGES ‼️**
+  - Features are now additive. This means that you can successfully build suppaftp with all the features enabled at the same time.
+  - Ftp stream has now been split into different types:
+    - `FtpStream`: sync no-tls stream
+    - `NativeTlsFtpStream`: ftp stream with TLS with native-tls
+    - `RustlsFtpStream`: ftp stream with TLS with rustls
+    - `AsyncFtpStream`: async no-tls stream
+    - `AsyncNativeTlsFtpStream`: async ftp stream with TLS with async-native-tls
+    - `AsyncRustlsFtpStream`: async ftp stream with TLS with async-rustls
 
 ## 4.7.0
 

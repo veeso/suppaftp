@@ -1,6 +1,6 @@
 [package]
 name = "suppaftp"
-version = "4.7.0"
+version = "5.0.0"
 authors = ["Christian Visintin <christian.visintin1997@gmail.com>", "Matt McCoy <mattnenterprise@yahoo.com>"]
 edition = "2021" 
 documentation = "https://docs.rs/suppaftp/"

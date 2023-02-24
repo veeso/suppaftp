@@ -21,7 +21,7 @@
 //! To get started, first add **suppaftp** to your dependencies:
 //!
 //! ```toml
-//! suppaftp = "^4.7.0"
+//! suppaftp = "^5.0.0"
 //! ```
 //!
 //! ### Features
@@ -31,9 +31,9 @@
 //! If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 //!
 //! ```toml
-//! suppaftp = { version = "^4.7.0", features = ["native-tls"] }
+//! suppaftp = { version = "^5.0.0", features = ["native-tls"] }
 //! # or
-//! suppaftp = { version = "^4.7.0", features = ["rustls"] }
+//! suppaftp = { version = "^5.0.0", features = ["rustls"] }
 //! ```
 //!
 //! > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
@@ -43,7 +43,7 @@
 //! If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
 //!
 //! ```toml
-//! suppaftp = { version = "^4.7.0", features = ["async"] }
+//! suppaftp = { version = "^5.0.0", features = ["async"] }
 //! ```
 //!
 //! > ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️
@@ -86,8 +86,6 @@
 //! ### FTPS Usage
 //!
 //! ```rust
-//! extern crate suppaftp;
-//!
 //! use suppaftp::{NativeTlsFtpStream, NativeTlsConnector};
 //! use suppaftp::native_tls::{TlsConnector, TlsStream};
 //!
@@ -106,8 +104,6 @@
 //! Let's quickly see in the example how it works
 //!
 //! ```rust
-//! extern crate suppaftp;
-//!
 //! use suppaftp::{AsyncFtpStream, AsyncNativeTlsConnector};
 //! use suppaftp::async_native_tls::{TlsConnector, TlsStream};
 //!
@@ -116,7 +112,6 @@
 //! let mut ftp_stream = ftp_stream.into_secure(AsyncNativeTlsConnector::from(TlsConnector::new()), "test.rebex.net").await.unwrap();
 //! ftp_stream.login("demo", "password").await.unwrap();
 //! // Do other secret stuff
-//! // Do all public stuff
 //! assert!(ftp_stream.quit().await.is_ok());
 //! ```
 //!
