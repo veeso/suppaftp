@@ -46,15 +46,15 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --all-features --package suppaftp
+          args: --features deprecated,native-tls,rustls,async-native-tls,async-rustls --package suppaftp
       - name: Run tests
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --lib --package suppaftp  --all-features --no-fail-fast
+          args: --lib --package suppaftp --no-default-features --features rustls,native-tls,async-native-tls,async-rustls,with-containers --no-fail-fast
         env:
           RUST_LOG: trace
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --package suppaftp  --all-features -- -Dwarnings
+        run: cargo clippy --package suppaftp --features deprecated,native-tls,rustls,async-native-tls,async-rustls -- -Dwarnings
