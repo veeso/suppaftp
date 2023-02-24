@@ -5,7 +5,7 @@ use std::io;
 use std::path::Path;
 use suppaftp::native_tls::TlsConnector;
 use suppaftp::types::FileType;
-use suppaftp::Mode;
+use suppaftp::{Mode, NativeTlsConnector};
 
 pub fn quit(mut ftp: Option<FtpStream>) {
     if let Some(mut ftp) = ftp.take() {
@@ -60,7 +60,7 @@ pub fn connect(remote: &str, secure: bool) -> Option<FtpStream> {
         };
         // Get address without port
         let address: &str = remote.split(':').next().unwrap();
-        stream = match stream.into_secure(ctx.into(), address) {
+        stream = match stream.into_secure(NativeTlsConnector::from(ctx), address) {
             Ok(s) => s,
             Err(err) => {
                 eprintln!("Failed to setup TLS stream: {err}");
