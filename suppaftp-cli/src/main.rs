@@ -17,7 +17,7 @@ use log::LevelFilter;
 use std::io;
 use std::io::Write;
 use std::str::FromStr;
-use suppaftp::{FtpError, FtpStream};
+use suppaftp::{FtpError, NativeTlsFtpStream as FtpStream};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");

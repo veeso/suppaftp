@@ -21,7 +21,7 @@
 //! To get started, first add **suppaftp** to your dependencies:
 //!
 //! ```toml
-//! suppaftp = "^4.7.0"
+//! suppaftp = "^5.0.0"
 //! ```
 //!
 //! ### Features
@@ -31,9 +31,9 @@
 //! If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 //!
 //! ```toml
-//! suppaftp = { version = "^4.7.0", features = ["native-tls"] }
+//! suppaftp = { version = "^5.0.0", features = ["native-tls"] }
 //! # or
-//! suppaftp = { version = "^4.7.0", features = ["rustls"] }
+//! suppaftp = { version = "^5.0.0", features = ["rustls"] }
 //! ```
 //!
 //! > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
@@ -43,7 +43,7 @@
 //! If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
 //!
 //! ```toml
-//! suppaftp = { version = "^4.7.0", features = ["async"] }
+//! suppaftp = { version = "^5.0.0", features = ["async"] }
 //! ```
 //!
 //! > ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️
@@ -86,19 +86,14 @@
 //! ### FTPS Usage
 //!
 //! ```rust
-//! extern crate suppaftp;
-//!
-//! use suppaftp::FtpStream;
+//! use suppaftp::{NativeTlsFtpStream, NativeTlsConnector};
 //! use suppaftp::native_tls::{TlsConnector, TlsStream};
 //!
-//! let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
+//! let ftp_stream = NativeTlsFtpStream::connect("test.rebex.net:21").unwrap();
 //! // Switch to the secure mode
-//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().unwrap().into(), "test.rebex.net").unwrap();
+//! let mut ftp_stream = ftp_stream.into_secure(NativeTlsConnector::from(TlsConnector::new().unwrap()), "test.rebex.net").unwrap();
 //! ftp_stream.login("demo", "password").unwrap();
 //! // Do other secret stuff
-//! // Switch back to the insecure mode (if required)
-//! let mut ftp_stream = ftp_stream.into_insecure().unwrap();
-//! // Do all public stuff
 //! assert!(ftp_stream.quit().is_ok());
 //! ```
 //!
@@ -109,17 +104,14 @@
 //! Let's quickly see in the example how it works
 //!
 //! ```rust
-//! extern crate suppaftp;
-//!
-//! use suppaftp::FtpStream;
+//! use suppaftp::{AsyncFtpStream, AsyncNativeTlsConnector};
 //! use suppaftp::async_native_tls::{TlsConnector, TlsStream};
 //!
-//! let ftp_stream = FtpStream::connect("test.rebex.net:21").await.unwrap();
+//! let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
 //! // Switch to the secure mode
-//! let mut ftp_stream = ftp_stream.into_secure(TlsConnector::new().into(), "test.rebex.net").await.unwrap();
+//! let mut ftp_stream = ftp_stream.into_secure(AsyncNativeTlsConnector::from(TlsConnector::new()), "test.rebex.net").await.unwrap();
 //! ftp_stream.login("demo", "password").await.unwrap();
 //! // Do other secret stuff
-//! // Do all public stuff
 //! assert!(ftp_stream.quit().await.is_ok());
 //! ```
 //!
@@ -139,12 +131,11 @@ extern crate lazy_regex;
 extern crate log;
 
 // -- private
-#[cfg(any(feature = "async", feature = "async-secure"))]
+#[cfg(feature = "async")]
 mod async_ftp;
 pub(crate) mod command;
 mod regex;
 mod status;
-#[cfg(any(test, not(any(feature = "async", feature = "async-secure"))))]
 mod sync_ftp;
 
 // -- public
@@ -160,21 +151,49 @@ pub extern crate rustls_crate as rustls;
 #[cfg(feature = "async-native-tls")]
 pub extern crate async_native_tls_crate as async_native_tls;
 
-// -- export async
-#[cfg(any(feature = "async", feature = "async-secure"))]
-pub use async_ftp::FtpStream;
-// -- export sync
-#[cfg(not(any(feature = "async", feature = "async-secure")))]
-pub use sync_ftp::FtpStream;
-// -- export secure
-#[cfg(all(feature = "secure", not(feature = "async-secure")))]
-pub use sync_ftp::TlsConnector;
-// -- export async secure
-#[cfg(all(feature = "async-secure", not(feature = "secure")))]
-pub use async_ftp::TlsConnector;
 // -- export (common)
 pub use status::Status;
 pub use types::{FtpError, FtpResult, Mode};
+
+// -- export sync
+use sync_ftp::{ImplFtpStream, NoTlsStream};
+pub type FtpStream = ImplFtpStream<NoTlsStream>;
+// -- export secure (native-tls)
+#[cfg(feature = "native-tls")]
+pub use sync_ftp::NativeTlsConnector;
+#[cfg(feature = "native-tls")]
+use sync_ftp::NativeTlsStream;
+#[cfg(feature = "native-tls")]
+pub type NativeTlsFtpStream = ImplFtpStream<NativeTlsStream>;
+// -- export secure (rustls)
+#[cfg(feature = "rustls")]
+pub use sync_ftp::RustlsConnector;
+#[cfg(feature = "rustls")]
+use sync_ftp::RustlsStream;
+#[cfg(feature = "rustls")]
+pub type RustlsFtpStream = ImplFtpStream<RustlsStream>;
+
+// -- export async
+#[cfg(feature = "async")]
+use async_ftp::AsyncNoTlsStream;
+#[cfg(feature = "async")]
+use async_ftp::ImplAsyncFtpStream;
+#[cfg(feature = "async")]
+pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
+// -- export async secure (native-tls)
+#[cfg(feature = "async-native-tls")]
+pub use async_ftp::AsyncNativeTlsConnector;
+#[cfg(feature = "async-native-tls")]
+use async_ftp::AsyncNativeTlsStream;
+#[cfg(feature = "async-native-tls")]
+pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
+// -- export async secure (rustls)
+#[cfg(feature = "async-rustls")]
+pub use async_ftp::AsyncRustlsConnector;
+#[cfg(feature = "async-rustls")]
+use async_ftp::AsyncRustlsStream;
+#[cfg(feature = "async-rustls")]
+pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
 
 // -- test logging
 #[cfg(test)]

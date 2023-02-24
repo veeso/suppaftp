@@ -12,60 +12,46 @@ use crate::command::Command;
 #[cfg(feature = "secure")]
 use crate::command::ProtectionLevel;
 use data_stream::DataStream;
-
-#[cfg(feature = "secure")]
 use tls::TlsStream;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-
+use std::fmt::Debug;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
+#[cfg(not(feature = "secure"))]
+use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 
+// export
+pub use tls::NoTlsStream;
 #[cfg(feature = "secure")]
 pub use tls::TlsConnector;
+#[cfg(feature = "native-tls")]
+pub use tls::{NativeTlsConnector, NativeTlsStream};
+#[cfg(feature = "rustls")]
+pub use tls::{RustlsConnector, RustlsStream};
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 #[derive(Debug)]
-pub struct FtpStream {
-    reader: BufReader<DataStream>,
+pub struct ImplFtpStream<T>
+where
+    T: TlsStream,
+{
+    reader: BufReader<DataStream<T>>,
     mode: Mode,
     nat_workaround: bool,
     welcome_msg: Option<String>,
+    #[cfg(not(feature = "secure"))]
+    marker: PhantomData<T>,
     #[cfg(feature = "secure")]
-    tls_ctx: Option<TlsConnector>,
+    tls_ctx: Option<Box<dyn TlsConnector<Stream = T>>>,
     #[cfg(feature = "secure")]
     domain: Option<String>,
 }
 
-impl FtpStream {
-    /// Creates an FTP Stream.
-    #[cfg(not(feature = "secure"))]
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
-        debug!("Connecting to server");
-        TcpStream::connect(addr)
-            .map_err(FtpError::ConnectionError)
-            .and_then(|stream| {
-                debug!("Established connection with server");
-                let mut ftp_stream = FtpStream {
-                    reader: BufReader::new(DataStream::Tcp(stream)),
-                    mode: Mode::Passive,
-                    nat_workaround: false,
-                    welcome_msg: None,
-                };
-                debug!("Reading server response...");
-                match ftp_stream.read_response(Status::Ready) {
-                    Ok(response) => {
-                        let welcome_msg = response.as_string().ok();
-                        debug!("Server READY; response: {:?}", welcome_msg);
-                        ftp_stream.welcome_msg = welcome_msg;
-                        Ok(ftp_stream)
-                    }
-                    Err(err) => Err(err),
-                }
-            })
-    }
-
-    /// Creates an FTP Stream.
+impl<T> ImplFtpStream<T>
+where
+    T: TlsStream,
+{
     #[cfg(feature = "secure")]
     pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");
@@ -73,7 +59,7 @@ impl FtpStream {
             .map_err(FtpError::ConnectionError)
             .and_then(|stream| {
                 debug!("Established connection with server");
-                let mut ftp_stream = FtpStream {
+                let mut ftp_stream = Self {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
                     nat_workaround: false,
@@ -94,6 +80,33 @@ impl FtpStream {
             })
     }
 
+    #[cfg(not(feature = "secure"))]
+    /// Creates an FTP Stream.
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
+        debug!("Connecting to server");
+        TcpStream::connect(addr)
+            .map_err(FtpError::ConnectionError)
+            .and_then(|stream| {
+                debug!("Established connection with server");
+                let mut ftp_stream = Self {
+                    reader: BufReader::new(DataStream::Tcp(stream)),
+                    mode: Mode::Passive,
+                    nat_workaround: false,
+                    welcome_msg: None,
+                    marker: PhantomData {},
+                };
+                debug!("Reading server response...");
+                match ftp_stream.read_response(Status::Ready) {
+                    Ok(response) => {
+                        let welcome_msg = response.as_string().ok();
+                        debug!("Server READY; response: {:?}", welcome_msg);
+                        ftp_stream.welcome_msg = welcome_msg;
+                        Ok(ftp_stream)
+                    }
+                    Err(err) => Err(err),
+                }
+            })
+    }
     /// Enable active mode for data channel
     pub fn active_mode(mut self) -> Self {
         self.mode = Mode::Active;
@@ -117,18 +130,22 @@ impl FtpStream {
     /// ## Example
     ///
     /// ```rust,no_run
-    /// use suppaftp::FtpStream;
+    /// use suppaftp::{NativeTlsFtpStream, NativeTlsConnector};
     /// use suppaftp::native_tls::{TlsConnector, TlsStream};
     /// use std::path::Path;
     ///
     /// // Create a TlsConnector
     /// // NOTE: For custom options see <https://docs.rs/native-tls/0.2.6/native_tls/struct.TlsConnectorBuilder.html>
-    /// let mut ctx = TlsConnector::new().unwrap();
-    /// let mut ftp_stream = FtpStream::connect("127.0.0.1:21").unwrap();
+    /// let mut ctx = NativeTlsConnector::from(TlsConnector::new().unwrap());
+    /// let mut ftp_stream = NativeTlsFtpStream::connect("127.0.0.1:21").unwrap();
     /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").unwrap();
     /// ```
     #[cfg(feature = "secure")]
-    pub fn into_secure(mut self, tls_connector: TlsConnector, domain: &str) -> FtpResult<Self> {
+    pub fn into_secure(
+        mut self,
+        tls_connector: impl TlsConnector<Stream = T> + 'static,
+        domain: &str,
+    ) -> FtpResult<Self> {
         // Ask the server to start securing data.
         debug!("Initializing TLS auth");
         self.perform(Command::Auth)?;
@@ -138,11 +155,11 @@ impl FtpStream {
             .connect(domain, self.reader.into_inner().into_tcp_stream())
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
-        let mut secured_ftp_tream = FtpStream {
+        let mut secured_ftp_tream = Self {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
             nat_workaround: self.nat_workaround,
-            tls_ctx: Some(tls_connector),
+            tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
         };
@@ -175,7 +192,7 @@ impl FtpStream {
     #[cfg(all(feature = "secure", feature = "deprecated"))]
     pub fn connect_secure_implicit<A: ToSocketAddrs>(
         addr: A,
-        tls_connector: TlsConnector,
+        tls_connector: impl TlsConnector<Stream = T> + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
         debug!("Connecting to server (secure)");
@@ -183,7 +200,7 @@ impl FtpStream {
             .map_err(FtpError::ConnectionError)
             .map(|stream| {
                 debug!("Established connection with server");
-                FtpStream {
+                Self {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
                     nat_workaround: false,
@@ -198,11 +215,11 @@ impl FtpStream {
             .connect(domain, stream.reader.into_inner().into_tcp_stream())
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
-        let mut stream = FtpStream {
+        let mut stream = Self {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: Mode::Passive,
             nat_workaround: false,
-            tls_ctx: Some(tls_connector),
+            tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: None,
         };
@@ -379,14 +396,15 @@ impl FtpStream {
     /// }).is_ok());
     /// # assert!(conn.rm("retr.txt").is_ok());
     /// ```
-    pub fn retr<F, T>(&mut self, file_name: &str, mut reader: F) -> FtpResult<T>
+    pub fn retr<F, D>(&mut self, file_name: &str, mut reader: F) -> FtpResult<D>
     where
-        F: FnMut(&mut dyn Read) -> FtpResult<T>,
+        F: FnMut(&mut dyn Read) -> FtpResult<D>,
     {
         match self.retr_as_stream(file_name) {
             Ok(mut stream) => {
                 let result = reader(&mut stream)?;
-                self.finalize_retr_stream(stream).map(|_| result)
+                self.finalize_retr_stream(stream)?;
+                Ok(result)
             }
             Err(err) => Err(err),
         }
@@ -423,7 +441,7 @@ impl FtpStream {
     /// The reader returned should be dropped.
     /// Also you will have to read the response to make sure it has the correct value.
     /// Once file has been read, call `finalize_retr_stream()`
-    pub fn retr_as_stream<S: AsRef<str>>(&mut self, file_name: S) -> FtpResult<DataStream> {
+    pub fn retr_as_stream<S: AsRef<str>>(&mut self, file_name: S) -> FtpResult<DataStream<T>> {
         debug!("Retrieving '{}'", file_name.as_ref());
         let data_stream = self.data_command(Command::Retr(file_name.as_ref().to_string()))?;
         self.read_response_in(&[Status::AboutToSend, Status::AlreadyOpen])?;
@@ -472,7 +490,7 @@ impl FtpStream {
     /// The returned stream must be then correctly manipulated to write the content of the source file to the remote destination
     /// The stream must be then correctly dropped.
     /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
-    pub fn put_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream> {
+    pub fn put_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream<T>> {
         debug!("Put file {}", filename.as_ref());
         let stream = self.data_command(Command::Store(filename.as_ref().to_string()))?;
         self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])?;
@@ -494,7 +512,7 @@ impl FtpStream {
 
     /// Open specified file for appending data. Returns the stream to append data to specified file.
     /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
-    pub fn append_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream> {
+    pub fn append_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream<T>> {
         debug!("Appending to file {}", filename.as_ref());
         let stream = self.data_command(Command::Appe(filename.as_ref().to_string()))?;
         self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])?;
@@ -633,7 +651,7 @@ impl FtpStream {
     // -- private
 
     /// Retrieve stream "message"
-    fn get_lines_from_stream(data_stream: &mut BufReader<DataStream>) -> FtpResult<Vec<String>> {
+    fn get_lines_from_stream(data_stream: &mut BufReader<DataStream<T>>) -> FtpResult<Vec<String>> {
         let mut lines: Vec<String> = Vec::new();
 
         loop {
@@ -729,7 +747,7 @@ impl FtpStream {
     }
 
     /// Execute command which send data back in a separate stream
-    fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream> {
+    fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream<T>> {
         let stream = match self.mode {
             Mode::Active => self
                 .active()
@@ -755,7 +773,6 @@ impl FtpStream {
         match self.tls_ctx {
             Some(ref tls_ctx) => tls_ctx
                 .connect(self.domain.as_ref().unwrap(), stream)
-                .map(TlsStream::from)
                 .map(|x| DataStream::Ssl(Box::new(x)))
                 .map_err(|e| FtpError::SecureError(format!("{e}"))),
             None => Ok(DataStream::Tcp(stream)),
@@ -772,7 +789,6 @@ impl FtpStream {
 
         let ip = match self.reader.get_mut() {
             DataStream::Tcp(stream) => stream.local_addr().unwrap().ip(),
-            #[cfg(feature = "secure")]
             DataStream::Ssl(stream) => stream.get_ref().local_addr().unwrap().ip(),
         };
 
@@ -865,12 +881,13 @@ impl FtpStream {
 mod test {
 
     use super::*;
+    use crate::FtpStream;
 
     #[cfg(feature = "with-containers")]
     use crate::types::FormatControl;
 
     #[cfg(feature = "native-tls")]
-    use native_tls::TlsConnector as NativeTlsConnector;
+    use native_tls::TlsConnector;
     #[cfg(any(feature = "with-containers", feature = "secure"))]
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
@@ -895,9 +912,12 @@ mod test {
     fn should_connect_ssl_native_tls() {
         crate::log_init();
         use std::time::Duration;
-        let ftp_stream = FtpStream::connect("test.rebex.net:21").unwrap();
+        let ftp_stream = crate::NativeTlsFtpStream::connect("test.rebex.net:21").unwrap();
         let mut ftp_stream = ftp_stream
-            .into_secure(NativeTlsConnector::new().unwrap().into(), "test.rebex.net")
+            .into_secure(
+                NativeTlsConnector::from(TlsConnector::new().unwrap()),
+                "test.rebex.net",
+            )
             .unwrap();
         // Set timeout (to test ref to ssl)
         assert!(ftp_stream
@@ -917,9 +937,12 @@ mod test {
     #[cfg(feature = "native-tls")]
     fn should_work_after_clear_command_channel_native_tls() {
         crate::log_init();
-        let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
+        let mut ftp_stream = crate::NativeTlsFtpStream::connect("test.rebex.net:21")
             .unwrap()
-            .into_secure(NativeTlsConnector::new().unwrap().into(), "test.rebex.net")
+            .into_secure(
+                NativeTlsConnector::from(TlsConnector::new().unwrap()),
+                "test.rebex.net",
+            )
             .unwrap()
             .clear_command_channel()
             .unwrap();
@@ -937,9 +960,9 @@ mod test {
     fn should_connect_ssl_implicit_native_tls() {
         use std::time::Duration;
         crate::log_init();
-        let mut ftp_stream = FtpStream::connect_secure_implicit(
+        let mut ftp_stream = crate::NativeTlsFtpStream::connect_secure_implicit(
             "test.rebex.net:990",
-            NativeTlsConnector::new().unwrap().into(),
+            NativeTlsConnector::from(TlsConnector::new().unwrap()),
             "test.rebex.net",
         )
         .unwrap();
@@ -960,11 +983,16 @@ mod test {
     #[serial]
     #[cfg(feature = "rustls")]
     fn should_connect_ssl_rustls() {
+        use super::tls::RustlsConnector;
+
         crate::log_init();
         let config = Arc::new(rustls_config());
-        let mut ftp_stream = FtpStream::connect("ftp.uni-bayreuth.de:21")
+        let mut ftp_stream = crate::RustlsFtpStream::connect("ftp.uni-bayreuth.de:21")
             .unwrap()
-            .into_secure(Arc::clone(&config).into(), "ftp.uni-bayreuth.de")
+            .into_secure(
+                RustlsConnector::from(Arc::clone(&config)),
+                "ftp.uni-bayreuth.de",
+            )
             .unwrap();
         // Quit
         assert!(ftp_stream.quit().is_ok());

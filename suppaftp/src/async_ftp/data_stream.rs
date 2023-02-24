@@ -2,27 +2,30 @@
 //!
 //! This module exposes the async data stream implementation where bytes must be written to/read from
 
-#[cfg(feature = "async-native-tls")]
-use async_native_tls::TlsStream;
 #[cfg(any(feature = "async", feature = "async-secure"))]
 use async_std::io::{Read, Result, Write};
 #[cfg(any(feature = "async", feature = "async-secure"))]
 use async_std::net::TcpStream;
-#[cfg(feature = "async-rustls")]
-use async_tls::client::TlsStream;
 use pin_project::pin_project;
 use std::pin::Pin;
 
+use super::AsyncTlsStream;
+
 /// Data Stream used for communications. It can be both of type Tcp in case of plain communication or Ssl in case of FTPS
 #[pin_project(project = DataStreamProj)]
-pub enum DataStream {
+pub enum DataStream<T>
+where
+    T: AsyncTlsStream,
+{
     Tcp(#[pin] TcpStream),
-    #[cfg(feature = "async-secure")]
-    Ssl(#[pin] Box<TlsStream<TcpStream>>),
+    Ssl(#[pin] Box<T>),
 }
 
 #[cfg(feature = "async-secure")]
-impl DataStream {
+impl<T> DataStream<T>
+where
+    T: AsyncTlsStream,
+{
     /// Unwrap the stream into TcpStream. This method is only used in secure connection.
     pub fn into_tcp_stream(self) -> TcpStream {
         match self {
@@ -32,12 +35,14 @@ impl DataStream {
     }
 }
 
-impl DataStream {
+impl<T> DataStream<T>
+where
+    T: AsyncTlsStream,
+{
     /// Returns a reference to the underlying TcpStream.
     pub fn get_ref(&self) -> &TcpStream {
         match self {
             DataStream::Tcp(ref stream) => stream,
-            #[cfg(feature = "async-secure")]
             DataStream::Ssl(ref stream) => stream.get_ref(),
         }
     }
@@ -45,7 +50,10 @@ impl DataStream {
 
 // -- async
 
-impl Read for DataStream {
+impl<T> Read for DataStream<T>
+where
+    T: AsyncTlsStream,
+{
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -53,13 +61,15 @@ impl Read for DataStream {
     ) -> std::task::Poll<Result<usize>> {
         match self.project() {
             DataStreamProj::Tcp(stream) => stream.poll_read(cx, buf),
-            #[cfg(feature = "async-secure")]
             DataStreamProj::Ssl(stream) => stream.poll_read(cx, buf),
         }
     }
 }
 
-impl Write for DataStream {
+impl<T> Write for DataStream<T>
+where
+    T: AsyncTlsStream,
+{
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -67,7 +77,6 @@ impl Write for DataStream {
     ) -> std::task::Poll<Result<usize>> {
         match self.project() {
             DataStreamProj::Tcp(stream) => stream.poll_write(cx, buf),
-            #[cfg(feature = "async-secure")]
             DataStreamProj::Ssl(stream) => stream.poll_write(cx, buf),
         }
     }
@@ -78,7 +87,6 @@ impl Write for DataStream {
     ) -> std::task::Poll<Result<()>> {
         match self.project() {
             DataStreamProj::Tcp(stream) => stream.poll_flush(cx),
-            #[cfg(feature = "async-secure")]
             DataStreamProj::Ssl(stream) => stream.poll_flush(cx),
         }
     }
@@ -89,7 +97,6 @@ impl Write for DataStream {
     ) -> std::task::Poll<Result<()>> {
         match self.project() {
             DataStreamProj::Tcp(stream) => stream.poll_close(cx),
-            #[cfg(feature = "async-secure")]
             DataStreamProj::Ssl(stream) => stream.poll_close(cx),
         }
     }

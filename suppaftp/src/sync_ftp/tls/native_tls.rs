@@ -2,31 +2,33 @@
 //!
 //! Native tls implementation of TLS types
 
-use native_tls::{
-    HandshakeError, TlsConnector as NativeTlsConnector, TlsStream as NativeTlsStream,
-};
+use native_tls_crate::{TlsConnector, TlsStream};
 use std::io::Write;
 use std::net::TcpStream;
 
+use super::{TlsConnector as TlsConnectorTrait, TlsStream as TlsStreamTrait};
+use crate::{FtpError, FtpResult};
+
 #[derive(Debug)]
 /// A Wrapper for the tls connector
-pub struct TlsConnector {
-    connector: NativeTlsConnector,
+pub struct NativeTlsConnector {
+    connector: TlsConnector,
 }
 
-impl From<NativeTlsConnector> for TlsConnector {
-    fn from(connector: NativeTlsConnector) -> Self {
+impl From<TlsConnector> for NativeTlsConnector {
+    fn from(connector: TlsConnector) -> Self {
         Self { connector }
     }
 }
 
-impl TlsConnector {
-    pub fn connect(
-        &self,
-        domain: &str,
-        stream: TcpStream,
-    ) -> Result<TlsStream, HandshakeError<TcpStream>> {
-        self.connector.connect(domain, stream).map(TlsStream::from)
+impl TlsConnectorTrait for NativeTlsConnector {
+    type Stream = NativeTlsStream;
+
+    fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream> {
+        self.connector
+            .connect(domain, stream)
+            .map(NativeTlsStream::from)
+            .map_err(|e| FtpError::SecureError(e.to_string()))
     }
 }
 
@@ -35,14 +37,16 @@ impl TlsConnector {
 /// Tls stream wrapper. This type is a garbage data type used to impl the drop trait for the tls stream.
 /// This allows me to keep returning `Read` and `Write` traits in stream methods
 #[derive(Debug)]
-pub struct TlsStream {
-    stream: NativeTlsStream<TcpStream>,
+pub struct NativeTlsStream {
+    stream: TlsStream<TcpStream>,
     ssl_shutdown: bool,
 }
 
-impl TlsStream {
+impl TlsStreamTrait for NativeTlsStream {
+    type InnerStream = TlsStream<TcpStream>;
+
     /// Get underlying tcp stream
-    pub(crate) fn tcp_stream(mut self) -> TcpStream {
+    fn tcp_stream(mut self) -> TcpStream {
         let mut stream = self.stream.get_ref().try_clone().unwrap();
         // Don't perform shutdown later
         self.ssl_shutdown = false;
@@ -55,18 +59,18 @@ impl TlsStream {
     }
 
     /// Get ref to underlying tcp stream
-    pub(crate) fn get_ref(&self) -> &TcpStream {
+    fn get_ref(&self) -> &TcpStream {
         self.stream.get_ref()
     }
 
     /// Get mutable reference to tls stream
-    pub(crate) fn mut_ref(&mut self) -> &mut NativeTlsStream<TcpStream> {
+    fn mut_ref(&mut self) -> &mut TlsStream<TcpStream> {
         &mut self.stream
     }
 }
 
-impl From<NativeTlsStream<TcpStream>> for TlsStream {
-    fn from(stream: NativeTlsStream<TcpStream>) -> Self {
+impl From<TlsStream<TcpStream>> for NativeTlsStream {
+    fn from(stream: TlsStream<TcpStream>) -> Self {
         Self {
             stream,
             ssl_shutdown: true,
@@ -74,7 +78,7 @@ impl From<NativeTlsStream<TcpStream>> for TlsStream {
     }
 }
 
-impl Drop for TlsStream {
+impl Drop for NativeTlsStream {
     fn drop(&mut self) {
         if self.ssl_shutdown {
             if let Err(err) = self.stream.shutdown() {
