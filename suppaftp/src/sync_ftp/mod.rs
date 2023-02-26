@@ -11,7 +11,6 @@ use super::Status;
 use crate::command::Command;
 #[cfg(feature = "secure")]
 use crate::command::ProtectionLevel;
-use data_stream::DataStream;
 use tls::TlsStream;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -22,6 +21,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 
 // export
+pub use data_stream::DataStream;
 pub use tls::NoTlsStream;
 #[cfg(feature = "secure")]
 pub use tls::TlsConnector;

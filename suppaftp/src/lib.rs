@@ -158,6 +158,7 @@ pub use types::{FtpError, FtpResult, Mode};
 // -- export sync
 use sync_ftp::{ImplFtpStream, NoTlsStream};
 pub type FtpStream = ImplFtpStream<NoTlsStream>;
+pub use sync_ftp::DataStream;
 // -- export secure (native-tls)
 #[cfg(feature = "native-tls")]
 pub use sync_ftp::NativeTlsConnector;
@@ -180,6 +181,8 @@ use async_ftp::AsyncNoTlsStream;
 use async_ftp::ImplAsyncFtpStream;
 #[cfg(feature = "async")]
 pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
+#[cfg(feature = "async")]
+pub use async_ftp::DataStream as AsyncDataStream;
 // -- export async secure (native-tls)
 #[cfg(feature = "async-native-tls")]
 pub use async_ftp::AsyncNativeTlsConnector;

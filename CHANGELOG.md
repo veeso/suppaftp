@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.0.1](#501)
   - [5.0.0](#500)
   - [4.7.0](#470)
   - [4.6.1](#461)
@@ -21,6 +22,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.0.1
+
+Released on 26/02/2023
+
+- Exposed publicly `DataStream` and `AsyncDataStream`
 
 ## 5.0.0
 

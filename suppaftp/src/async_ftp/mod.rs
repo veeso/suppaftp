@@ -12,7 +12,6 @@ use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
 use async_std::io::prelude::BufReadExt;
-use data_stream::DataStream;
 use tls::AsyncTlsStream;
 
 use async_std::io::{copy, BufReader, Read, Write, WriteExt};
@@ -24,6 +23,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::string::String;
 
 // export
+pub use data_stream::DataStream;
 pub use tls::AsyncNoTlsStream;
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
