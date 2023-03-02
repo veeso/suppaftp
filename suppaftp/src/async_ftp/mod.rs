@@ -21,6 +21,7 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::string::String;
+use std::time::Duration;
 
 // export
 pub use data_stream::DataStream;
@@ -53,48 +54,38 @@ impl<T> ImplAsyncFtpStream<T>
 where
     T: AsyncTlsStream,
 {
-    /// Creates an FTP Stream.
-    #[cfg(not(feature = "async-secure"))]
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");
         let stream = TcpStream::connect(addr)
             .await
             .map_err(FtpError::ConnectionError)?;
         debug!("Established connection with server");
+        Self::connect_with_stream(stream).await
+    }
 
+    /// Try to connect to the remote server but with the specified timeout
+    pub async fn connect_timeout(addr: SocketAddr, timeout: Duration) -> FtpResult<Self> {
+        debug!("Connecting to server {addr}");
+        let stream = async_std::io::timeout(timeout, async move { TcpStream::connect(addr).await })
+            .await
+            .map_err(FtpError::ConnectionError)?;
+
+        Self::connect_with_stream(stream).await
+    }
+
+    /// Connect using provided configured tcp stream
+    async fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
+        debug!("Established connection with server");
         let mut ftp_stream = ImplAsyncFtpStream {
             reader: BufReader::new(DataStream::Tcp(stream)),
+            #[cfg(not(feature = "async-secure"))]
             marker: PhantomData {},
             mode: Mode::Passive,
             nat_workaround: false,
             welcome_msg: None,
-        };
-        debug!("Reading server response...");
-
-        match ftp_stream.read_response(Status::Ready).await {
-            Ok(response) => {
-                let welcome_msg = response.as_string().ok();
-                debug!("Server READY; response: {:?}", welcome_msg);
-                ftp_stream.welcome_msg = welcome_msg;
-                Ok(ftp_stream)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    /// Creates an FTP Stream.
-    #[cfg(feature = "async-secure")]
-    pub async fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
-        let stream = TcpStream::connect(addr)
-            .await
-            .map_err(FtpError::ConnectionError)?;
-        debug!("Connecting to server");
-        let mut ftp_stream = ImplAsyncFtpStream {
-            reader: BufReader::new(DataStream::Tcp(stream)),
-            mode: Mode::Passive,
-            nat_workaround: false,
-            welcome_msg: None,
+            #[cfg(feature = "async-secure")]
             tls_ctx: None,
+            #[cfg(feature = "async-secure")]
             domain: None,
         };
         debug!("Reading server response...");
@@ -1015,6 +1006,22 @@ mod test {
         assert_eq!(ftp_stream.mode, Mode::Active);
         ftp_stream.set_mode(Mode::Passive);
         assert_eq!(ftp_stream.mode, Mode::Passive);
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    #[serial]
+    async fn should_connect_with_timeout() {
+        crate::log_init();
+        let addr: SocketAddr = "127.0.0.1:10021".parse().expect("invalid hostname");
+        let mut stream = AsyncFtpStream::connect_timeout(addr, Duration::from_secs(15))
+            .await
+            .unwrap();
+        assert!(stream.login("test", "test").await.is_ok());
+        assert_eq!(
+            stream.get_welcome_msg().unwrap(),
+            "220 You will be disconnected after 15 minutes of inactivity."
+        );
     }
 
     #[async_attributes::test]

@@ -19,6 +19,7 @@ use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 #[cfg(not(feature = "secure"))]
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::time::Duration;
 
 // export
 pub use data_stream::DataStream;
@@ -52,61 +53,49 @@ impl<T> ImplFtpStream<T>
 where
     T: TlsStream,
 {
-    #[cfg(feature = "secure")]
+    /// Try to connect to the remote server
     pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");
         TcpStream::connect(addr)
             .map_err(FtpError::ConnectionError)
-            .and_then(|stream| {
-                debug!("Established connection with server");
-                let mut ftp_stream = Self {
-                    reader: BufReader::new(DataStream::Tcp(stream)),
-                    mode: Mode::Passive,
-                    nat_workaround: false,
-                    welcome_msg: None,
-                    tls_ctx: None,
-                    domain: None,
-                };
-                debug!("Reading server response...");
-                match ftp_stream.read_response(Status::Ready) {
-                    Ok(response) => {
-                        let welcome_msg = response.as_string().ok();
-                        debug!("Server READY; response: {:?}", welcome_msg);
-                        ftp_stream.welcome_msg = welcome_msg;
-                        Ok(ftp_stream)
-                    }
-                    Err(err) => Err(err),
-                }
-            })
+            .and_then(|stream| Self::connect_with_stream(stream))
     }
 
-    #[cfg(not(feature = "secure"))]
-    /// Creates an FTP Stream.
-    pub fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
-        debug!("Connecting to server");
-        TcpStream::connect(addr)
+    /// Try to connect to the remote server but with the specified timeout
+    pub fn connect_timeout(addr: std::net::SocketAddr, timeout: Duration) -> FtpResult<Self> {
+        debug!("Connecting to server {addr}");
+        TcpStream::connect_timeout(&addr, timeout)
             .map_err(FtpError::ConnectionError)
-            .and_then(|stream| {
-                debug!("Established connection with server");
-                let mut ftp_stream = Self {
-                    reader: BufReader::new(DataStream::Tcp(stream)),
-                    mode: Mode::Passive,
-                    nat_workaround: false,
-                    welcome_msg: None,
-                    marker: PhantomData {},
-                };
-                debug!("Reading server response...");
-                match ftp_stream.read_response(Status::Ready) {
-                    Ok(response) => {
-                        let welcome_msg = response.as_string().ok();
-                        debug!("Server READY; response: {:?}", welcome_msg);
-                        ftp_stream.welcome_msg = welcome_msg;
-                        Ok(ftp_stream)
-                    }
-                    Err(err) => Err(err),
-                }
-            })
+            .and_then(|stream| Self::connect_with_stream(stream))
     }
+
+    /// Connect using provided configured tcp stream
+    fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
+        debug!("Established connection with server");
+        let mut ftp_stream = Self {
+            reader: BufReader::new(DataStream::Tcp(stream)),
+            mode: Mode::Passive,
+            nat_workaround: false,
+            welcome_msg: None,
+            #[cfg(feature = "secure")]
+            tls_ctx: None,
+            #[cfg(feature = "secure")]
+            domain: None,
+            #[cfg(not(feature = "secure"))]
+            marker: PhantomData {},
+        };
+        debug!("Reading server response...");
+        match ftp_stream.read_response(Status::Ready) {
+            Ok(response) => {
+                let welcome_msg = response.as_string().ok();
+                debug!("Server READY; response: {:?}", welcome_msg);
+                ftp_stream.welcome_msg = welcome_msg;
+                Ok(ftp_stream)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     /// Enable active mode for data channel
     pub fn active_mode(mut self) -> Self {
         self.mode = Mode::Active;
@@ -1008,6 +997,20 @@ mod test {
         assert_eq!(ftp_stream.mode, Mode::Active);
         ftp_stream.set_mode(Mode::Passive);
         assert_eq!(ftp_stream.mode, Mode::Passive);
+    }
+
+    #[test]
+    #[serial]
+    #[cfg(feature = "with-containers")]
+    fn should_connect_with_timeout() {
+        crate::log_init();
+        let addr: SocketAddr = "127.0.0.1:10021".parse().expect("invalid hostname");
+        let mut stream = FtpStream::connect_timeout(addr, Duration::from_secs(15)).unwrap();
+        assert!(stream.login("test", "test").is_ok());
+        assert_eq!(
+            stream.get_welcome_msg().unwrap(),
+            "220 You will be disconnected after 15 minutes of inactivity."
+        );
     }
 
     #[test]
