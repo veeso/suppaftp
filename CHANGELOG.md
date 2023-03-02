@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.1.0](#510)
   - [5.0.1](#501)
   - [5.0.0](#500)
   - [4.7.0](#470)
@@ -22,6 +23,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.1.0
+
+Released on 02/03/2023
+
+- Implemented new connection method `connect_timeout` with the possibility to specify a timeout on connect
 
 ## 5.0.1
 

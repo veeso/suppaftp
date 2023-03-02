@@ -116,7 +116,7 @@ SuppaFTP is the main FTP/FTPS client library for Rust, with both support for syn
 To get started, first add **suppaftp** to your dependencies:
 
 ```toml
-suppaftp = "^5.0.0"
+suppaftp = "^5.1.0"
 ```
 
 ### Features
@@ -126,9 +126,9 @@ suppaftp = "^5.0.0"
 If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 
 ```toml
-suppaftp = { version = "^5.0.0", features = ["native-tls"] }
+suppaftp = { version = "^5.1.0", features = ["native-tls"] }
 # or
-suppaftp = { version = "^5.0.0", features = ["rustls"] }
+suppaftp = { version = "^5.1.0", features = ["rustls"] }
 ```
 
 > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.  
@@ -139,7 +139,7 @@ suppaftp = { version = "^5.0.0", features = ["rustls"] }
 If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
 
 ```toml
-suppaftp = { version = "^5.0.0", features = ["async"] }
+suppaftp = { version = "^5.1.0", features = ["async"] }
 ```
 
 > ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️  
