@@ -38,7 +38,7 @@ pub enum Status {
     Closing = 221,
     #[error("data connection open; no transfer in progress")]
     DataConnectionOpen = 225,
-    #[error("closingh data connection")]
+    #[error("closing data connection")]
     ClosingDataConnection = 226,
     #[error("entering passive mode")]
     PassiveMode = 227,
