@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.1.1](#511)
   - [5.1.0](#510)
   - [5.0.1](#501)
   - [5.0.0](#500)
@@ -23,6 +24,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.1.1
+
+Released on 03/04/2023
+
+- `ImplFtpStream` and `ImplAsyncFtpStream` are now public
 
 ## 5.1.0
 

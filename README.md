@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">Developed by <a href="https://veeso.github.io/">veeso</a> and <a href="https://github.com/mattnenterprise">Matt McCoy</a></p>
-<p align="center">Current version: 5.1.0 (02/03/2023)</p>
+<p align="center">Current version: 5.1.1 (03/04/2023)</p>
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"
@@ -38,6 +38,11 @@
     <img
       src="https://img.shields.io/badge/donate-ko--fi-red"
       alt="Ko-fi"
+  /></a>
+  <a href="https://conventionalcommits.org">
+    <img
+      src="https://img.shields.io/badge/Conventional%20Commits-1.0.0-%23FE5196?logo=conventionalcommits&logoColor=white"
+      alt="conventional-commits"
   /></a>
 </p>
 <p align="center">
