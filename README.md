@@ -188,7 +188,7 @@ fn main() {
 
     // Store (PUT) a file from the client to the current working directory of the server.
     let mut reader = Cursor::new("Hello from the Rust \"ftp\" crate!".as_bytes());
-    let _ = ftp_stream.put("greeting.txt", &mut reader);
+    let _ = ftp_stream.put_file("greeting.txt", &mut reader);
     println!("Successfully wrote greeting.txt");
 
     // Terminate the connection to the server.
