@@ -1,12 +1,21 @@
 [package]
 name = "suppaftp"
-version = "5.1.1"
-authors = ["Christian Visintin <christian.visintin1997@gmail.com>", "Matt McCoy <mattnenterprise@yahoo.com>"]
-edition = "2021" 
+version = "5.1.2"
+authors = [
+  "Christian Visintin <christian.visintin1997@gmail.com>",
+  "Matt McCoy <mattnenterprise@yahoo.com>",
+]
+edition = "2021"
 documentation = "https://docs.rs/suppaftp/"
 repository = "https://github.com/veeso/suppaftp"
 description = "A super FTP/FTPS client library for Rust"
-include = ["src/**/*", "../LICENSE-APACHE", "../LICENSE-MIT", "../README.md", "../CHANGELOG.md"]
+include = [
+  "src/**/*",
+  "../LICENSE-APACHE",
+  "../LICENSE-MIT",
+  "../README.md",
+  "../CHANGELOG.md",
+]
 readme = "../README.md"
 license = "Apache-2.0/MIT"
 keywords = ["ftp", "ftps", "network-protocol", "async"]
@@ -17,7 +26,7 @@ name = "suppaftp"
 path = "src/lib.rs"
 
 [dependencies]
-chrono  = "^0.4"
+chrono = { version = "^0.4", default-features = false, features = ["clock"] }
 lazy-regex = "^2.4"
 log = "^0.4"
 thiserror = "^1"
@@ -40,27 +49,30 @@ serial_test = "^1.0"
 webpki-roots = "0.22.5"
 
 [features]
-default = [ ]
+default = []
 # Enable async support for suppaftp
 async = ["async-std", "async-trait", "pin-project"]
-async-default-tls = [ "async-native-tls" ]
-async-native-tls = [ "async-native-tls-crate", "async-secure" ]
-async-rustls = [ "async-tls", "async-secure" ]
-async-secure = [ "async" ]
+async-default-tls = ["async-native-tls"]
+async-native-tls = ["async-native-tls-crate", "async-secure"]
+async-rustls = ["async-tls", "async-secure"]
+async-secure = ["async"]
 
 # Enable deprecated FTP/FTPS methods
 deprecated = []
 
 # Enable support for FTPS which requires native-tls (openssl is required on Linux) or RustTLS
-default-tls = [ "native-tls" ]
-native-tls = [ "native-tls-crate", "secure" ]
-native-tls-vendored = [ "native-tls", "native-tls-crate/vendored" ]
-async-native-tls-vendored = [ "async-native-tls", "async-native-tls-crate/vendored" ]
-rustls = [ "rustls-crate", "secure" ]
+default-tls = ["native-tls"]
+native-tls = ["native-tls-crate", "secure"]
+native-tls-vendored = ["native-tls", "native-tls-crate/vendored"]
+async-native-tls-vendored = [
+  "async-native-tls",
+  "async-native-tls-crate/vendored",
+]
+rustls = ["rustls-crate", "secure"]
 secure = []
 
 # Disable logging
-no-log = [ "log/max_level_off" ]
+no-log = ["log/max_level_off"]
 
 # Must be enabled whenever testing with docker containers
 with-containers = []

@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.1.2](#512)
   - [5.1.1](#511)
   - [5.1.0](#510)
   - [5.0.1](#501)
@@ -24,6 +25,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.1.2
+
+Released on 14/06/2023
+
+- Added `clock` feature to chrono to overcome security issue with `time` <https://github.com/veeso/suppaftp/issues/46>
 
 ## 5.1.1
 
