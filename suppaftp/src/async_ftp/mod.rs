@@ -11,6 +11,7 @@ use super::Status;
 use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
+use crate::types::Features;
 use async_std::io::prelude::BufReadExt;
 use tls::AsyncTlsStream;
 
@@ -625,6 +626,54 @@ where
         }
     }
 
+    /// Retrieves the features supported by the server, through the FEAT command.
+    pub async fn feat(&mut self) -> FtpResult<Features> {
+        debug!("Getting server supported features");
+        self.perform(Command::Feat).await?;
+
+        self.read_response(Status::System).await?;
+
+        let mut supported_features = Features::default();
+        loop {
+            let mut line = Vec::new();
+            self.read_line(&mut line).await?;
+            let line = String::from_utf8_lossy(&line);
+            if line.starts_with(' ') {
+                let mut feature_line = line.trim().split(' ');
+                let feature_name = feature_line.next();
+                let feature_values = match feature_line.collect::<Vec<&str>>().join(" ") {
+                    values if values.is_empty() => None,
+                    values => Some(values),
+                };
+                if let Some(feature_name) = feature_name {
+                    debug!("found supported feature: {feature_name}: {feature_values:?}");
+                    supported_features.insert(feature_name.to_string(), feature_values);
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(supported_features)
+    }
+
+    /// Set option `option` with an optional value
+    pub async fn opts(
+        &mut self,
+        option: impl ToString,
+        value: Option<impl ToString>,
+    ) -> FtpResult<()> {
+        debug!("Getting server supported features");
+        self.perform(Command::Opts(
+            option.to_string(),
+            value.map(|x| x.to_string()),
+        ))
+        .await?;
+        self.read_response(Status::CommandOk).await?;
+
+        Ok(())
+    }
+
     // -- private
 
     /// Execute command which send data back in a separate stream
@@ -1111,6 +1160,19 @@ mod test {
         }
         // Remove directory
         assert!(stream.rmdir("omar").await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    #[cfg(feature = "with-containers")]
+    #[serial]
+    fn should_get_feat_and_set_opts() {
+        crate::log_init();
+        let mut stream = setup_stream().await;
+
+        assert!(stream.feat().await.is_ok());
+        assert!(stream.opts("UTF8", Some("ON")).await.is_ok());
+
         finalize_stream(stream).await;
     }
 

@@ -11,6 +11,7 @@ use super::Status;
 use crate::command::Command;
 #[cfg(feature = "secure")]
 use crate::command::ProtectionLevel;
+use crate::types::Features;
 use tls::TlsStream;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
@@ -637,6 +638,49 @@ where
         }
     }
 
+    /// Retrieves the features supported by the server, through the FEAT command.
+    pub fn feat(&mut self) -> FtpResult<Features> {
+        debug!("Getting server supported features");
+        self.perform(Command::Feat)?;
+
+        self.read_response(Status::System)?;
+
+        let mut supported_features = Features::default();
+        loop {
+            let mut line = Vec::new();
+            self.read_line(&mut line)?;
+            let line = String::from_utf8_lossy(&line);
+            if line.starts_with(' ') {
+                let mut feature_line = line.trim().split(' ');
+                let feature_name = feature_line.next();
+                let feature_values = match feature_line.collect::<Vec<&str>>().join(" ") {
+                    values if values.is_empty() => None,
+                    values => Some(values),
+                };
+                if let Some(feature_name) = feature_name {
+                    debug!("found supported feature: {feature_name}: {feature_values:?}");
+                    supported_features.insert(feature_name.to_string(), feature_values);
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(supported_features)
+    }
+
+    /// Set option `option` with an optional value
+    pub fn opts(&mut self, option: impl ToString, value: Option<impl ToString>) -> FtpResult<()> {
+        debug!("Getting server supported features");
+        self.perform(Command::Opts(
+            option.to_string(),
+            value.map(|x| x.to_string()),
+        ))?;
+        self.read_response(Status::CommandOk)?;
+
+        Ok(())
+    }
+
     // -- private
 
     /// Retrieve stream "message"
@@ -689,9 +733,10 @@ where
         trace!("Code parsed from response: {} ({})", code, code_word);
 
         // multiple line reply
-        // loop while the line does not begin with the code and a space
+        // loop while the line does not begin with the code and a space (or dash)
         let expected = [line[0], line[1], line[2], 0x20];
-        while line.len() < 5 || line[0..4] != expected {
+        let alt_expected = [line[0], line[1], line[2], b'-'];
+        while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
             line.clear();
             self.read_line(&mut line)?;
             trace!("CC IN: {:?}", line);
@@ -1198,6 +1243,19 @@ mod test {
         assert!(stream.rm("test.bin").is_ok());
         // Check whether data channel still works
         assert!(stream.list(None).is_ok());
+        finalize_stream(stream);
+    }
+
+    #[test]
+    #[cfg(feature = "with-containers")]
+    #[serial]
+    fn should_get_feat_and_set_opts() {
+        crate::log_init();
+        let mut stream: FtpStream = setup_stream();
+
+        assert!(stream.feat().is_ok());
+        assert!(stream.opts("UTF8", Some("ON")).is_ok());
+
         finalize_stream(stream);
     }
 

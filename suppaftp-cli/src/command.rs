@@ -7,6 +7,7 @@ pub enum Command {
     Cdup,
     Connect(String, bool),
     Cwd(String),
+    Feat,
     Help,
     List(Option<String>),
     Login,
@@ -14,6 +15,7 @@ pub enum Command {
     Mkdir(String),
     Mode(Mode),
     Noop,
+    Opts(String, Option<String>),
     Put(PathBuf, String),
     Pwd,
     Quit,
@@ -56,6 +58,7 @@ impl FromStr for Command {
                     Some(p) => Ok(Self::Cwd(p.to_string())),
                     None => Err("Missing `dir` field"),
                 },
+                "FEAT" => Ok(Self::Feat),
                 "HELP" => Ok(Self::Help),
                 "LIST" => match args.next() {
                     Some(dir) => Ok(Self::List(Some(dir.to_string()))),
@@ -78,6 +81,16 @@ impl FromStr for Command {
                     None => Err("Missing `mode` field"),
                 },
                 "NOOP" => Ok(Self::Noop),
+                "OPTS" => {
+                    let feature_name = match args.next() {
+                        Some(s) => s.to_string(),
+                        None => return Err("Missing `feature-name` field"),
+                    };
+                    match args.collect::<Vec<&str>>().join(" ") {
+                        s if s.is_empty() => Ok(Self::Opts(feature_name, None)),
+                        s => Ok(Self::Opts(feature_name, Some(s.to_string()))),
+                    }
+                }
                 "PUT" => {
                     let local: PathBuf = match args.next() {
                         Some(l) => PathBuf::from(l),

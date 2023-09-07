@@ -22,7 +22,7 @@ pub enum Status {
     CommandOk = 200,
     #[error("command not implemented")]
     CommandNotImplemented = 202,
-    #[error("system status, or syustem help reply")]
+    #[error("system status, or system help reply")]
     System = 211,
     #[error("directory status")]
     Directory = 212,

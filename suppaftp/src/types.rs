@@ -3,6 +3,7 @@
 //! The set of valid values for FTP commands
 
 use super::Status;
+use std::collections::HashMap;
 use std::convert::From;
 use std::fmt;
 use std::string::FromUtf8Error;
@@ -78,6 +79,9 @@ pub enum Mode {
     ExtendedPassive,
     Passive,
 }
+
+/// Features returned by FEAT command (key, maybe value)
+pub type Features = HashMap<String, Option<String>>;
 
 impl fmt::Display for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

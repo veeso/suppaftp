@@ -83,6 +83,30 @@ pub fn cwd(ftp: &mut FtpStream, dir: &str) {
     }
 }
 
+pub fn feat(ftp: &mut FtpStream) {
+    match ftp.feat() {
+        Ok(features) => {
+            for (feature, value) in features.iter() {
+                if let Some(value) = value {
+                    println!("{feature}: {value}");
+                } else {
+                    println!("{feature}");
+                }
+            }
+        }
+        Err(err) => eprintln!("FEAT error: {err}"),
+    }
+}
+
+pub fn opts(ftp: &mut FtpStream, opt: String, value: Option<String>) {
+    match ftp.opts(opt, value) {
+        Ok(()) => {
+            println!("OPTS OK");
+        }
+        Err(err) => eprintln!("OPTS error: {err}"),
+    }
+}
+
 pub fn list(ftp: &mut FtpStream, p: Option<&str>) {
     match ftp.list(p) {
         Ok(files) => {
