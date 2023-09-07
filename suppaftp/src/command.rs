@@ -219,7 +219,7 @@ mod test {
             "EPRT |2|2001:db8::1|8080|\r\n"
         );
         assert_eq!(Command::Epsv.to_string().as_str(), "EPSV\r\n");
-        assert_eq!(Command::Feat.to_string(), "FEAT");
+        assert_eq!(Command::Feat.to_string(), "FEAT\r\n");
         assert_eq!(
             Command::List(Some(String::from("/tmp")))
                 .to_string()
@@ -247,13 +247,13 @@ mod test {
             Command::Opts(String::from("UTF8"), Some("ON".to_string()))
                 .to_string()
                 .as_str(),
-            "OPTS UTF8 ON"
+            "OPTS UTF8 ON\r\n"
         );
         assert_eq!(
             Command::Opts(String::from("UTF8"), None)
                 .to_string()
                 .as_str(),
-            "OPTS UTF8"
+            "OPTS UTF8\r\n"
         );
         assert_eq!(
             Command::Pass(String::from("qwerty123"))
