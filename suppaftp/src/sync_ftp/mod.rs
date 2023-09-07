@@ -735,7 +735,12 @@ where
         // multiple line reply
         // loop while the line does not begin with the code and a space (or dash)
         let expected = [line[0], line[1], line[2], 0x20];
-        let alt_expected = [line[0], line[1], line[2], b'-'];
+        let alt_expected = if expected_code.contains(&Status::System) {
+            [line[0], line[1], line[2], b'-']
+        } else {
+            expected
+        };
+        trace!("CC IN: {:?}", line);
         while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
             line.clear();
             self.read_line(&mut line)?;
