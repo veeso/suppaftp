@@ -1,5 +1,5 @@
 [package]
-authors = ["Christian Visintin <christian.visintin1997@gmail.com>"]
+authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
 categories = ["command-line-utilities"]
 description = "FTP command line client, based on suppaftp"
 edition = "2021"
@@ -10,7 +10,7 @@ license = "MIT"
 name = "suppaftp-cli"
 readme = "../README.md"
 repository = "https://github.com/veeso/suppaftp"
-version = "5.0.0"
+version = "5.2.0"
 
 [[bin]]
 name = "suppaftp"
@@ -21,4 +21,4 @@ argh = "^0.1"
 env_logger = "^0.10"
 log = "^0.4"
 rpassword = "^7.2"
-suppaftp = { path = "../suppaftp", version = "^5.0", features = [ "native-tls" ] }
+suppaftp = { path = "../suppaftp", version = "^5.2", features = ["native-tls"] }

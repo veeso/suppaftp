@@ -2,9 +2,10 @@
 //!
 //! The set of FTP commands
 
-use crate::types::FileType;
+use std::net::SocketAddr;
+use std::string::ToString;
 
-use std::{net::SocketAddr, string::ToString};
+use crate::types::FileType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Ftp commands with their arguments
@@ -29,6 +30,8 @@ pub enum Command {
     Eprt(SocketAddr),
     /// Extended passive mode <https://www.rfc-editor.org/rfc/rfc2428#section-3>
     Epsv,
+    /// RFC 2389 <https://www.rfc-editor.org/rfc/rfc2389>, list supported options on the server
+    Feat,
     /// List entries at specified path. If path is not provided list entries at current working directory
     List(Option<String>),
     /// Get modification time for file at specified path
@@ -39,6 +42,8 @@ pub enum Command {
     Nlst(Option<String>),
     /// Ping server
     Noop,
+    /// RFC 2389 <https://www.rfc-editor.org/rfc/rfc2389>, Set option to server, syntax is (command-name, command-options)
+    Opts(String, Option<String>),
     /// Provide login password
     Pass(String),
     /// Passive mode
@@ -110,6 +115,7 @@ impl ToString for Command {
             Self::Dele(f) => format!("DELE {f}"),
             Self::Eprt(addr) => Self::encode_eprt(addr),
             Self::Epsv => "EPSV".to_string(),
+            Self::Feat => "FEAT".to_string(),
             Self::List(p) => p
                 .as_deref()
                 .map(|x| format!("LIST {x}"))
@@ -120,6 +126,13 @@ impl ToString for Command {
                 .as_deref()
                 .map(|x| format!("NLST {x}"))
                 .unwrap_or_else(|| "NLST".to_string()),
+            Self::Opts(command_name, command_opts) => {
+                if let Some(command_opts) = command_opts {
+                    format!("OPTS {command_name} {command_opts}")
+                } else {
+                    format!("OPTS {command_name}")
+                }
+            }
             Self::Noop => "NOOP".to_string(),
             Self::Pass(p) => format!("PASS {p}"),
             Self::Pasv => "PASV".to_string(),
@@ -159,9 +172,9 @@ impl ToString for ProtectionLevel {
 #[cfg(test)]
 mod test {
 
-    use super::*;
-
     use pretty_assertions::assert_eq;
+
+    use super::*;
 
     #[test]
     fn should_stringify_command() {
@@ -206,6 +219,7 @@ mod test {
             "EPRT |2|2001:db8::1|8080|\r\n"
         );
         assert_eq!(Command::Epsv.to_string().as_str(), "EPSV\r\n");
+        assert_eq!(Command::Feat.to_string(), "FEAT\r\n");
         assert_eq!(
             Command::List(Some(String::from("/tmp")))
                 .to_string()
@@ -229,6 +243,18 @@ mod test {
         );
         assert_eq!(Command::Nlst(None).to_string().as_str(), "NLST\r\n");
         assert_eq!(Command::Noop.to_string().as_str(), "NOOP\r\n");
+        assert_eq!(
+            Command::Opts(String::from("UTF8"), Some("ON".to_string()))
+                .to_string()
+                .as_str(),
+            "OPTS UTF8 ON\r\n"
+        );
+        assert_eq!(
+            Command::Opts(String::from("UTF8"), None)
+                .to_string()
+                .as_str(),
+            "OPTS UTF8\r\n"
+        );
         assert_eq!(
             Command::Pass(String::from("qwerty123"))
                 .to_string()

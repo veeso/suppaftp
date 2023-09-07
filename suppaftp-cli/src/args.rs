@@ -12,4 +12,6 @@ pub struct Args {
     pub verbose: bool,
     #[argh(switch, short = 'V', description = "print version")]
     pub version: bool,
+    #[argh(positional, description = "host to connect to")]
+    pub host: Option<String>,
 }

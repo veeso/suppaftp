@@ -5,15 +5,6 @@
 mod data_stream;
 mod tls;
 
-use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
-use super::types::{FileType, FtpError, FtpResult, Mode, Response};
-use super::Status;
-use crate::command::Command;
-#[cfg(feature = "secure")]
-use crate::command::ProtectionLevel;
-use tls::TlsStream;
-
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use std::fmt::Debug;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 #[cfg(not(feature = "secure"))]
@@ -21,15 +12,25 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use data_stream::DataStream;
 pub use tls::NoTlsStream;
 #[cfg(feature = "secure")]
 pub use tls::TlsConnector;
+use tls::TlsStream;
 #[cfg(feature = "native-tls")]
 pub use tls::{NativeTlsConnector, NativeTlsStream};
 #[cfg(feature = "rustls")]
 pub use tls::{RustlsConnector, RustlsStream};
+
+use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
+use super::types::{FileType, FtpError, FtpResult, Mode, Response};
+use super::Status;
+use crate::command::Command;
+#[cfg(feature = "secure")]
+use crate::command::ProtectionLevel;
+use crate::types::Features;
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 #[derive(Debug)]
@@ -637,6 +638,49 @@ where
         }
     }
 
+    /// Retrieves the features supported by the server, through the FEAT command.
+    pub fn feat(&mut self) -> FtpResult<Features> {
+        debug!("Getting server supported features");
+        self.perform(Command::Feat)?;
+
+        self.read_response(Status::System)?;
+
+        let mut supported_features = Features::default();
+        loop {
+            let mut line = Vec::new();
+            self.read_line(&mut line)?;
+            let line = String::from_utf8_lossy(&line);
+            if line.starts_with(' ') {
+                let mut feature_line = line.trim().split(' ');
+                let feature_name = feature_line.next();
+                let feature_values = match feature_line.collect::<Vec<&str>>().join(" ") {
+                    values if values.is_empty() => None,
+                    values => Some(values),
+                };
+                if let Some(feature_name) = feature_name {
+                    debug!("found supported feature: {feature_name}: {feature_values:?}");
+                    supported_features.insert(feature_name.to_string(), feature_values);
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(supported_features)
+    }
+
+    /// Set option `option` with an optional value
+    pub fn opts(&mut self, option: impl ToString, value: Option<impl ToString>) -> FtpResult<()> {
+        debug!("Getting server supported features");
+        self.perform(Command::Opts(
+            option.to_string(),
+            value.map(|x| x.to_string()),
+        ))?;
+        self.read_response(Status::CommandOk)?;
+
+        Ok(())
+    }
+
     // -- private
 
     /// Retrieve stream "message"
@@ -689,9 +733,15 @@ where
         trace!("Code parsed from response: {} ({})", code, code_word);
 
         // multiple line reply
-        // loop while the line does not begin with the code and a space
+        // loop while the line does not begin with the code and a space (or dash)
         let expected = [line[0], line[1], line[2], 0x20];
-        while line.len() < 5 || line[0..4] != expected {
+        let alt_expected = if expected_code.contains(&Status::System) {
+            [line[0], line[1], line[2], b'-']
+        } else {
+            expected
+        };
+        trace!("CC IN: {:?}", line);
+        while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
             line.clear();
             self.read_line(&mut line)?;
             trace!("CC IN: {:?}", line);
@@ -869,11 +919,8 @@ where
 #[cfg(test)]
 mod test {
 
-    use super::*;
-    use crate::FtpStream;
-
-    #[cfg(feature = "with-containers")]
-    use crate::types::FormatControl;
+    #[cfg(feature = "rustls")]
+    use std::sync::Arc;
 
     #[cfg(feature = "native-tls")]
     use native_tls::TlsConnector;
@@ -884,8 +931,11 @@ mod test {
     #[cfg(feature = "rustls")]
     use rustls::ClientConfig;
     use serial_test::serial;
-    #[cfg(feature = "rustls")]
-    use std::sync::Arc;
+
+    use super::*;
+    #[cfg(feature = "with-containers")]
+    use crate::types::FormatControl;
+    use crate::FtpStream;
 
     #[test]
     #[cfg(feature = "with-containers")]
@@ -1202,6 +1252,19 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "with-containers")]
+    #[serial]
+    fn should_get_feat_and_set_opts() {
+        crate::log_init();
+        let mut stream: FtpStream = setup_stream();
+
+        assert!(stream.feat().is_ok());
+        assert!(stream.opts("UTF8", Some("ON")).is_ok());
+
+        finalize_stream(stream);
+    }
+
+    #[test]
     #[serial]
     #[cfg(feature = "with-containers")]
     fn should_resume_transfer() {
@@ -1304,7 +1367,7 @@ mod test {
     #[cfg(feature = "rustls")]
     fn rustls_config() -> ClientConfig {
         let mut root_store = rustls::RootCertStore::empty();
-        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
             rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
                 ta.subject,
                 ta.spki,

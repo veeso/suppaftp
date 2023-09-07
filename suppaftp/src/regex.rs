@@ -21,9 +21,9 @@ pub static SIZE_RE: Lazy<Regex> = lazy_regex!(r"\s+(\d+)\s*$");
 #[cfg(test)]
 mod test {
 
-    use super::*;
-
     use pretty_assertions::assert_eq;
+
+    use super::*;
 
     #[test]
     fn should_match_pasv_port() {

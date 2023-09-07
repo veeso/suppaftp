@@ -2,10 +2,10 @@
 //!
 //! This module exposes the data stream where bytes must be written to/read from
 
-use super::tls::TlsStream;
-
 use std::io::{Read, Result, Write};
 use std::net::TcpStream;
+
+use super::tls::TlsStream;
 
 /// Data Stream used for communications. It can be both of type Tcp in case of plain communication or Ssl in case of FTPS
 #[derive(Debug)]

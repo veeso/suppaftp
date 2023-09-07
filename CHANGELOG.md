@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.2.0](#520)
   - [5.1.2](#512)
   - [5.1.1](#511)
   - [5.1.0](#510)
@@ -25,6 +26,14 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.2.0
+
+Released on 07/09/2023
+
+- Implemented [RFC 2389](https://www.rfc-editor.org/rfc/rfc2389)
+  - Added `FEAT` command
+  - Added `OPTS` command
 
 ## 5.1.2
 

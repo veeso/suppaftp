@@ -2,14 +2,14 @@
 //!
 //! rustls types for suppaftp
 
-use async_std::{
-    io::{Read, Write},
-    net::TcpStream,
-};
-use async_tls::{client::TlsStream, TlsConnector as RustlsTlsConnector};
+use std::pin::Pin;
+
+use async_std::io::{Read, Write};
+use async_std::net::TcpStream;
+use async_tls::client::TlsStream;
+use async_tls::TlsConnector as RustlsTlsConnector;
 use async_trait::async_trait;
 use pin_project::pin_project;
-use std::pin::Pin;
 
 use super::{AsyncTlsConnector, AsyncTlsStream};
 use crate::{FtpError, FtpResult};

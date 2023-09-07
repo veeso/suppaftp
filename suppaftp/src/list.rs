@@ -32,14 +32,15 @@
 //!
 //! ```
 
-use chrono::prelude::{NaiveDate, NaiveDateTime, Utc};
-use chrono::Datelike;
-use lazy_regex::{Lazy, Regex};
 use std::convert::TryFrom;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
+
+use chrono::prelude::{NaiveDate, NaiveDateTime, Utc};
+use chrono::Datelike;
+use lazy_regex::{Lazy, Regex};
 use thiserror::Error;
 
 // -- Regex
@@ -494,10 +495,10 @@ impl From<u8> for PosixPex {
 #[cfg(test)]
 mod test {
 
-    use super::*;
-
     use chrono::DateTime;
     use pretty_assertions::assert_eq;
+
+    use super::*;
 
     #[test]
     fn file_getters() {

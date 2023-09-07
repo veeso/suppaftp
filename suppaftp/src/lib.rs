@@ -21,7 +21,7 @@
 //! To get started, first add **suppaftp** to your dependencies:
 //!
 //! ```toml
-//! suppaftp = "^5.1.0"
+//! suppaftp = "^5.2.0"
 //! ```
 //!
 //! ### Features
@@ -31,9 +31,9 @@
 //! If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 //!
 //! ```toml
-//! suppaftp = { version = "^5.1.0", features = ["native-tls"] }
+//! suppaftp = { version = "^5.2.0", features = ["native-tls"] }
 //! # or
-//! suppaftp = { version = "^5.1.0", features = ["rustls"] }
+//! suppaftp = { version = "^5.2.0", features = ["rustls"] }
 //! ```
 //!
 //! > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
@@ -43,7 +43,7 @@
 //! If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
 //!
 //! ```toml
-//! suppaftp = { version = "^5.1.0", features = ["async"] }
+//! suppaftp = { version = "^5.2.0", features = ["async"] }
 //! ```
 //!
 //! > ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️
@@ -153,11 +153,10 @@ pub extern crate async_native_tls_crate as async_native_tls;
 
 // -- export (common)
 pub use status::Status;
-pub use types::{FtpError, FtpResult, Mode};
-
 // -- export sync
 pub use sync_ftp::ImplFtpStream;
 use sync_ftp::NoTlsStream;
+pub use types::{FtpError, FtpResult, Mode};
 pub type FtpStream = ImplFtpStream<NoTlsStream>;
 pub use sync_ftp::DataStream;
 // -- export secure (native-tls)
@@ -182,13 +181,13 @@ use async_ftp::AsyncNoTlsStream;
 pub use async_ftp::ImplAsyncFtpStream;
 #[cfg(feature = "async")]
 pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
-#[cfg(feature = "async")]
-pub use async_ftp::DataStream as AsyncDataStream;
 // -- export async secure (native-tls)
 #[cfg(feature = "async-native-tls")]
 pub use async_ftp::AsyncNativeTlsConnector;
 #[cfg(feature = "async-native-tls")]
 use async_ftp::AsyncNativeTlsStream;
+#[cfg(feature = "async")]
+pub use async_ftp::DataStream as AsyncDataStream;
 #[cfg(feature = "async-native-tls")]
 pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
 // -- export async secure (rustls)

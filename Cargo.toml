@@ -1,5 +1,3 @@
 [workspace]
-members = [
-  "suppaftp",
-  "suppaftp-cli"
-]
+members = ["suppaftp", "suppaftp-cli"]
+resolver = "2"

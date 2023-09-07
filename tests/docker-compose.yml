@@ -1,9 +1,12 @@
 version: "3"
 services:
   ftp-server:
-    image: afharo/pure-ftp
+    image: stilliard/pure-ftpd
     ports:
       - "10021:21"
       - "30000-30009:30000-30009"
     environment:
       - PUBLICHOST=localhost
+      - FTP_USER_NAME=test
+      - FTP_USER_PASS=test
+      - FTP_USER_HOME=/home/test

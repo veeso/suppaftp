@@ -1,11 +1,12 @@
-use super::{FtpError, FtpStream};
-
 use std::fs::File;
 use std::io;
 use std::path::Path;
+
 use suppaftp::native_tls::TlsConnector;
 use suppaftp::types::FileType;
 use suppaftp::{Mode, NativeTlsConnector};
+
+use super::{FtpError, FtpStream};
 
 pub fn quit(mut ftp: Option<FtpStream>) {
     if let Some(mut ftp) = ftp.take() {
@@ -80,6 +81,30 @@ pub fn cwd(ftp: &mut FtpStream, dir: &str) {
     match ftp.cwd(dir) {
         Ok(_) => println!("OK"),
         Err(err) => eprintln!("CWD error: {err}"),
+    }
+}
+
+pub fn feat(ftp: &mut FtpStream) {
+    match ftp.feat() {
+        Ok(features) => {
+            for (feature, value) in features.iter() {
+                if let Some(value) = value {
+                    println!("{feature}: {value}");
+                } else {
+                    println!("{feature}");
+                }
+            }
+        }
+        Err(err) => eprintln!("FEAT error: {err}"),
+    }
+}
+
+pub fn opts(ftp: &mut FtpStream, opt: String, value: Option<String>) {
+    match ftp.opts(opt, value) {
+        Ok(()) => {
+            println!("OPTS OK");
+        }
+        Err(err) => eprintln!("OPTS error: {err}"),
     }
 }
 

@@ -2,14 +2,13 @@
 //!
 //! Native tls types for suppaftp
 
+use std::pin::Pin;
+
 use async_native_tls::{TlsConnector, TlsStream};
-use async_std::{
-    io::{Read, Write},
-    net::TcpStream,
-};
+use async_std::io::{Read, Write};
+use async_std::net::TcpStream;
 use async_trait::async_trait;
 use pin_project::pin_project;
-use std::pin::Pin;
 
 use super::{AsyncTlsConnector, AsyncTlsStream};
 use crate::{FtpError, FtpResult};

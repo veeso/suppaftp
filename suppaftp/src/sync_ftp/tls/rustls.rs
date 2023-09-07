@@ -2,14 +2,14 @@
 //!
 //! Rustls implementation of tls types
 
-use crate::{FtpError, FtpResult};
-
-use rustls::{ClientConfig, ClientConnection, ServerName, StreamOwned};
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::Arc;
 
+use rustls::{ClientConfig, ClientConnection, ServerName, StreamOwned};
+
 use super::{TlsConnector, TlsStream};
+use crate::{FtpError, FtpResult};
 
 /// A Wrapper for the tls connector
 pub struct RustlsConnector {

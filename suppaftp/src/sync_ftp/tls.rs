@@ -2,16 +2,15 @@
 //!
 //! Tls wrappers
 
-use std::io::Write;
+use std::fmt::Debug;
+use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::{fmt::Debug, io::Read};
 
 #[cfg(feature = "native-tls")]
 mod native_tls;
-use crate::FtpResult;
-
 #[cfg(feature = "native-tls")]
 pub use self::native_tls::{NativeTlsConnector, NativeTlsStream};
+use crate::FtpResult;
 
 #[cfg(feature = "rustls")]
 mod rustls;
