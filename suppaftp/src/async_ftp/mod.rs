@@ -1166,7 +1166,7 @@ mod test {
     #[async_attributes::test]
     #[cfg(feature = "with-containers")]
     #[serial]
-    fn should_get_feat_and_set_opts() {
+    async fn should_get_feat_and_set_opts() {
         crate::log_init();
         let mut stream = setup_stream().await;
 
