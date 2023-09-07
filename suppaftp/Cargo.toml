@@ -1,8 +1,8 @@
 [package]
 name = "suppaftp"
-version = "5.1.2"
+version = "5.2.0"
 authors = [
-  "Christian Visintin <christian.visintin1997@gmail.com>",
+  "Christian Visintin <christian.visintin@veeso.dev>",
   "Matt McCoy <mattnenterprise@yahoo.com>",
 ]
 edition = "2021"
@@ -27,14 +27,14 @@ path = "src/lib.rs"
 
 [dependencies]
 chrono = { version = "^0.4", default-features = false, features = ["clock"] }
-lazy-regex = "^2.4"
+lazy-regex = "^3"
 log = "^0.4"
 thiserror = "^1"
 # async
 async-std = { version = "^1.10", optional = true }
 async-native-tls-crate = { package = "async-native-tls", version = "^0.4", optional = true }
 async-trait = { version = "0.1.64", optional = true }
-async-tls = { version = "^0.11", optional = true }
+async-tls = { version = "^0.12", optional = true }
 pin-project = { version = "^1", optional = true }
 # secure
 native-tls-crate = { package = "native-tls", version = "^0.2", optional = true }
@@ -45,8 +45,8 @@ async-attributes = "1.1.2"
 env_logger = "^0.10"
 pretty_assertions = "^1.0.0"
 rand = "^0.8.4"
-serial_test = "^1.0"
-webpki-roots = "0.22.5"
+serial_test = "^2.0"
+webpki-roots = "0.25"
 
 [features]
 default = []
