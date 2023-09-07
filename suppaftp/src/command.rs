@@ -2,9 +2,10 @@
 //!
 //! The set of FTP commands
 
-use crate::types::FileType;
+use std::net::SocketAddr;
+use std::string::ToString;
 
-use std::{net::SocketAddr, string::ToString};
+use crate::types::FileType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Ftp commands with their arguments
@@ -171,9 +172,9 @@ impl ToString for ProtectionLevel {
 #[cfg(test)]
 mod test {
 
-    use super::*;
-
     use pretty_assertions::assert_eq;
+
+    use super::*;
 
     #[test]
     fn should_stringify_command() {

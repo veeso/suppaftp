@@ -1,11 +1,12 @@
-use super::{FtpError, FtpStream};
-
 use std::fs::File;
 use std::io;
 use std::path::Path;
+
 use suppaftp::native_tls::TlsConnector;
 use suppaftp::types::FileType;
 use suppaftp::{Mode, NativeTlsConnector};
+
+use super::{FtpError, FtpStream};
 
 pub fn quit(mut ftp: Option<FtpStream>) {
     if let Some(mut ftp) = ftp.take() {

@@ -5,16 +5,6 @@
 mod data_stream;
 mod tls;
 
-use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
-use super::types::{FileType, FtpError, FtpResult, Mode, Response};
-use super::Status;
-use crate::command::Command;
-#[cfg(feature = "secure")]
-use crate::command::ProtectionLevel;
-use crate::types::Features;
-use tls::TlsStream;
-
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use std::fmt::Debug;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 #[cfg(not(feature = "secure"))]
@@ -22,15 +12,25 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use data_stream::DataStream;
 pub use tls::NoTlsStream;
 #[cfg(feature = "secure")]
 pub use tls::TlsConnector;
+use tls::TlsStream;
 #[cfg(feature = "native-tls")]
 pub use tls::{NativeTlsConnector, NativeTlsStream};
 #[cfg(feature = "rustls")]
 pub use tls::{RustlsConnector, RustlsStream};
+
+use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
+use super::types::{FileType, FtpError, FtpResult, Mode, Response};
+use super::Status;
+use crate::command::Command;
+#[cfg(feature = "secure")]
+use crate::command::ProtectionLevel;
+use crate::types::Features;
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 #[derive(Debug)]
@@ -914,11 +914,8 @@ where
 #[cfg(test)]
 mod test {
 
-    use super::*;
-    use crate::FtpStream;
-
-    #[cfg(feature = "with-containers")]
-    use crate::types::FormatControl;
+    #[cfg(feature = "rustls")]
+    use std::sync::Arc;
 
     #[cfg(feature = "native-tls")]
     use native_tls::TlsConnector;
@@ -929,8 +926,11 @@ mod test {
     #[cfg(feature = "rustls")]
     use rustls::ClientConfig;
     use serial_test::serial;
-    #[cfg(feature = "rustls")]
-    use std::sync::Arc;
+
+    use super::*;
+    #[cfg(feature = "with-containers")]
+    use crate::types::FormatControl;
+    use crate::FtpStream;
 
     #[test]
     #[cfg(feature = "with-containers")]

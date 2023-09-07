@@ -2,10 +2,11 @@
 //!
 //! Tls wrappers
 
+use std::fmt::Debug;
+
 use async_std::io::{Read, Write};
 use async_std::net::TcpStream;
 use async_trait::async_trait;
-use std::fmt::Debug;
 
 use crate::FtpResult;
 

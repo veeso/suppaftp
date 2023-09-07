@@ -5,6 +5,27 @@
 mod data_stream;
 mod tls;
 
+#[cfg(not(feature = "async-secure"))]
+use std::marker::PhantomData;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::string::String;
+use std::time::Duration;
+
+use async_std::io::prelude::BufReadExt;
+use async_std::io::{copy, BufReader, Read, Write, WriteExt};
+use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+// export
+pub use data_stream::DataStream;
+pub use tls::AsyncNoTlsStream;
+#[cfg(feature = "async-secure")]
+pub use tls::AsyncTlsConnector;
+use tls::AsyncTlsStream;
+#[cfg(feature = "async-native-tls")]
+pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
+#[cfg(feature = "async-rustls")]
+pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
+
 use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
 use super::Status;
@@ -12,27 +33,6 @@ use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
 use crate::types::Features;
-use async_std::io::prelude::BufReadExt;
-use tls::AsyncTlsStream;
-
-use async_std::io::{copy, BufReader, Read, Write, WriteExt};
-use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-#[cfg(not(feature = "async-secure"))]
-use std::marker::PhantomData;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::string::String;
-use std::time::Duration;
-
-// export
-pub use data_stream::DataStream;
-pub use tls::AsyncNoTlsStream;
-#[cfg(feature = "async-secure")]
-pub use tls::AsyncTlsConnector;
-#[cfg(feature = "async-native-tls")]
-pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
-#[cfg(feature = "async-rustls")]
-pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct ImplAsyncFtpStream<T>
@@ -920,15 +920,6 @@ where
 #[cfg(test)]
 mod test {
 
-    use super::*;
-    #[cfg(feature = "with-containers")]
-    use crate::types::FormatControl;
-    use crate::AsyncFtpStream;
-
-    #[cfg(feature = "async-native-tls")]
-    use crate::{AsyncNativeTlsConnector, AsyncNativeTlsFtpStream};
-    #[cfg(feature = "async-rustls")]
-    use crate::{AsyncRustlsConnector, AsyncRustlsFtpStream};
     #[cfg(feature = "async-native-tls")]
     use async_native_tls::TlsConnector as NativeTlsConnector;
     #[cfg(feature = "async-rustls")]
@@ -937,8 +928,16 @@ mod test {
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
-
     use serial_test::serial;
+
+    use super::*;
+    #[cfg(feature = "with-containers")]
+    use crate::types::FormatControl;
+    use crate::AsyncFtpStream;
+    #[cfg(feature = "async-native-tls")]
+    use crate::{AsyncNativeTlsConnector, AsyncNativeTlsFtpStream};
+    #[cfg(feature = "async-rustls")]
+    use crate::{AsyncRustlsConnector, AsyncRustlsFtpStream};
 
     #[cfg(feature = "with-containers")]
     #[async_attributes::test]

@@ -2,9 +2,10 @@
 //!
 //! Native tls implementation of TLS types
 
-use native_tls_crate::{TlsConnector, TlsStream};
 use std::io::Write;
 use std::net::TcpStream;
+
+use native_tls_crate::{TlsConnector, TlsStream};
 
 use super::{TlsConnector as TlsConnectorTrait, TlsStream as TlsStreamTrait};
 use crate::{FtpError, FtpResult};

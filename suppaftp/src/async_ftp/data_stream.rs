@@ -2,12 +2,13 @@
 //!
 //! This module exposes the async data stream implementation where bytes must be written to/read from
 
+use std::pin::Pin;
+
 #[cfg(any(feature = "async", feature = "async-secure"))]
 use async_std::io::{Read, Result, Write};
 #[cfg(any(feature = "async", feature = "async-secure"))]
 use async_std::net::TcpStream;
 use pin_project::pin_project;
-use std::pin::Pin;
 
 use super::AsyncTlsStream;
 

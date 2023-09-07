@@ -153,11 +153,10 @@ pub extern crate async_native_tls_crate as async_native_tls;
 
 // -- export (common)
 pub use status::Status;
-pub use types::{FtpError, FtpResult, Mode};
-
 // -- export sync
 pub use sync_ftp::ImplFtpStream;
 use sync_ftp::NoTlsStream;
+pub use types::{FtpError, FtpResult, Mode};
 pub type FtpStream = ImplFtpStream<NoTlsStream>;
 pub use sync_ftp::DataStream;
 // -- export secure (native-tls)
@@ -182,13 +181,13 @@ use async_ftp::AsyncNoTlsStream;
 pub use async_ftp::ImplAsyncFtpStream;
 #[cfg(feature = "async")]
 pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
-#[cfg(feature = "async")]
-pub use async_ftp::DataStream as AsyncDataStream;
 // -- export async secure (native-tls)
 #[cfg(feature = "async-native-tls")]
 pub use async_ftp::AsyncNativeTlsConnector;
 #[cfg(feature = "async-native-tls")]
 use async_ftp::AsyncNativeTlsStream;
+#[cfg(feature = "async")]
+pub use async_ftp::DataStream as AsyncDataStream;
 #[cfg(feature = "async-native-tls")]
 pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
 // -- export async secure (rustls)

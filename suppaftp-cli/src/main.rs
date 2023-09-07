@@ -8,15 +8,15 @@ mod actions;
 mod args;
 mod command;
 
-use actions::*;
-use args::Args;
-use command::Command;
-
-use env_logger::Builder as LogBuilder;
-use log::LevelFilter;
 use std::io;
 use std::io::Write;
 use std::str::FromStr;
+
+use actions::*;
+use args::Args;
+use command::Command;
+use env_logger::Builder as LogBuilder;
+use log::LevelFilter;
 use suppaftp::{FtpError, NativeTlsFtpStream as FtpStream};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
