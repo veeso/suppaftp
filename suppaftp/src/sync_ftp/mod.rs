@@ -131,6 +131,7 @@ where
     /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").unwrap();
     /// ```
     #[cfg(feature = "secure")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "secure")))]
     pub fn into_secure(
         mut self,
         tls_connector: impl TlsConnector<Stream = T> + 'static,
@@ -180,6 +181,7 @@ where
     /// let mut ftp_stream = FtpStream::connect_secure_implicit("127.0.0.1:990", ctx, "localhost").unwrap();
     /// ```
     #[cfg(all(feature = "secure", feature = "deprecated"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "secure", feature = "deprecated"))))]
     pub fn connect_secure_implicit<A: ToSocketAddrs>(
         addr: A,
         tls_connector: impl TlsConnector<Stream = T> + 'static,
@@ -268,6 +270,7 @@ where
     /// Once the command is performed, the command channel will be encrypted no more.
     /// The data stream will still be secure.
     #[cfg(feature = "secure")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "secure")))]
     pub fn clear_command_channel(mut self) -> FtpResult<Self> {
         // Ask the server to stop securing data
         debug!("performing clear command channel");
