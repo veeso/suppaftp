@@ -76,3 +76,7 @@ no-log = ["log/max_level_off"]
 
 # Must be enabled whenever testing with docker containers
 with-containers = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
