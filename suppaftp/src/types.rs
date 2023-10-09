@@ -23,6 +23,7 @@ pub enum FtpError {
     ConnectionError(std::io::Error),
     /// There was an error with the secure stream
     #[cfg(any(feature = "secure", feature = "async-secure"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
     #[error("Secure error: {0}")]
     SecureError(String),
     /// Unexpected response from remote. The command expected a certain response, but got another one.

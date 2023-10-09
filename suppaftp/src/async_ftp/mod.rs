@@ -118,6 +118,7 @@ where
     /// let mut ftp_stream = ftp_stream.into_secure(ctx, "localhost").await.unwrap();
     /// ```
     #[cfg(feature = "async-secure")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
     pub async fn into_secure(
         mut self,
         tls_connector: impl AsyncTlsConnector<Stream = T> + 'static,
@@ -172,6 +173,10 @@ where
     /// let mut ftp_stream = ImplAsyncFtpStream::connect_secure_implicit("127.0.0.1:990", ctx, "localhost").await.unwrap();
     /// ```
     #[cfg(all(feature = "async-secure", feature = "deprecated"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(feature = "async-secure", feature = "deprecated")))
+    )]
     pub async fn connect_secure_implicit<A: ToSocketAddrs>(
         addr: A,
         tls_connector: impl AsyncTlsConnector<Stream = T> + 'static,
@@ -269,6 +274,7 @@ where
     /// Once the command is performed, the command channel will be encrypted no more.
     /// The data stream will still be secure.
     #[cfg(feature = "async-secure")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
     pub async fn clear_command_channel(mut self) -> FtpResult<Self> {
         // Ask the server to stop securing data
         debug!("performing clear command channel");

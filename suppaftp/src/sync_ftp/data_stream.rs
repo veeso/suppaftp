@@ -18,6 +18,7 @@ where
 }
 
 #[cfg(feature = "secure")]
+#[cfg_attr(docsrs, doc(cfg(feature = "secure")))]
 impl<T> DataStream<T>
 where
     T: TlsStream,

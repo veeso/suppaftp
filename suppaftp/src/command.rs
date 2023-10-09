@@ -16,9 +16,11 @@ pub enum Command {
     Appe(String),
     /// Set auth to TLS
     #[cfg(any(feature = "secure", feature = "async-secure"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "secure", feature = "async-secure"))))]
     Auth,
     /// Ask server not to encrypt command channel
     #[cfg(any(feature = "secure", feature = "async-secure"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "secure", feature = "async-secure"))))]
     ClearCommandChannel,
     /// Change directory to parent directory
     Cdup,
@@ -50,11 +52,13 @@ pub enum Command {
     Pasv,
     /// Protection buffer size
     #[cfg(any(feature = "secure", feature = "async-secure"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "secure", feature = "async-secure"))))]
     Pbsz(usize),
     /// Specifies an address and port to which the server should connect (active mode)
     Port(String),
     /// Set protection level for protocol
     #[cfg(any(feature = "secure", feature = "async-secure"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "secure", feature = "async-secure"))))]
     Prot(ProtectionLevel),
     /// Print working directory
     Pwd,
@@ -81,6 +85,7 @@ pub enum Command {
 }
 
 #[cfg(any(feature = "secure", feature = "async-secure"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "secure", feature = "async-secure"))))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(unused)]
 /// Protection level; argument for `Prot` command

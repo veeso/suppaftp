@@ -288,9 +288,12 @@ impl File {
     /// Try to parse a "LIST" output command line in DOS format.
     /// Returns error if syntax is not DOS compliant.
     /// DOS syntax has the following syntax:
+    ///
+    /// ```text
     /// {DATE} {TIME} {<DIR> | SIZE} {FILENAME}
     /// 10-19-20  03:19PM <DIR> pub
     /// 04-08-14  03:09PM 403   readme.txt
+    /// ```
     pub fn from_dos_line(line: &str) -> Result<Self, ParseError> {
         // Apply regex to result
         match DOS_LS_RE.captures(line) {
