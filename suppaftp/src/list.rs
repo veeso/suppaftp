@@ -214,7 +214,7 @@ impl File {
                     let mut count: u8 = 0;
                     for (i, c) in metadata.get(2).unwrap().as_str()[range].chars().enumerate() {
                         match c {
-                            '-' => {}
+                            '-' | 'S' | 'T' => {}
                             _ => {
                                 count += match i {
                                     0 => 4,
@@ -586,6 +586,94 @@ mod test {
                 .unwrap(),
             Duration::from_secs(1541376000)
         );
+        // Setuid bit
+        let file: File =
+            File::from_str("drws------    2 u-redacted g-redacted      3864 Feb 17  2023 sas")
+                .ok()
+                .unwrap();
+        assert_eq!(file.is_directory(), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), false);
+        assert_eq!(file.can_write(PosixPexQuery::Group), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), false);
+        assert_eq!(file.can_read(PosixPexQuery::Others), false);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), false);
+        let file: File =
+            File::from_str("drwS------    2 u-redacted g-redacted      3864 Feb 17  2023 sas")
+                .ok()
+                .unwrap();
+        assert_eq!(file.is_directory(), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), false);
+        assert_eq!(file.can_read(PosixPexQuery::Group), false);
+        assert_eq!(file.can_write(PosixPexQuery::Group), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), false);
+        assert_eq!(file.can_read(PosixPexQuery::Others), false);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), false);
+        // Setgid bit
+        let file: File =
+            File::from_str("drwx--s---    2 u-redacted g-redacted      3864 Feb 17  2023 sas")
+                .ok()
+                .unwrap();
+        assert_eq!(file.is_directory(), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), false);
+        assert_eq!(file.can_write(PosixPexQuery::Group), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), true);
+        assert_eq!(file.can_read(PosixPexQuery::Others), false);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), false);
+        let file: File =
+            File::from_str("drwx--S---    2 u-redacted g-redacted      3864 Feb 17  2023 sas")
+                .ok()
+                .unwrap();
+        assert_eq!(file.is_directory(), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), false);
+        assert_eq!(file.can_write(PosixPexQuery::Group), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), false);
+        assert_eq!(file.can_read(PosixPexQuery::Others), false);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), false);
+        // Sticky bit
+        let file: File =
+            File::from_str("drwx-----t    2 u-redacted g-redacted      3864 Feb 17  2023 sas")
+                .ok()
+                .unwrap();
+        assert_eq!(file.is_directory(), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), false);
+        assert_eq!(file.can_write(PosixPexQuery::Group), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), false);
+        assert_eq!(file.can_read(PosixPexQuery::Others), false);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), true);
+        let file: File =
+            File::from_str("drwx--S--T    2 u-redacted g-redacted      3864 Feb 17  2023 sas")
+                .ok()
+                .unwrap();
+        assert_eq!(file.is_directory(), true);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), false);
+        assert_eq!(file.can_write(PosixPexQuery::Group), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), false);
+        assert_eq!(file.can_read(PosixPexQuery::Others), false);
+        assert_eq!(file.can_write(PosixPexQuery::Others), false);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), false);
+
         // Error
         assert_eq!(
             File::from_posix_line("drwxrwxr-x 1 0  9  Nov 5 2018 docs")
