@@ -194,7 +194,7 @@ impl File {
         match POSIX_LS_RE.captures(line) {
             // String matches regex
             Some(metadata) => {
-                trace!("Parsed POXIS line {}", line);
+                trace!("Parsed POSIX line {}", line);
                 // NOTE: metadata fmt: (regex, file_type, permissions, link_count, uid, gid, filesize, mtime, filename)
                 // Expected 7 + 1 (8) values: + 1 cause regex is repeated at 0
                 if metadata.len() < 8 {
@@ -414,10 +414,11 @@ impl TryFrom<&str> for File {
     type Error = ParseError;
 
     fn try_from(line: &str) -> Result<Self, Self::Error> {
+        // First try to parse the line in POSIX format (vast majority case).
         match Self::from_posix_line(line) {
             Ok(entry) => Ok(entry),
+            // If POSIX parsing fails, try with DOS parser.
             Err(_) => match Self::from_dos_line(line) {
-                // If POSIX parsing fails, try with DOS parser
                 Ok(entry) => Ok(entry),
                 Err(err) => Err(err),
             },
