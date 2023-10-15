@@ -47,7 +47,7 @@ use thiserror::Error;
 
 /// POSIX system regex to parse list output
 static POSIX_LS_RE: Lazy<Regex> = lazy_regex!(
-    r#"^([\-ld])([\-rwxs]{9})\s+(\d+)\s+(.+)\s+(.+)\s+(\d+)\s+(.+\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#
+    r#"^([\-ld])([\-rwxsStT]{9})\s+(\d+)\s+(.+)\s+(.+)\s+(\d+)\s+(.+\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#
 );
 /// DOS system regex to parse list output
 static DOS_LS_RE: Lazy<Regex> =
