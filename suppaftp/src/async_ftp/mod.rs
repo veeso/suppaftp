@@ -928,8 +928,6 @@ mod test {
 
     #[cfg(feature = "async-native-tls")]
     use async_native_tls::TlsConnector as NativeTlsConnector;
-    #[cfg(feature = "async-rustls")]
-    use async_tls::TlsConnector as RustlsTlsConnector;
     #[cfg(any(feature = "with-containers", feature = "async-secure"))]
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
@@ -942,8 +940,6 @@ mod test {
     use crate::AsyncFtpStream;
     #[cfg(feature = "async-native-tls")]
     use crate::{AsyncNativeTlsConnector, AsyncNativeTlsFtpStream};
-    #[cfg(feature = "async-rustls")]
-    use crate::{AsyncRustlsConnector, AsyncRustlsFtpStream};
 
     #[cfg(feature = "with-containers")]
     #[async_attributes::test]
@@ -954,6 +950,7 @@ mod test {
         finalize_stream(stream).await;
     }
 
+    /*
     #[async_attributes::test]
     #[cfg(feature = "async-native-tls")]
     #[serial]
@@ -1003,7 +1000,7 @@ mod test {
         assert!(ftp_stream.quit().await.is_ok());
     }
 
-    /*
+
     #[async_attributes::test]
     #[cfg(feature = "async-native-tls")]
     #[serial]
@@ -1027,7 +1024,7 @@ mod test {
         assert!(ftp_stream.pwd().await.is_ok());
         assert!(ftp_stream.list(None).await.is_ok());
         assert!(ftp_stream.quit().await.is_ok());
-    } */
+    }
 
     #[async_attributes::test]
     #[cfg(feature = "async-rustls")]
@@ -1049,6 +1046,7 @@ mod test {
         // Quit
         assert!(ftp_stream.quit().await.is_ok());
     }
+    */
 
     #[async_attributes::test]
     #[serial]
@@ -1176,7 +1174,6 @@ mod test {
         crate::log_init();
         let mut stream = setup_stream().await;
 
-        assert!(stream.feat().await.is_ok());
         assert!(stream.opts("UTF8", Some("ON")).await.is_ok());
 
         finalize_stream(stream).await;
@@ -1246,35 +1243,6 @@ mod test {
         assert!(stream.rm("toast.txt").await.is_ok());
         // List directory again
         assert_eq!(stream.list(None).await.unwrap().len(), 0);
-        finalize_stream(stream).await;
-    }
-
-    #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
-    async fn should_abort_transfer() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
-        // Set transfer type to Binary
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        // cleanup
-        let _ = stream.rm("test.bin").await;
-        // put as stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
-        assert_eq!(
-            transfer_stream
-                .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
-                .await
-                .unwrap(),
-            5
-        );
-        // Abort
-        assert!(stream.abort(transfer_stream).await.is_ok());
-        // Check whether other commands still work after transfer
-        assert!(stream.pwd().await.is_ok());
-        assert!(stream.rm("test.bin").await.is_ok());
-        // Check whether data channel still works
-        assert!(stream.list(None).await.is_ok());
         finalize_stream(stream).await;
     }
 

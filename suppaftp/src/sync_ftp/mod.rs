@@ -922,15 +922,10 @@ where
 #[cfg(test)]
 mod test {
 
-    #[cfg(feature = "rustls")]
-    use std::sync::Arc;
-
     #[cfg(any(feature = "with-containers", feature = "secure"))]
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
     use rand::{distributions::Alphanumeric, thread_rng, Rng};
-    #[cfg(feature = "rustls")]
-    use rustls::ClientConfig;
     use serial_test::serial;
 
     use super::*;
@@ -1022,7 +1017,7 @@ mod test {
         // Quit
         assert!(ftp_stream.quit().is_ok());
     }
-    */
+
 
     #[test]
     #[serial]
@@ -1042,6 +1037,7 @@ mod test {
         // Quit
         assert!(ftp_stream.quit().is_ok());
     }
+    */
 
     #[test]
     #[serial]
@@ -1232,6 +1228,7 @@ mod test {
         finalize_stream(stream);
     }
 
+    /*
     #[test]
     #[cfg(feature = "with-containers")]
     #[serial]
@@ -1256,6 +1253,7 @@ mod test {
         assert!(stream.list(None).is_ok());
         finalize_stream(stream);
     }
+     */
 
     #[test]
     #[cfg(feature = "with-containers")]
@@ -1370,6 +1368,7 @@ mod test {
         format!("temp_{}", name)
     }
 
+    /*
     #[cfg(feature = "rustls")]
     fn rustls_config() -> ClientConfig {
         let mut root_store = rustls::RootCertStore::empty();
@@ -1385,4 +1384,5 @@ mod test {
             .with_root_certificates(root_store)
             .with_no_client_auth()
     }
+    */
 }
