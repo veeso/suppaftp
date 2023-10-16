@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.2.1](#521)
   - [5.2.0](#520)
   - [5.1.2](#512)
   - [5.1.1](#511)
@@ -26,6 +27,14 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.2.1
+
+Released on 16/10/2023
+
+- Add POSIX setgid/setuid/sticky bit support: [PR59](https://github.com/veeso/suppaftp/pull/59)
+
+Thanks to [@rye](https://github.com/rye)
 
 ## 5.2.0
 
