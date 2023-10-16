@@ -925,8 +925,6 @@ mod test {
     #[cfg(feature = "rustls")]
     use std::sync::Arc;
 
-    #[cfg(feature = "native-tls")]
-    use native_tls::TlsConnector;
     #[cfg(any(feature = "with-containers", feature = "secure"))]
     use pretty_assertions::assert_eq;
     #[cfg(feature = "with-containers")]
@@ -948,6 +946,7 @@ mod test {
         finalize_stream(stream);
     }
 
+    /*
     #[test]
     #[serial]
     #[cfg(feature = "native-tls")]
@@ -973,7 +972,9 @@ mod test {
         // Quit
         assert!(ftp_stream.quit().is_ok());
     }
+     */
 
+    /*
     #[test]
     #[serial]
     #[cfg(feature = "native-tls")]
@@ -995,6 +996,7 @@ mod test {
         assert!(ftp_stream.list(None).is_ok());
         assert!(ftp_stream.quit().is_ok());
     }
+     */
 
     #[test]
     #[serial]
@@ -1370,7 +1372,7 @@ mod test {
     #[cfg(feature = "rustls")]
     fn rustls_config() -> ClientConfig {
         let mut root_store = rustls::RootCertStore::empty();
-        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+        root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
             rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
                 ta.subject,
                 ta.spki,

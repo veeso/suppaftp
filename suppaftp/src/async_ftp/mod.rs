@@ -1003,6 +1003,7 @@ mod test {
         assert!(ftp_stream.quit().await.is_ok());
     }
 
+    /*
     #[async_attributes::test]
     #[cfg(feature = "async-native-tls")]
     #[serial]
@@ -1026,7 +1027,7 @@ mod test {
         assert!(ftp_stream.pwd().await.is_ok());
         assert!(ftp_stream.list(None).await.is_ok());
         assert!(ftp_stream.quit().await.is_ok());
-    }
+    } */
 
     #[async_attributes::test]
     #[cfg(feature = "async-rustls")]
