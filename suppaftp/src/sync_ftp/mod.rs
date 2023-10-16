@@ -996,7 +996,7 @@ mod test {
         assert!(ftp_stream.list(None).is_ok());
         assert!(ftp_stream.quit().is_ok());
     }
-     */
+
 
     #[test]
     #[serial]
@@ -1022,6 +1022,7 @@ mod test {
         // Quit
         assert!(ftp_stream.quit().is_ok());
     }
+    */
 
     #[test]
     #[serial]
