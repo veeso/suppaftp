@@ -876,10 +876,18 @@ where
         let code_word: u32 = self.code_from_buffer(&line, 3)?;
         let code = Status::from(code_word);
 
+        trace!("Code parsed from response: {} ({})", code, code_word);
+
         // multiple line reply
-        // loop while the line does not begin with the code and a space
+        // loop while the line does not begin with the code and a space (or dash)
         let expected = [line[0], line[1], line[2], 0x20];
-        while line.len() < 5 || line[0..4] != expected {
+        let alt_expected = if expected_code.contains(&Status::System) {
+            [line[0], line[1], line[2], b'-']
+        } else {
+            expected
+        };
+        trace!("CC IN: {:?}", line);
+        while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
             line.clear();
             self.read_line(&mut line).await?;
             trace!("CC IN: {:?}", line);
@@ -1173,7 +1181,7 @@ mod test {
     async fn should_get_feat_and_set_opts() {
         crate::log_init();
         let mut stream = setup_stream().await;
-
+        assert!(stream.feat().await.is_ok());
         assert!(stream.opts("UTF8", Some("ON")).await.is_ok());
 
         finalize_stream(stream).await;
