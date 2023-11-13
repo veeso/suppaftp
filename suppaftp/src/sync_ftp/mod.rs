@@ -45,7 +45,7 @@ where
     #[cfg(not(feature = "secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "secure")]
-    tls_ctx: Option<Box<dyn TlsConnector<Stream = T>>>,
+    tls_ctx: Option<Box<dyn TlsConnector<Stream = T> + Send + 'static>>,
     #[cfg(feature = "secure")]
     domain: Option<String>,
 }
@@ -134,7 +134,7 @@ where
     #[cfg_attr(docsrs, doc(cfg(feature = "secure")))]
     pub fn into_secure(
         mut self,
-        tls_connector: impl TlsConnector<Stream = T> + 'static,
+        tls_connector: impl TlsConnector<Stream = T> + Send + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
         // Ask the server to start securing data.
