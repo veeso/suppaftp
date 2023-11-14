@@ -179,7 +179,7 @@ where
     )]
     pub async fn connect_secure_implicit<A: ToSocketAddrs>(
         addr: A,
-        tls_connector: impl AsyncTlsConnector<Stream = T> + 'static,
+        tls_connector: impl AsyncTlsConnector<Stream = T> + Send + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
         debug!("Connecting to server (secure)");

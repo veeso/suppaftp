@@ -184,7 +184,7 @@ where
     #[cfg_attr(docsrs, doc(cfg(all(feature = "secure", feature = "deprecated"))))]
     pub fn connect_secure_implicit<A: ToSocketAddrs>(
         addr: A,
-        tls_connector: impl TlsConnector<Stream = T> + 'static,
+        tls_connector: impl TlsConnector<Stream = T> + Send + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
         debug!("Connecting to server (secure)");
