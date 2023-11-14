@@ -46,7 +46,7 @@ where
     #[cfg(not(feature = "async-secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "async-secure")]
-    tls_ctx: Option<Box<dyn AsyncTlsConnector<Stream = T>>>,
+    tls_ctx: Option<Box<dyn AsyncTlsConnector<Stream = T> + Send + Sync + 'static>>,
     #[cfg(feature = "async-secure")]
     domain: Option<String>,
 }
@@ -121,7 +121,7 @@ where
     #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
     pub async fn into_secure(
         mut self,
-        tls_connector: impl AsyncTlsConnector<Stream = T> + 'static,
+        tls_connector: impl AsyncTlsConnector<Stream = T> + Send + Sync + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
         debug!("Initializing TLS auth");
@@ -179,7 +179,7 @@ where
     )]
     pub async fn connect_secure_implicit<A: ToSocketAddrs>(
         addr: A,
-        tls_connector: impl AsyncTlsConnector<Stream = T> + 'static,
+        tls_connector: impl AsyncTlsConnector<Stream = T> + Send + Sync + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
         debug!("Connecting to server (secure)");
