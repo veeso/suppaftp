@@ -1,6 +1,6 @@
 [package]
 name = "suppaftp"
-version = "5.2.1"
+version = "5.2.2"
 authors = [
   "Christian Visintin <christian.visintin@veeso.dev>",
   "Matt McCoy <mattnenterprise@yahoo.com>",

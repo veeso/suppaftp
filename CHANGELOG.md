@@ -28,6 +28,13 @@
 
 ---
 
+## 5.2.2
+
+Released on 14/11/2023
+
+- Fix issue #61: Send + Sync trait to AsyncFtpStream/FtpStream
+- Fix issue #63: FEAT function hangs on async
+
 ## 5.2.1
 
 Released on 16/10/2023
