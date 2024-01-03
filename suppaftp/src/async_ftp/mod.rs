@@ -523,7 +523,7 @@ where
     /// abort the previous FTP service command
     pub async fn abort<R>(&mut self, data_stream: R) -> FtpResult<()>
     where
-        R: Read + std::marker::Unpin,
+        R: Read + std::marker::Unpin + 'static,
     {
         debug!("Aborting active file transfer");
         self.perform(Command::Abor).await?;
