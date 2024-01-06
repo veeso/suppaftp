@@ -198,6 +198,7 @@ where
                     welcome_msg: None,
                     tls_ctx: None,
                     domain: None,
+                    active_timeout: Duration::from_secs(60),
                 }
             })?;
         debug!("Established connection with server");
@@ -214,6 +215,7 @@ where
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: None,
+            active_timeout: Duration::from_secs(60),
         };
         debug!("Reading server response...");
         match stream.read_response(Status::Ready).await {
