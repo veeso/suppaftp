@@ -1,7 +1,7 @@
 # SuppaFTP
 
 <p align="center">
-  <img src="/assets/images/suppaftp.svg" width="256" height="256" />
+  <img src="/assets/images/suppaftp.svg" alt="logo" width="256" height="256" />
 </p>
 <p align="center">~ A super FTP/FTPS client library for Rust ~</p>
 <p align="center">
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">Developed by <a href="https://veeso.github.io/">veeso</a> and <a href="https://github.com/mattnenterprise">Matt McCoy</a></p>
-<p align="center">Current version: 5.2.2 (14/11/2023)</p>
+<p align="center">Current version: 5.3.0 (06/01/2024)</p>
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"
@@ -122,7 +122,7 @@ SuppaFTP is the main FTP/FTPS client library for Rust, with both support for syn
 To get started, first add **suppaftp** to your dependencies:
 
 ```toml
-suppaftp = "^5.2.0"
+suppaftp = "^5.3.0"
 ```
 
 ### Features
@@ -132,9 +132,9 @@ suppaftp = "^5.2.0"
 If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 
 ```toml
-suppaftp = { version = "^5.2.0", features = ["native-tls"] }
+suppaftp = { version = "^5.3.0", features = ["native-tls"] }
 # or
-suppaftp = { version = "^5.2.0", features = ["rustls"] }
+suppaftp = { version = "^5.3.0", features = ["rustls"] }
 ```
 
 > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.

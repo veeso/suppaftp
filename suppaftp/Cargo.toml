@@ -1,6 +1,6 @@
 [package]
 name = "suppaftp"
-version = "5.2.2"
+version = "5.3.0"
 authors = [
   "Christian Visintin <christian.visintin@veeso.dev>",
   "Matt McCoy <mattnenterprise@yahoo.com>",
@@ -46,7 +46,7 @@ env_logger = "^0.10"
 pretty_assertions = "^1.0.0"
 rand = "^0.8.4"
 serial_test = "^2.0"
-webpki-roots = "0.25"
+webpki-roots = "0.26"
 
 [features]
 default = []
