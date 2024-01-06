@@ -43,6 +43,7 @@ where
     mode: Mode,
     nat_workaround: bool,
     welcome_msg: Option<String>,
+    active_timeout: Duration,
     #[cfg(not(feature = "async-secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "async-secure")]
@@ -88,6 +89,7 @@ where
             tls_ctx: None,
             #[cfg(feature = "async-secure")]
             domain: None,
+            active_timeout: Duration::from_secs(60),
         };
         debug!("Reading server response...");
         match ftp_stream.read_response(Status::Ready).await {
@@ -143,6 +145,7 @@ where
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
+            active_timeout: self.active_timeout,
         };
         // Set protection buffer size
         secured_ftp_tream.perform(Command::Pbsz(0)).await?;
@@ -195,6 +198,7 @@ where
                     welcome_msg: None,
                     tls_ctx: None,
                     domain: None,
+                    active_timeout: Duration::from_secs(60),
                 }
             })?;
         debug!("Established connection with server");
@@ -211,6 +215,7 @@ where
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: None,
+            active_timeout: Duration::from_secs(60),
         };
         debug!("Reading server response...");
         match stream.read_response(Status::Ready).await {
@@ -226,8 +231,9 @@ where
     }
 
     /// Enable active mode for data channel
-    pub fn active_mode(mut self) -> Self {
+    pub fn active_mode(mut self, listener_timeout: Duration) -> Self {
         self.mode = Mode::Active;
+        self.active_timeout = listener_timeout;
         self
     }
 
@@ -688,11 +694,20 @@ where
             Mode::Active => {
                 let listener = self.active().await?;
                 self.perform(cmd).await?;
-                listener
-                    .accept()
-                    .await
-                    .map_err(FtpError::ConnectionError)?
-                    .0
+
+                match async_std::future::timeout(self.active_timeout, listener.accept()).await {
+                    Ok(Ok((stream, addr))) => {
+                        debug!("Connection received from {}", addr);
+                        stream
+                    }
+                    Ok(Err(e)) => return Err(FtpError::ConnectionError(e)), // Handle error
+                    Err(e) => {
+                        return Err(FtpError::ConnectionError(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            e,
+                        )))
+                    }
+                }
             }
             Mode::ExtendedPassive => {
                 let addr = self.epsv().await?;
@@ -1062,9 +1077,10 @@ mod test {
         crate::log_init();
         let mut ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
             .await
-            .map(|x| x.active_mode())
+            .map(|x| x.active_mode(Duration::from_secs(30)))
             .unwrap();
         assert_eq!(ftp_stream.mode, Mode::Active);
+        assert_eq!(ftp_stream.active_timeout, Duration::from_secs(30));
         ftp_stream.set_mode(Mode::Passive);
         assert_eq!(ftp_stream.mode, Mode::Passive);
     }

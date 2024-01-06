@@ -1,6 +1,8 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.3.0](#530)
+  - [5.2.2](#522)
   - [5.2.1](#521)
   - [5.2.0](#520)
   - [5.1.2](#512)
@@ -27,6 +29,13 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.3.0
+
+Released on 06/01/2024
+
+- Fix [issue #64](https://github.com/veeso/suppaftp/issues/64): added active mode listener timeout
+- Fix [issue #66](https://github.com/veeso/suppaftp/issues/66): abort can be called without passing ownership to data_stream
 
 ## 5.2.2
 
