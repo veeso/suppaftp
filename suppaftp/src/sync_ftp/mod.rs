@@ -522,7 +522,7 @@ where
     }
 
     /// abort the previous FTP service command
-    pub fn abort(&mut self, data_stream: impl Read) -> FtpResult<()> {
+    pub fn abort(&mut self, data_stream: impl Read + 'static) -> FtpResult<()> {
         debug!("Aborting active file transfer");
         self.perform(Command::Abor)?;
         // Drop stream NOTE: must be done first, otherwise server won't return any response
