@@ -10,7 +10,7 @@ use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 #[cfg(not(feature = "secure"))]
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
@@ -42,6 +42,7 @@ where
     mode: Mode,
     nat_workaround: bool,
     welcome_msg: Option<String>,
+    active_timeout: Duration,
     #[cfg(not(feature = "secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "secure")]
@@ -78,6 +79,7 @@ where
             mode: Mode::Passive,
             nat_workaround: false,
             welcome_msg: None,
+            active_timeout: Duration::from_secs(60),
             #[cfg(feature = "secure")]
             tls_ctx: None,
             #[cfg(feature = "secure")]
@@ -98,8 +100,9 @@ where
     }
 
     /// Enable active mode for data channel
-    pub fn active_mode(mut self) -> Self {
+    pub fn active_mode(mut self, accept_timeout: Duration) -> Self {
         self.mode = Mode::Active;
+        self.active_timeout = accept_timeout;
         self
     }
 
@@ -153,6 +156,7 @@ where
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
+            active_timeout: self.active_timeout,
         };
         // Set protection buffer size
         secured_ftp_tream.perform(Command::Pbsz(0))?;
@@ -794,8 +798,23 @@ where
             Mode::Active => self
                 .active()
                 .and_then(|listener| self.perform(cmd).map(|_| listener))
-                .and_then(|listener| listener.accept().map_err(FtpError::ConnectionError))
-                .map(|(stream, _)| stream)?,
+                .and_then(|listener| {
+                    let start = Instant::now();
+                    loop {
+                        match listener.accept() {
+                            Ok((stream, _)) => break Ok(stream),
+                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                if start.elapsed() > self.active_timeout {
+                                    break Err(FtpError::ConnectionError(
+                                        std::io::ErrorKind::WouldBlock.into(),
+                                    ));
+                                }
+                                std::thread::sleep(Duration::from_millis(100));
+                            }
+                            Err(e) => break Err(FtpError::ConnectionError(e)),
+                        }
+                    }
+                })?,
             Mode::ExtendedPassive => self
                 .epsv()
                 .and_then(|addr| self.perform(cmd).map(|_| addr))
@@ -825,6 +844,8 @@ where
     fn active(&mut self) -> FtpResult<TcpListener> {
         debug!("Starting local tcp listener...");
         let conn = TcpListener::bind("0.0.0.0:0").map_err(FtpError::ConnectionError)?;
+        conn.set_nonblocking(true)
+            .map_err(FtpError::ConnectionError)?;
 
         let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
         trace!("Local address is {}", addr);
@@ -1044,9 +1065,10 @@ mod test {
     fn should_change_mode() {
         crate::log_init();
         let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
-            .map(|x| x.active_mode())
+            .map(|x| x.active_mode(Duration::from_secs(30)))
             .unwrap();
         assert_eq!(ftp_stream.mode, Mode::Active);
+        assert_eq!(ftp_stream.active_timeout, Duration::from_secs(30));
         ftp_stream.set_mode(Mode::Passive);
         assert_eq!(ftp_stream.mode, Mode::Passive);
     }
