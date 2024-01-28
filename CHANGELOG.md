@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.3.1](#531)
   - [5.3.0](#530)
   - [5.2.2](#522)
   - [5.2.1](#521)
@@ -29,6 +30,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.3.1
+
+Released on 28/01/2024
+
+- Fixed [issue #69](https://github.com/veeso/suppaftp/issues/69): SyntaxError on name that starts with 2 numbers
 
 ## 5.3.0
 

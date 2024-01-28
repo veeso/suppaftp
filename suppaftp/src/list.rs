@@ -47,7 +47,7 @@ use thiserror::Error;
 
 /// POSIX system regex to parse list output
 static POSIX_LS_RE: Lazy<Regex> = lazy_regex!(
-    r#"^([\-ld])([\-rwxsStT]{9})\s+(\d+)\s+(.+)\s+(.+)\s+(\d+)\s+(.+\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#
+    r#"^([\-ld])([\-rwxsStT]{9})\s+(\d+)\s+([^ ]+)\s+([^ ]+)\s+(\d+)\s+([^ ]+\s+\d{1,2}\s+(?:\d{1,2}:\d{1,2}|\d{4}))\s+(.+)$"#
 );
 /// DOS system regex to parse list output
 static DOS_LS_RE: Lazy<Regex> =
@@ -766,6 +766,23 @@ mod test {
                 .err()
                 .unwrap(),
             ParseError::BadSize
+        );
+    }
+
+    #[test]
+    fn test_should_parse_name_starting_with_tricky_numbers() {
+        let file = File::from_posix_line(
+            "-r--r--r--    1 23        23         1234567 Jan 1  2000 01 1234 foo.mp3",
+        )
+        .unwrap();
+        assert_eq!(file.name(), "01 1234 foo.mp3");
+        assert_eq!(file.size, 1234567);
+        assert_eq!(
+            file.modified
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(946684800)
         );
     }
 
