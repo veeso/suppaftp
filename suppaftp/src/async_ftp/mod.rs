@@ -12,7 +12,7 @@ use std::string::String;
 use std::time::Duration;
 
 use async_std::io::prelude::BufReadExt;
-use async_std::io::{copy, BufReader, Read, ReadExt, Write, WriteExt};
+use async_std::io::{copy, BufReader, Read, Write};
 use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use futures_lite::AsyncWriteExt;
@@ -490,7 +490,7 @@ where
     pub async fn finalize_put_stream(&mut self, mut stream: impl Write + Unpin) -> FtpResult<()> {
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
-        stream.close().await.unwrap();
+        stream.close().await.map_err(|e| FtpError::ConnectionError(e))?;
         drop(stream);
         trace!("Stream dropped");
         // Read response
