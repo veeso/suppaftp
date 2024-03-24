@@ -490,7 +490,10 @@ where
     pub async fn finalize_put_stream(&mut self, mut stream: impl Write + Unpin) -> FtpResult<()> {
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
-        stream.close().await.map_err(|e| FtpError::ConnectionError(e))?;
+        stream
+            .close()
+            .await
+            .map_err(|e| FtpError::ConnectionError(e))?;
         drop(stream);
         trace!("Stream dropped");
         // Read response
