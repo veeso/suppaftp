@@ -493,7 +493,7 @@ where
         stream
             .close()
             .await
-            .map_err(|e| FtpError::ConnectionError(e))?;
+            .map_err(FtpError::ConnectionError)?;
         drop(stream);
         trace!("Stream dropped");
         // Read response
