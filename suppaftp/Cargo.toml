@@ -39,6 +39,7 @@ pin-project = { version = "^1", optional = true }
 # secure
 native-tls-crate = { package = "native-tls", version = "^0.2", optional = true }
 rustls-crate = { package = "rustls", version = "^0.21", optional = true }
+futures-lite = "2.0.0"
 
 [dev-dependencies]
 async-attributes = "1.1.2"
