@@ -607,14 +607,17 @@ where
 
     /// Execute `MLST` command which returns the machine-processable listing of a file.
     /// If `pathname` is omited then the list of files in the current directory will be
-    pub async fn mlst(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
+    pub async fn mlst(&mut self, pathname: Option<&str>) -> FtpResult<String> {
         debug!("Reading {} path information", pathname.unwrap_or("working"));
 
-        self.stream_lines(
-            Command::Mlst(pathname.map(|x| x.to_string())),
-            Status::AboutToSend,
-        )
-        .await
+        self.perform(Command::Mlst(pathname.map(|x| x.to_string())))
+            .await?;
+        let response = self
+            .read_response_in_at(&[Status::RequestedFileActionOk], Some(0))
+            .await?;
+
+        // trim newline and space
+        Ok(String::from_utf8_lossy(&response.body).trim().to_string())
     }
 
     /// Retrieves the modification time of the file at `pathname` if it exists.
@@ -957,6 +960,56 @@ where
         }
 
         let response: Response = Response::new(code, line);
+        // Return Ok or error with response
+        if expected_code.iter().any(|ec| code == *ec) {
+            Ok(response)
+        } else {
+            Err(FtpError::UnexpectedResponse(response))
+        }
+    }
+
+    /// Retrieve single line response
+    pub async fn read_response_in_at(
+        &mut self,
+        expected_code: &[Status],
+        at_line: Option<usize>,
+    ) -> FtpResult<Response> {
+        let mut line = Vec::new();
+        self.read_line(&mut line).await?;
+
+        trace!("CC IN: {:?}", line);
+
+        if line.len() < 5 {
+            return Err(FtpError::BadResponse);
+        }
+
+        let code_word: u32 = self.code_from_buffer(&line, 3)?;
+        let code = Status::from(code_word);
+
+        trace!("Code parsed from response: {} ({})", code, code_word);
+
+        // multiple line reply
+        // loop while the line does not begin with the code and a space (or dash)
+        let expected = [line[0], line[1], line[2], 0x20];
+        let alt_expected = if expected_code.contains(&Status::System) {
+            [line[0], line[1], line[2], b'-']
+        } else {
+            expected
+        };
+        trace!("CC IN: {:?}", line);
+        let mut line_num = 0;
+        let mut body = None;
+        while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
+            line.clear();
+            self.read_line(&mut line).await?;
+            if Some(line_num) == at_line {
+                body = Some(line.clone());
+            }
+            line_num += 1;
+            trace!("CC IN: {:?}", line);
+        }
+
+        let response: Response = Response::new(code, body.unwrap_or(line));
         // Return Ok or error with response
         if expected_code.iter().any(|ec| code == *ec) {
             Ok(response)
