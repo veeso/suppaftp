@@ -2,6 +2,7 @@
 //!
 //! The set of FTP commands
 
+use std::fmt;
 use std::net::SocketAddr;
 use std::string::ToString;
 
@@ -108,9 +109,9 @@ impl Command {
 
 // -- stringify
 
-impl ToString for Command {
-    fn to_string(&self) -> String {
-        let mut s = match self {
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
             Self::Abor => "ABOR".to_string(),
             Self::Appe(f) => format!("APPE {f}"),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
@@ -147,7 +148,7 @@ impl ToString for Command {
             Self::Pbsz(sz) => format!("PBSZ {sz}"),
             Self::Port(p) => format!("PORT {p}"),
             #[cfg(any(feature = "secure", feature = "async-secure"))]
-            Self::Prot(l) => format!("PROT {}", l.to_string()),
+            Self::Prot(l) => format!("PROT {l}"),
             Self::Pwd => "PWD".to_string(),
             Self::Quit => "QUIT".to_string(),
             Self::RenameFrom(p) => format!("RNFR {p}"),
@@ -157,23 +158,25 @@ impl ToString for Command {
             Self::Rmd(p) => format!("RMD {p}"),
             Self::Size(p) => format!("SIZE {p}"),
             Self::Store(p) => format!("STOR {p}"),
-            Self::Type(t) => format!("TYPE {}", t.to_string()),
+            Self::Type(t) => format!("TYPE {t}"),
             Self::User(u) => format!("USER {u}"),
             Self::Custom(c) => c.clone(),
         };
-        s.push_str("\r\n");
-        s
+        write!(f, "{s}\r\n")
     }
 }
 
 #[cfg(any(feature = "secure", feature = "async-secure"))]
-impl ToString for ProtectionLevel {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Clear => "C",
-            Self::Private => "P",
-        }
-        .to_string()
+impl fmt::Display for ProtectionLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Clear => "C",
+                Self::Private => "P",
+            }
+        )
     }
 }
 

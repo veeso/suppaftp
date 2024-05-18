@@ -109,24 +109,32 @@ impl Response {
     }
 }
 
-impl ToString for FormatControl {
-    fn to_string(&self) -> String {
-        match self {
-            FormatControl::Default | FormatControl::NonPrint => String::from("N"),
-            FormatControl::Telnet => String::from("T"),
-            FormatControl::Asa => String::from("C"),
-        }
+impl fmt::Display for FormatControl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                FormatControl::Default | FormatControl::NonPrint => String::from("N"),
+                FormatControl::Telnet => String::from("T"),
+                FormatControl::Asa => String::from("C"),
+            }
+        )
     }
 }
 
-impl ToString for FileType {
-    fn to_string(&self) -> String {
-        match self {
-            FileType::Ascii(fc) => format!("A {}", fc.to_string()),
-            FileType::Ebcdic(fc) => format!("E {}", fc.to_string()),
-            FileType::Image | FileType::Binary => String::from("I"),
-            FileType::Local(bits) => format!("L {bits}"),
-        }
+impl fmt::Display for FileType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                FileType::Ascii(fc) => format!("A {}", fc),
+                FileType::Ebcdic(fc) => format!("E {}", fc),
+                FileType::Image | FileType::Binary => String::from("I"),
+                FileType::Local(bits) => format!("L {bits}"),
+            }
+        )
     }
 }
 

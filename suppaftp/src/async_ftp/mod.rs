@@ -15,9 +15,9 @@ use async_std::io::prelude::BufReadExt;
 use async_std::io::{copy, BufReader, Read, Write};
 use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use futures_lite::AsyncWriteExt;
 // export
 pub use data_stream::DataStream;
+use futures_lite::AsyncWriteExt;
 pub use tls::AsyncNoTlsStream;
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
