@@ -930,42 +930,7 @@ where
 
     /// Retrieve single line response
     pub async fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
-        let mut line = Vec::new();
-        self.read_line(&mut line).await?;
-
-        trace!("CC IN: {:?}", line);
-
-        if line.len() < 5 {
-            return Err(FtpError::BadResponse);
-        }
-
-        let code_word: u32 = self.code_from_buffer(&line, 3)?;
-        let code = Status::from(code_word);
-
-        trace!("Code parsed from response: {} ({})", code, code_word);
-
-        // multiple line reply
-        // loop while the line does not begin with the code and a space (or dash)
-        let expected = [line[0], line[1], line[2], 0x20];
-        let alt_expected = if expected_code.contains(&Status::System) {
-            [line[0], line[1], line[2], b'-']
-        } else {
-            expected
-        };
-        trace!("CC IN: {:?}", line);
-        while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
-            line.clear();
-            self.read_line(&mut line).await?;
-            trace!("CC IN: {:?}", line);
-        }
-
-        let response: Response = Response::new(code, line);
-        // Return Ok or error with response
-        if expected_code.iter().any(|ec| code == *ec) {
-            Ok(response)
-        } else {
-            Err(FtpError::UnexpectedResponse(response))
-        }
+        self.read_response_in_at(expected_code, None).await
     }
 
     /// Retrieve single line response
