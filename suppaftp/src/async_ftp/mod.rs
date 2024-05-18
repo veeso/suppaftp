@@ -12,9 +12,10 @@ use std::string::String;
 use std::time::Duration;
 
 use async_std::io::prelude::BufReadExt;
-use async_std::io::{copy, BufReader, Read, Write, WriteExt};
+use async_std::io::{copy, BufReader, Read, Write};
 use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use futures_lite::AsyncWriteExt;
 // export
 pub use data_stream::DataStream;
 pub use tls::AsyncNoTlsStream;
@@ -486,9 +487,13 @@ where
     /// Finalize put when using stream
     /// This method must be called once the file has been written and
     /// `put_with_stream` has been used to write the file
-    pub async fn finalize_put_stream(&mut self, stream: impl Write) -> FtpResult<()> {
+    pub async fn finalize_put_stream(&mut self, mut stream: impl Write + Unpin) -> FtpResult<()> {
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
+        stream
+            .close()
+            .await
+            .map_err(FtpError::ConnectionError)?;
         drop(stream);
         trace!("Stream dropped");
         // Read response
