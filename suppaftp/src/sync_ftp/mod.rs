@@ -72,7 +72,7 @@ where
     }
 
     /// Connect using provided configured tcp stream
-    fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
+    pub fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
         debug!("Established connection with server");
         let mut ftp_stream = Self {
             reader: BufReader::new(DataStream::Tcp(stream)),

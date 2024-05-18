@@ -77,7 +77,7 @@ where
     }
 
     /// Connect using provided configured tcp stream
-    async fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
+    pub async fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
         debug!("Established connection with server");
         let mut ftp_stream = ImplAsyncFtpStream {
             reader: BufReader::new(DataStream::Tcp(stream)),
@@ -490,10 +490,7 @@ where
     pub async fn finalize_put_stream(&mut self, mut stream: impl Write + Unpin) -> FtpResult<()> {
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
-        stream
-            .close()
-            .await
-            .map_err(FtpError::ConnectionError)?;
+        stream.close().await.map_err(FtpError::ConnectionError)?;
         drop(stream);
         trace!("Stream dropped");
         // Read response

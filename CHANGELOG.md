@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.4.0](#540)
   - [5.3.1](#531)
   - [5.3.0](#530)
   - [5.2.2](#522)
@@ -30,6 +31,13 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.4.0
+
+Released on 18/05/2024
+
+- [Issue 75](https://github.com/veeso/suppaftp/issues/75): Public access to `connect_with_stream`
+- [PR 78](https://github.com/veeso/suppaftp/pull/78): Async SSL file uploads not properly closing
 
 ## 5.3.1
 
