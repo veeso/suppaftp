@@ -441,7 +441,7 @@ impl File {
         NaiveDateTime::parse_from_str(tm, "%Y%m%d%H%M%S")
             .map(|dt| {
                 SystemTime::UNIX_EPOCH
-                    .checked_add(Duration::from_secs(dt.timestamp() as u64))
+                    .checked_add(Duration::from_secs(dt.and_utc().timestamp() as u64))
                     .unwrap_or(SystemTime::UNIX_EPOCH)
             })
             .map_err(|_| ParseError::InvalidDate)
@@ -474,7 +474,7 @@ impl File {
         // Convert datetime to system time
         let sys_time: SystemTime = SystemTime::UNIX_EPOCH;
         Ok(sys_time
-            .checked_add(Duration::from_secs(datetime.timestamp() as u64))
+            .checked_add(Duration::from_secs(datetime.and_utc().timestamp() as u64))
             .unwrap_or(SystemTime::UNIX_EPOCH))
     }
 
@@ -483,7 +483,7 @@ impl File {
         NaiveDateTime::parse_from_str(tm, "%d-%m-%y %I:%M%p")
             .map(|dt| {
                 SystemTime::UNIX_EPOCH
-                    .checked_add(Duration::from_secs(dt.timestamp() as u64))
+                    .checked_add(Duration::from_secs(dt.and_utc().timestamp() as u64))
                     .unwrap_or(SystemTime::UNIX_EPOCH)
             })
             .map_err(|_| ParseError::InvalidDate)
