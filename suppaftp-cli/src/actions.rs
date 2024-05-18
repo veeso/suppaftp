@@ -117,6 +117,24 @@ pub fn list(ftp: &mut FtpStream, p: Option<&str>) {
     }
 }
 
+pub fn mlst(ftp: &mut FtpStream, p: Option<&str>) {
+    match ftp.mlst(p) {
+        Ok(file) => {
+            println!("{file}");
+        }
+        Err(err) => eprintln!("MLST error: {err}"),
+    }
+}
+
+pub fn mlsd(ftp: &mut FtpStream, p: Option<&str>) {
+    match ftp.mlsd(p) {
+        Ok(files) => {
+            files.iter().for_each(|f| println!("{f}"));
+        }
+        Err(err) => eprintln!("MLSD error: {err}"),
+    }
+}
+
 pub fn login(ftp: &mut FtpStream) {
     // Read username
     let username: String = match rpassword::prompt_password("Username: ") {

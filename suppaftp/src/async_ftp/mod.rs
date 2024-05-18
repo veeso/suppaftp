@@ -590,6 +590,33 @@ where
         .await
     }
 
+    /// Execute `MLSD` command which returns the machine-processable listing of a directory.
+    /// If `pathname` is omited then the list of files in the current directory will be
+    pub async fn mlsd(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
+        debug!(
+            "Reading {} directory content",
+            pathname.unwrap_or("working")
+        );
+
+        self.stream_lines(
+            Command::Mlsd(pathname.map(|x| x.to_string())),
+            Status::AboutToSend,
+        )
+        .await
+    }
+
+    /// Execute `MLST` command which returns the machine-processable listing of a file.
+    /// If `pathname` is omited then the list of files in the current directory will be
+    pub async fn mlst(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
+        debug!("Reading {} path information", pathname.unwrap_or("working"));
+
+        self.stream_lines(
+            Command::Mlst(pathname.map(|x| x.to_string())),
+            Status::AboutToSend,
+        )
+        .await
+    }
+
     /// Retrieves the modification time of the file at `pathname` if it exists.
     pub async fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<NaiveDateTime> {
         debug!("Getting modification time for {}", pathname.as_ref());

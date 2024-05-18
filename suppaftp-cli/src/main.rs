@@ -34,6 +34,9 @@ fn usage() {
     println!("LIST [dir]                          List files. If directory is not provided, current directory is used");
     println!("LOGIN                               Login to remote");
     println!("MDTM <file>                         Get modification time for `file`");
+    println!("MKDIR <dir>                         Create directory");
+    println!("MLSD [dir]                          List files in a machine-readable format. If directory is not provided, current directory is used");
+    println!("MLST [dir]                          List files in a machine-readable format. If directory is not provided, current directory is used");
     println!("MODE <PASSIVE|EXTPASSIVE|ACTIVE>    Set mode");
     println!("NOOP                                Ping server");
     println!("OPTS <feature-name> [feature-value] Set a feature on the server (e.g. OPTS UTF8 ON)");
@@ -135,6 +138,8 @@ fn perform_connected(ftp: &mut FtpStream, command: Command) {
         Command::Feat => feat(ftp),
         Command::Login => login(ftp),
         Command::Mdtm(p) => mdtm(ftp, p.as_str()),
+        Command::Mlsd(p) => mlsd(ftp, p.as_deref()),
+        Command::Mlst(p) => mlst(ftp, p.as_deref()),
         Command::Mkdir(p) => mkdir(ftp, p.as_str()),
         Command::Mode(m) => set_mode(ftp, m),
         Command::Noop => noop(ftp),

@@ -598,6 +598,32 @@ where
         )
     }
 
+    /// Execute `MLSD` command which returns the machine-processable listing of a directory.
+    /// If `pathname` is omited then the list of files in the current directory will be
+    pub fn mlsd(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
+        debug!(
+            "Reading {} directory content",
+            pathname.unwrap_or("working")
+        );
+
+        self.stream_lines(
+            Command::Mlsd(pathname.map(|x| x.to_string())),
+            Status::AboutToSend,
+        )
+    }
+
+    /// Execute `MLST` command which returns the machine-processable listing of a file.
+    /// If `pathname` is omited then the list of files in the current directory will be
+    pub fn mlst(&mut self, pathname: Option<&str>) -> FtpResult<String> {
+        debug!("Reading {} path information", pathname.unwrap_or("working"));
+
+        self.perform(Command::Mlst(pathname.map(|x| x.to_string())))?;
+        let response = self.read_response_in_at(&[Status::RequestedFileActionOk], Some(0))?;
+
+        // trim newline and space
+        Ok(String::from_utf8_lossy(&response.body).trim().to_string())
+    }
+
     /// Retrieves the modification time of the file at `pathname` if it exists.
     pub fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<NaiveDateTime> {
         debug!("Getting modification time for {}", pathname.as_ref());
@@ -746,6 +772,15 @@ where
 
     /// Retrieve single line response
     fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
+        self.read_response_in_at(expected_code, None)
+    }
+
+    /// Retrieve single line response
+    fn read_response_in_at(
+        &mut self,
+        expected_code: &[Status],
+        at_line: Option<usize>,
+    ) -> FtpResult<Response> {
         let mut line = Vec::new();
         self.read_line(&mut line)?;
 
@@ -769,13 +804,19 @@ where
             expected
         };
         trace!("CC IN: {:?}", line);
+        let mut line_num = 0;
+        let mut body = None;
         while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
             line.clear();
             self.read_line(&mut line)?;
+            if Some(line_num) == at_line {
+                body = Some(line.clone());
+            }
+            line_num += 1;
             trace!("CC IN: {:?}", line);
         }
 
-        let response: Response = Response::new(code, line);
+        let response: Response = Response::new(code, body.unwrap_or(line));
         // Return Ok or error with response
         if expected_code.iter().any(|ec| code == *ec) {
             Ok(response)

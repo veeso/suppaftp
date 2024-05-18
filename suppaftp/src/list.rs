@@ -187,6 +187,83 @@ impl File {
 
     // -- parsers
 
+    /// Parse an output line from a MLSD or MLST command
+    pub fn from_mlsx_line(line: &str) -> Result<Self, ParseError> {
+        let tokens = line.split(';').collect::<Vec<&str>>();
+        if tokens.is_empty() {
+            return Err(ParseError::SyntaxError);
+        }
+        let mut f = File {
+            name: String::default(),
+            file_type: FileType::File,
+            size: 0,
+            modified: SystemTime::UNIX_EPOCH,
+            uid: None,
+            gid: None,
+            posix_pex: (
+                PosixPex::from(0o7),
+                PosixPex::from(0o7),
+                PosixPex::from(0o7),
+            ),
+        };
+        for token in tokens.iter() {
+            let mut parts = token.split('=');
+            let key = match parts.next() {
+                Some(k) => k,
+                None => continue,
+            };
+            let value = match parts.next() {
+                Some(v) => v,
+                None => continue,
+            };
+            match key.to_lowercase().as_str() {
+                "type" => {
+                    f.file_type = match value.to_lowercase().as_str() {
+                        "dir" => FileType::Directory,
+                        "file" => FileType::File,
+                        "link" => FileType::Symlink(PathBuf::default()),
+                        _ => return Err(ParseError::SyntaxError),
+                    };
+                }
+                "size" => {
+                    f.size = value.parse::<usize>().map_err(|_| ParseError::BadSize)?;
+                }
+                "modify" => {
+                    f.modified = Self::parse_mlsx_time(value)?;
+                }
+                "unix.uid" => {
+                    f.uid = value.parse::<u32>().ok();
+                }
+                "unix.gid" => {
+                    f.gid = value.parse::<u32>().ok();
+                }
+                "unix.mode" => {
+                    if value.len() != 3 {
+                        return Err(ParseError::SyntaxError);
+                    }
+                    let chars = value.chars().collect::<Vec<char>>();
+                    // convert to nums
+                    let modes = chars
+                        .iter()
+                        .map(|c| c.to_digit(8).unwrap_or(0))
+                        .collect::<Vec<u32>>();
+
+                    f.posix_pex = (
+                        PosixPex::from(modes[0] as u8),
+                        PosixPex::from(modes[1] as u8),
+                        PosixPex::from(modes[2] as u8),
+                    );
+                }
+                _ => continue,
+            }
+        }
+
+        // get name
+        f.name = tokens.last().unwrap().trim_start().to_string();
+
+        Ok(f)
+    }
+
     /// Parse a POSIX LIST output line and if it is valid, return a `File` instance.
     /// In case of error a `ParseError` is returned
     pub fn from_posix_line(line: &str) -> Result<Self, ParseError> {
@@ -357,6 +434,17 @@ impl File {
         let filename: String = String::from(*tokens.first().unwrap());
         let symlink: Option<PathBuf> = tokens.get(1).map(PathBuf::from);
         (filename, symlink)
+    }
+
+    /// Convert MLSD time to System Time
+    fn parse_mlsx_time(tm: &str) -> Result<SystemTime, ParseError> {
+        NaiveDateTime::parse_from_str(tm, "%Y%m%d%H%M%S")
+            .map(|dt| {
+                SystemTime::UNIX_EPOCH
+                    .checked_add(Duration::from_secs(dt.timestamp() as u64))
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+            })
+            .map_err(|_| ParseError::InvalidDate)
     }
 
     /// Convert ls syntax time to System Time
@@ -858,6 +946,45 @@ mod test {
         );
         // Not enough argument for datetime
         assert!(File::parse_dostime("04-08-14").is_err());
+    }
+
+    #[test]
+    fn test_parse_mlsx_line() {
+        let file = File::from_mlsx_line("type=file;size=8192;modify=20181105163248; omar.txt")
+            .ok()
+            .unwrap();
+
+        assert_eq!(file.name(), "omar.txt");
+        assert_eq!(file.size, 8192);
+        assert!(file.is_file());
+        assert_eq!(file.gid, None);
+        assert_eq!(file.uid, None);
+        assert_eq!(file.can_read(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_write(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Owner), true);
+        assert_eq!(file.can_read(PosixPexQuery::Group), true);
+        assert_eq!(file.can_write(PosixPexQuery::Group), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Group), true);
+        assert_eq!(file.can_read(PosixPexQuery::Others), true);
+        assert_eq!(file.can_write(PosixPexQuery::Others), true);
+        assert_eq!(file.can_execute(PosixPexQuery::Others), true);
+
+        let file = File::from_mlsx_line("type=dir;size=4096;modify=20181105163248; docs")
+            .ok()
+            .unwrap();
+
+        assert_eq!(file.name(), "docs");
+        assert!(file.is_directory());
+
+        let file = File::from_mlsx_line(
+            "type=file;size=4096;modify=20181105163248;unix.mode=644; omar.txt",
+        )
+        .ok()
+        .unwrap();
+        assert_eq!(
+            file.posix_pex,
+            (PosixPex::from(6), PosixPex::from(4), PosixPex::from(4))
+        );
     }
 
     #[test]

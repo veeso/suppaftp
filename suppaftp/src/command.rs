@@ -39,6 +39,10 @@ pub enum Command {
     List(Option<String>),
     /// Get modification time for file at specified path
     Mdtm(String),
+    /// Get the list of directories at specified path. If path is not provided list directories at current working directory
+    Mlsd(Option<String>),
+    /// Get details of an individual file or directory at specified path
+    Mlst(Option<String>),
     /// Make directory
     Mkd(String),
     /// Get the list of file names at specified path. If path is not provided list entries at current working directory
@@ -132,6 +136,14 @@ impl fmt::Display for Command {
                 .unwrap_or_else(|| "LIST".to_string()),
             Self::Mdtm(p) => format!("MDTM {p}"),
             Self::Mkd(p) => format!("MKD {p}"),
+            Self::Mlsd(p) => p
+                .as_deref()
+                .map(|x| format!("MLSD {x}"))
+                .unwrap_or_else(|| "MLSD".to_string()),
+            Self::Mlst(p) => p
+                .as_deref()
+                .map(|x| format!("MLST {x}"))
+                .unwrap_or_else(|| "MLST".to_string()),
             Self::Nlst(p) => p
                 .as_deref()
                 .map(|x| format!("NLST {x}"))
@@ -250,6 +262,20 @@ mod test {
             "MKD /tmp\r\n"
         );
         assert_eq!(
+            Command::Mlsd(Some(String::from("/tmp")))
+                .to_string()
+                .as_str(),
+            "MLSD /tmp\r\n"
+        );
+        assert_eq!(Command::Mlsd(None).to_string().as_str(), "MLSD\r\n");
+        assert_eq!(
+            Command::Mlst(Some(String::from("/tmp")))
+                .to_string()
+                .as_str(),
+            "MLST /tmp\r\n"
+        );
+        assert_eq!(Command::Mlst(None).to_string().as_str(), "MLST\r\n");
+        assert_eq!(
             Command::Nlst(Some(String::from("/tmp")))
                 .to_string()
                 .as_str(),
@@ -316,7 +342,7 @@ mod test {
             Command::Site(String::from("chmod 755 a.txt"))
                 .to_string()
                 .as_str(),
-            "SITE chmopd 755 a.txt\r\n"
+            "SITE chmod 755 a.txt\r\n"
         );
         assert_eq!(
             Command::Size(String::from("a.txt")).to_string().as_str(),

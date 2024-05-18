@@ -13,6 +13,8 @@ pub enum Command {
     List(Option<String>),
     Login,
     Mdtm(String),
+    Mlsd(Option<String>),
+    Mlst(Option<String>),
     Mkdir(String),
     Mode(Mode),
     Noop,
@@ -73,6 +75,14 @@ impl FromStr for Command {
                 "MKDIR" => match args.next() {
                     Some(file) => Ok(Self::Mkdir(file.to_string())),
                     None => Err("Missing `file` field"),
+                },
+                "MLSD" => match args.next() {
+                    Some(dir) => Ok(Self::Mlsd(Some(dir.to_string()))),
+                    None => Ok(Self::Mlsd(None)),
+                },
+                "MLST" => match args.next() {
+                    Some(dir) => Ok(Self::Mlst(Some(dir.to_string()))),
+                    None => Ok(Self::Mlst(None)),
                 },
                 "MODE" => match args.next() {
                     Some("ACTIVE") => Ok(Self::Mode(Mode::Active)),
