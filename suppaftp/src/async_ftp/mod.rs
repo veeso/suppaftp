@@ -688,6 +688,13 @@ where
         Ok(())
     }
 
+    /// Execute a command on the server and return the response
+    pub async fn site(&mut self, command: impl ToString) -> FtpResult<()> {
+        debug!("Sending SITE command: {}", command.to_string());
+        self.perform(Command::Site(command.to_string())).await?;
+        self.read_response(Status::CommandOk).await.map(|_| ())
+    }
+
     /// Perform custom command
     pub async fn custom_command(
         &mut self,

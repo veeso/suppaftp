@@ -75,6 +75,8 @@ pub enum Command {
     Retr(String),
     /// Remove directory
     Rmd(String),
+    /// Site command
+    Site(String),
     /// Get file size of specified path
     Size(String),
     /// Put file at specified path
@@ -156,6 +158,7 @@ impl fmt::Display for Command {
             Self::Rest(offset) => format!("REST {offset}"),
             Self::Retr(p) => format!("RETR {p}"),
             Self::Rmd(p) => format!("RMD {p}"),
+            Self::Site(p) => format!("SITE {p}"),
             Self::Size(p) => format!("SIZE {p}"),
             Self::Store(p) => format!("STOR {p}"),
             Self::Type(t) => format!("TYPE {t}"),
@@ -308,6 +311,12 @@ mod test {
         assert_eq!(
             Command::Rmd(String::from("/tmp")).to_string().as_str(),
             "RMD /tmp\r\n"
+        );
+        assert_eq!(
+            Command::Site(String::from("chmod 755 a.txt"))
+                .to_string()
+                .as_str(),
+            "SITE chmopd 755 a.txt\r\n"
         );
         assert_eq!(
             Command::Size(String::from("a.txt")).to_string().as_str(),

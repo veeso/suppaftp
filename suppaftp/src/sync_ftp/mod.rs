@@ -690,6 +690,13 @@ where
         Ok(())
     }
 
+    /// Execute a command on the server and return the response
+    pub fn site(&mut self, command: impl ToString) -> FtpResult<()> {
+        debug!("Sending SITE command: {}", command.to_string());
+        self.perform(Command::Site(command.to_string()))?;
+        self.read_response(Status::CommandOk).map(|_| ())
+    }
+
     /// Perform custom command
     pub fn custom_command(
         &mut self,

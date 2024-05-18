@@ -36,6 +36,7 @@
 
 Released on 18/05/2024
 
+- [Issue 70](https://github.com/veeso/suppaftp/issues/70): **SITE** Command
 - [Issue 75](https://github.com/veeso/suppaftp/issues/75): Public access to `connect_with_stream`
 - [PR 78](https://github.com/veeso/suppaftp/pull/78): Async SSL file uploads not properly closing
 - `custom_command`: added `custom_command` function to perform custom commands
