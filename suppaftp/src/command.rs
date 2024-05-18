@@ -82,6 +82,8 @@ pub enum Command {
     Type(FileType),
     /// Provide user to login as
     User(String),
+    /// Custom command
+    Custom(String),
 }
 
 #[cfg(any(feature = "secure", feature = "async-secure"))]
@@ -157,6 +159,7 @@ impl ToString for Command {
             Self::Store(p) => format!("STOR {p}"),
             Self::Type(t) => format!("TYPE {}", t.to_string()),
             Self::User(u) => format!("USER {u}"),
+            Self::Custom(c) => c.clone(),
         };
         s.push_str("\r\n");
         s
@@ -318,6 +321,12 @@ mod test {
         assert_eq!(
             Command::User(String::from("omar")).to_string().as_str(),
             "USER omar\r\n"
+        );
+        assert_eq!(
+            Command::Custom(String::from("TEST TEST ABC"))
+                .to_string()
+                .as_str(),
+            "TEST TEST ABC\r\n"
         );
     }
 

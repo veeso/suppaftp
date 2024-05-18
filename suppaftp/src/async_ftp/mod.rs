@@ -688,6 +688,18 @@ where
         Ok(())
     }
 
+    /// Perform custom command
+    pub async fn custom_command(
+        &mut self,
+        command: impl ToString,
+        expected_code: &[Status],
+    ) -> FtpResult<()> {
+        let command = command.to_string();
+        debug!("Sending custom command: {}", command);
+        self.perform(Command::Custom(command)).await?;
+        self.read_response_in(expected_code).await.map(|_| ())
+    }
+
     // -- private
 
     /// Execute command which send data back in a separate stream

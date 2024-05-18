@@ -690,6 +690,18 @@ where
         Ok(())
     }
 
+    /// Perform custom command
+    pub fn custom_command(
+        &mut self,
+        command: impl ToString,
+        expected_code: &[Status],
+    ) -> FtpResult<()> {
+        let command = command.to_string();
+        debug!("Sending custom command: {}", command);
+        self.perform(Command::Custom(command))?;
+        self.read_response_in(expected_code).map(|_| ())
+    }
+
     // -- private
 
     /// Retrieve stream "message"
