@@ -1,13 +1,13 @@
 [package]
 name = "suppaftp"
-version = "5.4.0"
-authors = [
-  "Christian Visintin <christian.visintin@veeso.dev>",
-  "Matt McCoy <mattnenterprise@yahoo.com>",
-]
-edition = "2021"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+repository = { workspace = true }
 documentation = "https://docs.rs/suppaftp/"
-repository = "https://github.com/veeso/suppaftp"
 description = "A super FTP/FTPS client library for Rust"
 include = [
   "src/**/*",
@@ -17,9 +17,7 @@ include = [
   "../CHANGELOG.md",
 ]
 readme = "../README.md"
-license = "Apache-2.0"
-keywords = ["ftp", "ftps", "network-protocol", "async"]
-categories = ["asynchronous", "network-programming"]
+
 
 [lib]
 name = "suppaftp"

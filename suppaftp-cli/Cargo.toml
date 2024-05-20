@@ -1,16 +1,16 @@
 [package]
-authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
-categories = ["command-line-utilities"]
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+repository = { workspace = true }
 description = "FTP command line client, based on suppaftp"
-edition = "2021"
 homepage = "https://github.com/veeso/suppaftp"
 include = ["src/**/*", "../LICENSE", "../README.md", "../CHANGELOG.md"]
-keywords = ["ftp", "ftp-client", "suppaftp"]
-license = "MIT"
 name = "suppaftp-cli"
 readme = "../README.md"
-repository = "https://github.com/veeso/suppaftp"
-version = "5.4.0"
 
 [[bin]]
 name = "suppaftp"
