@@ -721,10 +721,10 @@ where
     }
 
     /// Execute a command on the server and return the response
-    pub fn site(&mut self, command: impl ToString) -> FtpResult<()> {
+    pub fn site(&mut self, command: impl ToString) -> FtpResult<Response> {
         debug!("Sending SITE command: {}", command.to_string());
         self.perform(Command::Site(command.to_string()))?;
-        self.read_response(Status::CommandOk).map(|_| ())
+        self.read_response(Status::CommandOk)
     }
 
     /// Perform custom command
@@ -732,11 +732,11 @@ where
         &mut self,
         command: impl ToString,
         expected_code: &[Status],
-    ) -> FtpResult<()> {
+    ) -> FtpResult<Response> {
         let command = command.to_string();
         debug!("Sending custom command: {}", command);
         self.perform(Command::Custom(command))?;
-        self.read_response_in(expected_code).map(|_| ())
+        self.read_response_in(expected_code)
     }
 
     // -- private

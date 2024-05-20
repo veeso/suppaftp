@@ -38,6 +38,7 @@
 Released on 20/05/2024
 
 - feat!: `Response.body` now contains the entire response
+- feat!: `site()` and `custom_command` now return `FtpResult<Response>`
 
 ## 5.4.0
 
