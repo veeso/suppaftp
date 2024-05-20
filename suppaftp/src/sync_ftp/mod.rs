@@ -1137,7 +1137,12 @@ mod test {
         assert!(stream.login("test", "test").is_ok());
         assert_eq!(
             stream.get_welcome_msg().unwrap(),
-            "220 You will be disconnected after 15 minutes of inactivity."
+            r#"220---------- Welcome to Pure-FTPd [privsep] [TLS] ----------
+220-You are user number 3 of 5 allowed.
+220-Local time is now 08:30. Server port: 21.
+220-This is a private system - No anonymous login
+220-IPv6 connections are also welcome on this server.
+220 You will be disconnected after 15 minutes of inactivity."#
         );
     }
 
@@ -1149,7 +1154,12 @@ mod test {
         let stream: FtpStream = setup_stream();
         assert_eq!(
             stream.get_welcome_msg().unwrap(),
-            "220 You will be disconnected after 15 minutes of inactivity."
+            r#"220---------- Welcome to Pure-FTPd [privsep] [TLS] ----------
+220-You are user number 3 of 5 allowed.
+220-Local time is now 08:30. Server port: 21.
+220-This is a private system - No anonymous login
+220-IPv6 connections are also welcome on this server.
+220 You will be disconnected after 15 minutes of inactivity."#
         );
         finalize_stream(stream);
     }
