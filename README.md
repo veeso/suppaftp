@@ -21,7 +21,7 @@
   /></a>
   <a href="https://github.com/veeso/suppaftp/stargazers"
     ><img
-      src="https://img.shields.io/github/stars/veeso/suppaftp.svg"
+      src="https://img.shields.io/github/stars/veeso/suppaftp?style=flat"
       alt="Repo stars"
   /></a>
   <a href="https://crates.io/crates/suppaftp"
