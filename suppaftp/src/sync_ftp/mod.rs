@@ -618,10 +618,14 @@ where
         debug!("Reading {} path information", pathname.unwrap_or("working"));
 
         self.perform(Command::Mlst(pathname.map(|x| x.to_string())))?;
-        let response = self.read_response_in_at(&[Status::RequestedFileActionOk], Some(0))?;
-
-        // trim newline and space
-        Ok(String::from_utf8_lossy(&response.body).trim().to_string())
+        let response = self.read_response_in(&[Status::RequestedFileActionOk])?;
+        // read body at line 1
+        let response_str = String::from_utf8_lossy(&response.body).to_string();
+        match response_str.lines().nth(1) {
+            Some(line) if line.is_empty() => Err(FtpError::BadResponse),
+            Some(line) => Ok(line.trim().to_string()),
+            None => Err(FtpError::BadResponse),
+        }
     }
 
     /// Retrieves the modification time of the file at `pathname` if it exists.
@@ -772,17 +776,10 @@ where
 
     /// Retrieve single line response
     fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
-        self.read_response_in_at(expected_code, None)
-    }
-
-    /// Retrieve single line response
-    fn read_response_in_at(
-        &mut self,
-        expected_code: &[Status],
-        at_line: Option<usize>,
-    ) -> FtpResult<Response> {
         let mut line = Vec::new();
+        let mut body: Vec<u8> = Vec::new();
         self.read_line(&mut line)?;
+        body.extend(line.iter());
 
         trace!("CC IN: {:?}", line);
 
@@ -804,19 +801,14 @@ where
             expected
         };
         trace!("CC IN: {:?}", line);
-        let mut line_num = 0;
-        let mut body = None;
         while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
             line.clear();
             self.read_line(&mut line)?;
-            if Some(line_num) == at_line {
-                body = Some(line.clone());
-            }
-            line_num += 1;
+            body.extend(line.iter());
             trace!("CC IN: {:?}", line);
         }
 
-        let response: Response = Response::new(code, body.unwrap_or(line));
+        let response: Response = Response::new(code, body);
         // Return Ok or error with response
         if expected_code.iter().any(|ec| code == *ec) {
             Ok(response)

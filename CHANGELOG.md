@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [5.5.0](#550)
   - [5.4.0](#540)
   - [5.3.1](#531)
   - [5.3.0](#530)
@@ -31,6 +32,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 5.5.0
+
+Released on 20/05/2024
+
+- feat!: `Response.body` now contains the entire response
 
 ## 5.4.0
 
