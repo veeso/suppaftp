@@ -618,7 +618,7 @@ where
         // read body at line 1
         let response_str = String::from_utf8_lossy(&response.body).to_string();
         match response_str.lines().nth(1) {
-            Some(line) if line.is_empty() => Err(FtpError::BadResponse),
+            Some("") => Err(FtpError::BadResponse),
             Some(line) => Ok(line.trim().to_string()),
             None => Err(FtpError::BadResponse),
         }
