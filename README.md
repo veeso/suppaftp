@@ -48,7 +48,7 @@
 <p align="center">
   <a href="https://github.com/veeso/suppaftp/actions"
     ><img
-      src="https://github.com/veeso/suppaftp/workflows/Build/badge.svg"
+      src="https://github.com/veeso/suppaftp/actions/workflows/cargo.yml/badge.svg"
       alt="Lib-CI"
   /></a>
   <a href="https://github.com/veeso/suppaftp/actions"
