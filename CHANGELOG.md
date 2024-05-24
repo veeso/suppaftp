@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.1](#601)
   - [6.0.0](#600)
   - [5.4.0](#540)
   - [5.3.1](#531)
@@ -32,6 +33,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.1
+
+Released on 24/05/2024
+
+- [PR 84](https://github.com/veeso/suppaftp/pull/84): LIST with DOS lines parsed `%d-%m` but the correct syntax is `%m-%d`
 
 ## 6.0.0
 
