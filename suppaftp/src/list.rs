@@ -478,7 +478,7 @@ impl File {
             .unwrap_or(SystemTime::UNIX_EPOCH))
     }
 
-    /// Parse date time string in DOS representation ("%d-%m-%y %I:%M%p")
+    /// Parse date time string in DOS representation ("%m-%d-%y %I:%M%p")
     fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
         NaiveDateTime::parse_from_str(tm, "%m-%d-%y %I:%M%p")
             .map(|dt| {
@@ -810,7 +810,7 @@ mod test {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .ok()
                 .unwrap(),
-            Duration::from_secs(1407164940)
+            Duration::from_secs(1396969740)
         );
         // Parse directory
         let dir: File = File::try_from("04-08-14  03:09PM  <DIR> docs")
@@ -834,7 +834,7 @@ mod test {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .ok()
                 .unwrap(),
-            Duration::from_secs(1407164940)
+            Duration::from_secs(1396969740)
         );
         // Error
         assert_eq!(
@@ -942,7 +942,7 @@ mod test {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .ok()
                 .unwrap(),
-            Duration::from_secs(1407164940)
+            Duration::from_secs(1396969740)
         );
         // Not enough argument for datetime
         assert!(File::parse_dostime("04-08-14").is_err());
