@@ -16,7 +16,7 @@ jobs:
           override: true
           components: rustfmt, clippy
       - name: Setup containers
-        run: docker-compose -f "tests/docker-compose.yml" up -d --build
+        run: docker compose -f "tests/docker-compose.yml" up -d --build
       - name: Build simple
         run: cargo build --package suppaftp
       - name: Build secure (native-tls)

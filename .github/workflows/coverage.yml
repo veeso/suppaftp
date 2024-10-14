@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Setup containers
-        run: docker-compose -f "tests/docker-compose.yml" up -d --build
+        run: docker compose -f "tests/docker-compose.yml" up -d --build
       - name: Setup nightly toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
