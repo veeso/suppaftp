@@ -6,7 +6,8 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use rustls::{ClientConfig, ClientConnection, ServerName, StreamOwned};
+use rustls::pki_types::ServerName;
+use rustls::{ClientConfig, ClientConnection, StreamOwned};
 
 use super::{TlsConnector, TlsStream};
 use crate::{FtpError, FtpResult};
@@ -32,8 +33,8 @@ impl TlsConnector for RustlsConnector {
     type Stream = RustlsStream;
 
     fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream> {
-        let server_name =
-            ServerName::try_from(domain).map_err(|e| FtpError::SecureError(e.to_string()))?;
+        let server_name = ServerName::try_from(domain.to_string())
+            .map_err(|e| FtpError::SecureError(e.to_string()))?;
         let connection = ClientConnection::new(Arc::clone(&self.connector), server_name)
             .map_err(|e| FtpError::SecureError(e.to_string()))?;
         let stream = StreamOwned::new(connection, stream);

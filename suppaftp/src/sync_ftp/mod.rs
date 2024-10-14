@@ -5,7 +5,6 @@
 mod data_stream;
 mod tls;
 
-use std::fmt::Debug;
 use std::io::{copy, BufRead, BufReader, Cursor, Read, Write};
 #[cfg(not(feature = "secure"))]
 use std::marker::PhantomData;
@@ -32,8 +31,12 @@ use crate::command::Command;
 use crate::command::ProtectionLevel;
 use crate::types::Features;
 
+/// A function that creates a new stream for the data connection in passive mode.
+///
+/// It takes a [`SocketAddr`] and returns a [`TcpStream`].
+pub type PassiveStreamBuilder = dyn Fn(SocketAddr) -> FtpResult<TcpStream> + Send;
+
 /// Stream to interface with the FTP server. This interface is only for the command stream.
-#[derive(Debug)]
 pub struct ImplFtpStream<T>
 where
     T: TlsStream,
@@ -43,6 +46,7 @@ where
     nat_workaround: bool,
     welcome_msg: Option<String>,
     active_timeout: Duration,
+    passive_stream_builder: Box<PassiveStreamBuilder>,
     #[cfg(not(feature = "secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "secure")]
@@ -80,6 +84,7 @@ where
             nat_workaround: false,
             welcome_msg: None,
             active_timeout: Duration::from_secs(60),
+            passive_stream_builder: Self::default_passive_stream_builder(),
             #[cfg(feature = "secure")]
             tls_ctx: None,
             #[cfg(feature = "secure")]
@@ -103,6 +108,18 @@ where
     pub fn active_mode(mut self, accept_timeout: Duration) -> Self {
         self.mode = Mode::Active;
         self.active_timeout = accept_timeout;
+        self
+    }
+
+    /// Set a custom [`StreamBuilder`] for passive mode.
+    ///
+    /// The stream builder is a function that takes a `SocketAddr` and returns a `TcpStream` and it's used
+    /// to create the [`TcpStream`] for the data connection in passive mode.
+    pub fn passive_stream_builder<F>(mut self, stream_builder: F) -> Self
+    where
+        F: Fn(SocketAddr) -> FtpResult<TcpStream> + Send + 'static,
+    {
+        self.passive_stream_builder = Box::new(stream_builder);
         self
     }
 
@@ -153,6 +170,7 @@ where
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
             nat_workaround: self.nat_workaround,
+            passive_stream_builder: self.passive_stream_builder,
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
@@ -169,7 +187,7 @@ where
 
     /// Connect to remote ftps server using IMPLICIT secure connection.
     ///
-    /// > Warning: mind that implicit ftps should be considered deprecated, if you can use explicit mode with `into_secure()`
+    /// > Warning: mind that implicit ftps should be considered deprecated, if you can use explicit mode with [`ImplFtpStream::into_secure`]
     ///
     ///
     /// ## Example
@@ -179,8 +197,8 @@ where
     /// use suppaftp::native_tls::{TlsConnector, TlsStream};
     /// use std::path::Path;
     ///
-    /// // Create a TlsConnector
-    /// // NOTE: For custom options see <https://docs.rs/native-tls/0.2.6/native_tls/struct.TlsConnectorBuilder.html>
+    /// //Create a TlsConnector
+    /// //NOTE: For custom options see <https://docs.rs/native-tls/0.2.6/native_tls/struct.TlsConnectorBuilder.html>
     /// let mut ctx = TlsConnector::new().unwrap();
     /// let mut ftp_stream = FtpStream::connect_secure_implicit("127.0.0.1:990", ctx, "localhost").unwrap();
     /// ```
@@ -200,6 +218,7 @@ where
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
                     nat_workaround: false,
+                    passive_stream_builder: Self::default_passive_stream_builder(),
                     welcome_msg: None,
                     tls_ctx: None,
                     domain: None,
@@ -217,6 +236,7 @@ where
             mode: Mode::Passive,
             nat_workaround: false,
             tls_ctx: Some(Box::new(tls_connector)),
+            passive_stream_builder: Self::default_passive_stream_builder(),
             domain: Some(String::from(domain)),
             welcome_msg: None,
             active_timeout: Duration::from_secs(60),
@@ -239,7 +259,7 @@ where
         self.welcome_msg.as_deref()
     }
 
-    /// Returns a reference to the underlying TcpStream.
+    /// Returns a reference to the underlying [`TcpStream`].
     ///
     /// Example:
     /// ```no_run
@@ -439,7 +459,7 @@ where
     /// This method is a more complicated way to retrieve a file.
     /// The reader returned should be dropped.
     /// Also you will have to read the response to make sure it has the correct value.
-    /// Once file has been read, call `finalize_retr_stream()`
+    /// Once file has been read, call [`ImplFtpStream::finalize_retr_stream`]
     pub fn retr_as_stream<S: AsRef<str>>(&mut self, file_name: S) -> FtpResult<DataStream<T>> {
         debug!("Retrieving '{}'", file_name.as_ref());
         let data_stream = self.data_command(Command::Retr(file_name.as_ref().to_string()))?;
@@ -447,7 +467,7 @@ where
         Ok(data_stream)
     }
 
-    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
+    /// Finalize retr stream; must be called once the requested file, got previously with [`ImplFtpStream::retr_as_stream`] has been read
     pub fn finalize_retr_stream(&mut self, stream: impl Read) -> FtpResult<()> {
         debug!("Finalizing retr stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
@@ -475,7 +495,7 @@ where
     }
 
     /// This stores a file on the server.
-    /// r argument must be any struct which implemenents the Read trait.
+    /// r argument must be any struct which implemenents the [`Read`] trait.
     /// Returns amount of written bytes
     pub fn put_file<S: AsRef<str>, R: Read>(&mut self, filename: S, r: &mut R) -> FtpResult<u64> {
         // Get stream
@@ -488,7 +508,7 @@ where
     /// Send PUT command and returns a BufWriter, which references the file created on the server
     /// The returned stream must be then correctly manipulated to write the content of the source file to the remote destination
     /// The stream must be then correctly dropped.
-    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
+    /// Once you've finished the write, YOU MUST CALL THIS METHOD: [`ImplFtpStream::finalize_put_stream`]
     pub fn put_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream<T>> {
         debug!("Put file {}", filename.as_ref());
         let stream = self.data_command(Command::Store(filename.as_ref().to_string()))?;
@@ -498,7 +518,7 @@ where
 
     /// Finalize put when using stream
     /// This method must be called once the file has been written and
-    /// `put_with_stream` has been used to write the file
+    /// [`ImplFtpStream::put_with_stream`] has been used to write the file
     pub fn finalize_put_stream(&mut self, stream: impl Write) -> FtpResult<()> {
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
@@ -510,7 +530,7 @@ where
     }
 
     /// Open specified file for appending data. Returns the stream to append data to specified file.
-    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
+    /// Once you've finished the write, YOU MUST CALL THIS METHOD: [`ImplFtpStream::finalize_put_stream`]
     pub fn append_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream<T>> {
         debug!("Appending to file {}", filename.as_ref());
         let stream = self.data_command(Command::Appe(filename.as_ref().to_string()))?;
@@ -872,11 +892,11 @@ where
             Mode::ExtendedPassive => self
                 .epsv()
                 .and_then(|addr| self.perform(cmd).map(|_| addr))
-                .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))?,
+                .and_then(|addr| (self.passive_stream_builder)(addr))?,
             Mode::Passive => self
                 .pasv()
                 .and_then(|addr| self.perform(cmd).map(|_| addr))
-                .and_then(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))?,
+                .and_then(|addr| (self.passive_stream_builder)(addr))?,
         };
 
         #[cfg(not(feature = "secure"))]
@@ -991,6 +1011,11 @@ where
         let lines = Self::get_lines_from_stream(&mut data_stream);
         self.finalize_retr_stream(data_stream)?;
         lines
+    }
+
+    /// Default stream builder
+    fn default_passive_stream_builder() -> Box<PassiveStreamBuilder> {
+        Box::new(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))
     }
 }
 
@@ -1461,4 +1486,15 @@ mod test {
             .with_no_client_auth()
     }
     */
+
+    #[test]
+    fn test_should_set_passive_stream_builder() {
+        crate::log_init();
+        let _ftp_stream = FtpStream::connect("test.rebex.net:21")
+            .unwrap()
+            .passive_stream_builder(|addr| {
+                println!("Connecting to {}", addr);
+                TcpStream::connect(addr).map_err(FtpError::ConnectionError)
+            });
+    }
 }

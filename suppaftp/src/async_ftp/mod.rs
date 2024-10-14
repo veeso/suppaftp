@@ -5,9 +5,11 @@
 mod data_stream;
 mod tls;
 
+use std::future::Future;
 #[cfg(not(feature = "async-secure"))]
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::pin::Pin;
 use std::string::String;
 use std::time::Duration;
 
@@ -35,6 +37,12 @@ use crate::command::Command;
 use crate::command::ProtectionLevel;
 use crate::types::Features;
 
+/// A function that creates a new stream for the data connection in passive mode.
+///
+/// It takes a [`SocketAddr`] and returns a [`TcpStream`].
+pub type PassiveStreamBuilder =
+    dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send>>;
+
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct ImplAsyncFtpStream<T>
 where
@@ -45,6 +53,7 @@ where
     nat_workaround: bool,
     welcome_msg: Option<String>,
     active_timeout: Duration,
+    passive_stream_builder: Box<PassiveStreamBuilder>,
     #[cfg(not(feature = "async-secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "async-secure")]
@@ -85,6 +94,7 @@ where
             marker: PhantomData {},
             mode: Mode::Passive,
             nat_workaround: false,
+            passive_stream_builder: Self::default_passive_stream_builder(),
             welcome_msg: None,
             #[cfg(feature = "async-secure")]
             tls_ctx: None,
@@ -143,6 +153,7 @@ where
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
             nat_workaround: self.nat_workaround,
+            passive_stream_builder: self.passive_stream_builder,
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
@@ -197,6 +208,7 @@ where
                     mode: Mode::Passive,
                     nat_workaround: false,
                     welcome_msg: None,
+                    passive_stream_builder: Self::default_passive_stream_builder(),
                     tls_ctx: None,
                     domain: None,
                     active_timeout: Duration::from_secs(60),
@@ -213,6 +225,7 @@ where
             reader: BufReader::new(DataStream::Ssl(stream.into())),
             mode: Mode::Passive,
             nat_workaround: false,
+            passive_stream_builder: Self::default_passive_stream_builder(),
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
             welcome_msg: None,
@@ -235,6 +248,18 @@ where
     pub fn active_mode(mut self, listener_timeout: Duration) -> Self {
         self.mode = Mode::Active;
         self.active_timeout = listener_timeout;
+        self
+    }
+
+    /// Set a custom [`StreamBuilder`] for passive mode.
+    ///
+    /// The stream builder is a function that takes a `SocketAddr` and returns a `TcpStream` and it's used
+    /// to create the [`TcpStream`] for the data connection in passive mode.
+    pub fn passive_stream_builder<F>(mut self, stream_builder: F) -> Self
+    where
+        F: Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send>> + 'static,
+    {
+        self.passive_stream_builder = Box::new(stream_builder);
         self
     }
 
@@ -767,16 +792,12 @@ where
             Mode::ExtendedPassive => {
                 let addr = self.epsv().await?;
                 self.perform(cmd).await?;
-                TcpStream::connect(addr)
-                    .await
-                    .map_err(FtpError::ConnectionError)?
+                (self.passive_stream_builder)(addr).await?
             }
             Mode::Passive => {
                 let addr = self.pasv().await?;
                 self.perform(cmd).await?;
-                TcpStream::connect(addr)
-                    .await
-                    .map_err(FtpError::ConnectionError)?
+                (self.passive_stream_builder)(addr).await?
             }
         };
 
@@ -1001,6 +1022,16 @@ where
         let lines = Self::get_lines_from_stream(&mut data_stream).await;
         self.finalize_retr_stream(data_stream).await?;
         lines
+    }
+
+    fn default_passive_stream_builder() -> Box<PassiveStreamBuilder> {
+        Box::new(|address| {
+            Box::pin(async move {
+                TcpStream::connect(address)
+                    .await
+                    .map_err(FtpError::ConnectionError)
+            })
+        })
     }
 }
 
@@ -1398,6 +1429,22 @@ mod test {
         // Remove file
         assert!(stream.rm("test.txt").await.is_ok());
         finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_should_set_passive_stream_builder() {
+        crate::log_init();
+        let _ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
+            .await
+            .unwrap()
+            .passive_stream_builder(|addr| {
+                Box::pin(async move {
+                    println!("Connecting to {}", addr);
+                    TcpStream::connect(addr)
+                        .await
+                        .map_err(FtpError::ConnectionError)
+                })
+            });
     }
 
     // -- test utils
