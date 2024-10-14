@@ -13,16 +13,13 @@ jobs:
         working-directory: ./suppaftp-cli
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           override: true
           components: rustfmt, clippy
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --package suppaftp-cli
+        run: cargo build --package suppaftp-cli
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy

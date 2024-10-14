@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.2](#602)
   - [6.0.1](#601)
   - [6.0.0](#600)
   - [5.4.0](#540)
@@ -33,6 +34,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.2
+
+Released on 14/10/2024
+
+- [Issue 89](https://github.com/veeso/suppaftp/issues/89): added new `FtpStream::passive_stream_builder` to provide a function to build the Passive mode `TcpStream` with a custom builder. This is useful if you need to use some proxy.
 
 ## 6.0.1
 
