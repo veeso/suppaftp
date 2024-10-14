@@ -19,7 +19,7 @@ jobs:
           toolchain: nightly
           override: true
       - name: Run tests (nightly)
-        run: cargo test --package suppaftp --no-default-features --features native-tls,deprecated,async-native-tls,with-containers --no-fail-fast
+        run: cargo test --lib --package suppaftp --no-default-features --features native-tls,deprecated,async-native-tls,with-containers --no-fail-fast
         env:
           RUST_LOG: trace
           CARGO_INCREMENTAL: "0"

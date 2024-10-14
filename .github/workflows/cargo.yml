@@ -30,7 +30,7 @@ jobs:
       - name: Build all features
         run: cargo build --features deprecated,native-tls,rustls,async-native-tls,async-rustls --package suppaftp
       - name: Run tests
-        run: cargo test --package suppaftp --no-default-features --features rustls,native-tls,async-native-tls,async-rustls,with-containers --no-fail-fast
+        run: cargo test --lib --package suppaftp --no-default-features --features rustls,native-tls,async-native-tls,async-rustls,with-containers --no-fail-fast
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
