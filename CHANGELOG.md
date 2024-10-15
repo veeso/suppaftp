@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.3](#603)
   - [6.0.2](#602)
   - [6.0.1](#601)
   - [6.0.0](#600)
@@ -34,6 +35,13 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.3
+
+Released on 15/10/2024
+
+- Added `Send` marker to the Closure: `dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send>> + Send;`
+- Added unit test to guarantee that FtpStream stays `Send`
 
 ## 6.0.2
 

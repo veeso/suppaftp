@@ -1497,4 +1497,20 @@ mod test {
                 TcpStream::connect(addr).map_err(FtpError::ConnectionError)
             });
     }
+
+    /// Test if the stream is Send
+    fn is_send<T: Send>(_send: T) {}
+
+    #[test]
+    fn test_ftp_stream_should_be_send() {
+        crate::log_init();
+        let ftp_stream = FtpStream::connect("test.rebex.net:21")
+            .unwrap()
+            .passive_stream_builder(|addr| {
+                println!("Connecting to {}", addr);
+                TcpStream::connect(addr).map_err(FtpError::ConnectionError)
+            });
+
+        is_send::<FtpStream>(ftp_stream);
+    }
 }
