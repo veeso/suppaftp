@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.4](#604)
   - [6.0.3](#603)
   - [6.0.2](#602)
   - [6.0.1](#601)
@@ -35,6 +36,13 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.4
+
+Released on 26/10/2024
+
+- Added `Sync` to client.
+- Added unit test to guarantee that sync FtpStream stays `Sync`
 
 ## 6.0.3
 

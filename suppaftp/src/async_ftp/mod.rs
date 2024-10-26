@@ -40,8 +40,9 @@ use crate::types::Features;
 /// A function that creates a new stream for the data connection in passive mode.
 ///
 /// It takes a [`SocketAddr`] and returns a [`TcpStream`].
-pub type PassiveStreamBuilder =
-    dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send>> + Send;
+pub type PassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send + Sync>>
+    + Send
+    + Sync;
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct ImplAsyncFtpStream<T>
@@ -257,8 +258,9 @@ where
     /// to create the [`TcpStream`] for the data connection in passive mode.
     pub fn passive_stream_builder<F>(mut self, stream_builder: F) -> Self
     where
-        F: Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send>>
+        F: Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send + Sync>>
             + Send
+            + Sync
             + 'static,
     {
         self.passive_stream_builder = Box::new(stream_builder);
@@ -1468,6 +1470,27 @@ mod test {
             });
 
         is_send::<AsyncFtpStream>(ftp_stream);
+    }
+
+    /// Test if the stream is Sync
+    fn is_sync<T: Sync>(_send: T) {}
+
+    #[async_attributes::test]
+    async fn test_ftp_stream_should_be_sync() {
+        crate::log_init();
+        let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
+            .await
+            .unwrap()
+            .passive_stream_builder(|addr| {
+                Box::pin(async move {
+                    println!("Connecting to {}", addr);
+                    TcpStream::connect(addr)
+                        .await
+                        .map_err(FtpError::ConnectionError)
+                })
+            });
+
+        is_sync::<AsyncFtpStream>(ftp_stream);
     }
 
     // -- test utils
