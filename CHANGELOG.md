@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.5](#605)
   - [6.0.4](#604)
   - [6.0.3](#603)
   - [6.0.2](#602)
@@ -36,6 +37,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.5
+
+Released on 27/11/2024
+
+- [Force rustls to use ring](https://github.com/veeso/suppaftp/issues/94)
 
 ## 6.0.4
 
