@@ -16,7 +16,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
           components: rustfmt, clippy
       - name: Build
         run: cargo build --package suppaftp-cli
