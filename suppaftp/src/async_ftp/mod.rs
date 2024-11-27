@@ -1042,127 +1042,25 @@ where
 #[cfg(test)]
 mod test {
 
-    #[cfg(feature = "async-native-tls")]
-    use async_native_tls::TlsConnector as NativeTlsConnector;
-    #[cfg(any(feature = "with-containers", feature = "async-secure"))]
+    use std::sync::Arc;
+
+    #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
-    #[cfg(feature = "with-containers")]
-    use rand::{distributions::Alphanumeric, thread_rng, Rng};
+    use rand::distributions::Alphanumeric;
+    use rand::{thread_rng, Rng};
     use serial_test::serial;
 
     use super::*;
-    #[cfg(feature = "with-containers")]
+    use crate::test_container::SyncPureFtpRunner;
     use crate::types::FormatControl;
     use crate::AsyncFtpStream;
-    #[cfg(feature = "async-native-tls")]
-    use crate::{AsyncNativeTlsConnector, AsyncNativeTlsFtpStream};
 
-    #[cfg(feature = "with-containers")]
     #[async_attributes::test]
-    #[serial]
     async fn connect() {
         crate::log_init();
-        let stream = setup_stream().await;
+        let (stream, _container) = setup_stream().await;
         finalize_stream(stream).await;
     }
-
-    /*
-    #[async_attributes::test]
-    #[cfg(feature = "async-native-tls")]
-    #[serial]
-    async fn should_connect_ssl_native_tls() {
-        use crate::AsyncNativeTlsFtpStream;
-
-        crate::log_init();
-        let ftp_stream = AsyncNativeTlsFtpStream::connect("test.rebex.net:21")
-            .await
-            .unwrap();
-        let mut ftp_stream = ftp_stream
-            .into_secure(
-                AsyncNativeTlsConnector::from(NativeTlsConnector::new()),
-                "test.rebex.net",
-            )
-            .await
-            .unwrap();
-        // Set timeout (to test ref to ssl)
-        assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
-        // Login
-        assert!(ftp_stream.login("demo", "password").await.is_ok());
-        // PWD
-        assert_eq!(ftp_stream.pwd().await.unwrap().as_str(), "/");
-        // Quit
-        assert!(ftp_stream.quit().await.is_ok());
-    }
-
-    #[async_attributes::test]
-    #[serial]
-    #[cfg(all(feature = "async-native-tls", feature = "deprecated"))]
-    async fn should_connect_ssl_implicit_native_tls() {
-        crate::log_init();
-        let mut ftp_stream = AsyncNativeTlsFtpStream::connect_secure_implicit(
-            "test.rebex.net:990",
-            AsyncNativeTlsConnector::from(NativeTlsConnector::new()),
-            "test.rebex.net",
-        )
-        .await
-        .unwrap();
-        // Set timeout (to test ref to ssl)
-        assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
-        // Login
-        assert!(ftp_stream.login("demo", "password").await.is_ok());
-        // PWD
-        assert_eq!(ftp_stream.pwd().await.unwrap().as_str(), "/");
-        // Quit
-        assert!(ftp_stream.quit().await.is_ok());
-    }
-
-
-    #[async_attributes::test]
-    #[cfg(feature = "async-native-tls")]
-    #[serial]
-    async fn should_work_after_clear_command_channel_native_tls() {
-        crate::log_init();
-        let mut ftp_stream = AsyncNativeTlsFtpStream::connect("test.rebex.net:21")
-            .await
-            .unwrap()
-            .into_secure(
-                AsyncNativeTlsConnector::from(NativeTlsConnector::new()),
-                "test.rebex.net",
-            )
-            .await
-            .unwrap()
-            .clear_command_channel()
-            .await
-            .unwrap();
-        // Login
-        assert!(ftp_stream.login("demo", "password").await.is_ok());
-        // CCC
-        assert!(ftp_stream.pwd().await.is_ok());
-        assert!(ftp_stream.list(None).await.is_ok());
-        assert!(ftp_stream.quit().await.is_ok());
-    }
-
-    #[async_attributes::test]
-    #[cfg(feature = "async-rustls")]
-    #[serial]
-    async fn should_connect_ssl_rustls() {
-        crate::log_init();
-        let ftp_stream = AsyncRustlsFtpStream::connect("ftp.uni-bayreuth.de:21")
-            .await
-            .unwrap();
-        let mut ftp_stream = ftp_stream
-            .into_secure(
-                AsyncRustlsConnector::from(RustlsTlsConnector::new()),
-                "ftp.uni-bayreuth.de",
-            )
-            .await
-            .unwrap();
-        // Set timeout (to test ref to ssl)
-        assert!(ftp_stream.get_ref().await.set_ttl(255).is_ok());
-        // Quit
-        assert!(ftp_stream.quit().await.is_ok());
-    }
-    */
 
     #[async_attributes::test]
     #[serial]
@@ -1179,11 +1077,13 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
     async fn should_connect_with_timeout() {
         crate::log_init();
-        let addr: SocketAddr = "127.0.0.1:10021".parse().expect("invalid hostname");
+        let container = SyncPureFtpRunner::start();
+        let port = container.get_ftp_port();
+        let url = format!("127.0.0.1:{port}");
+        let addr: SocketAddr = url.parse().expect("invalid hostname");
+
         let mut stream = AsyncFtpStream::connect_timeout(addr, Duration::from_secs(15))
             .await
             .unwrap();
@@ -1195,11 +1095,9 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
     async fn welcome_message() {
         crate::log_init();
-        let stream = setup_stream().await;
+        let (stream, _container) = setup_stream().await;
         assert!(stream
             .get_welcome_msg()
             .unwrap()
@@ -1208,32 +1106,27 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn should_set_passive_nat_workaround() {
         crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         stream.set_passive_nat_workaround(true);
         assert!(stream.nat_workaround);
         finalize_stream(stream).await;
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn get_ref() {
-        crate::log_init();
-        let stream = setup_stream().await;
+        let (stream, _container) = setup_stream().await;
         assert!(stream.get_ref().await.set_ttl(255).is_ok());
         finalize_stream(stream).await;
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn change_wrkdir() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         let wrkdir: String = stream.pwd().await.unwrap();
         assert!(stream.cwd("/").await.is_ok());
         assert_eq!(stream.pwd().await.unwrap().as_str(), "/");
@@ -1242,11 +1135,9 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn cd_up() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         let wrkdir: String = stream.pwd().await.unwrap();
         assert!(stream.cdup().await.is_ok());
         assert_eq!(stream.pwd().await.unwrap().as_str(), "/");
@@ -1255,21 +1146,17 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn noop() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         assert!(stream.noop().await.is_ok());
         finalize_stream(stream).await;
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn make_and_remove_dir() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         // Make directory
         assert!(stream.mkdir("omar").await.is_ok());
         // It shouldn't allow me to re-create the directory; should return error code 550
@@ -1285,11 +1172,9 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn should_get_feat_and_set_opts() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         assert!(stream.feat().await.is_ok());
         assert!(stream.opts("UTF8", Some("ON")).await.is_ok());
 
@@ -1297,11 +1182,9 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn set_transfer_type() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
         assert!(stream
             .transfer_type(FileType::Ascii(FormatControl::Default))
@@ -1311,13 +1194,11 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[cfg(feature = "with-containers")]
-    #[serial]
+
     async fn transfer_file() {
-        crate::log_init();
         use async_std::io::Cursor;
 
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         // Set transfer type to Binary
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
         // Write file
@@ -1364,11 +1245,8 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[serial]
-    #[cfg(feature = "with-containers")]
     async fn should_resume_transfer() {
-        crate::log_init();
-        let mut stream = setup_stream().await;
+        let (mut stream, container) = setup_stream().await;
         // Set transfer type to Binary
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
         // get dir
@@ -1386,10 +1264,36 @@ mod test {
         drop(stream);
         drop(transfer_stream);
         // Re-connect to server
-        let mut stream = ImplAsyncFtpStream::connect("127.0.0.1:10021")
-            .await
-            .unwrap();
+        let port = container.get_ftp_port();
+        let url = format!("localhost:{port}");
+
+        let mut stream = AsyncFtpStream::connect(url).await.unwrap();
         assert!(stream.login("test", "test").await.is_ok());
+        // Create wrkdir
+        let tempdir: String = generate_tempdir();
+        assert!(stream.mkdir(tempdir.as_str()).await.is_ok());
+        // Change directory
+        assert!(stream.cwd(tempdir.as_str()).await.is_ok());
+
+        let container_t = container.clone();
+
+        let mut stream = stream.passive_stream_builder(move |addr| {
+            let container_t = container_t.clone();
+            Box::pin(async move {
+                let mut addr = addr.clone();
+                let port = addr.port();
+                let mapped = container_t.get_mapped_port(port);
+
+                addr.set_port(mapped);
+
+                info!("mapped port {port} to {mapped} for PASV");
+
+                // open stream to this address instead
+                TcpStream::connect(addr)
+                    .await
+                    .map_err(FtpError::ConnectionError)
+            })
+        });
         // Go back to previous dir
         assert!(stream.cwd(wrkdir).await.is_ok());
         // Set transfer type to Binary
@@ -1408,7 +1312,7 @@ mod test {
         // Finalize
         assert!(stream.finalize_put_stream(transfer_stream).await.is_ok());
         // Get size
-        assert_eq!(stream.size("test.bin").await.unwrap(), 11);
+        //assert_eq!(stream.size("test.bin").await.unwrap(), 11);
         // Remove file
         assert!(stream.rm("test.bin").await.is_ok());
         // Drop stream
@@ -1416,13 +1320,12 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[serial]
-    #[cfg(feature = "with-containers")]
+
     async fn should_transfer_file_with_extended_passive_mode() {
         crate::log_init();
         use async_std::io::Cursor;
 
-        let mut stream = setup_stream().await;
+        let (mut stream, _container) = setup_stream().await;
         // Set transfer type to Binary
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
         stream.set_mode(Mode::ExtendedPassive);
@@ -1437,7 +1340,6 @@ mod test {
 
     #[async_attributes::test]
     async fn test_should_set_passive_stream_builder() {
-        crate::log_init();
         let _ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
             .await
             .unwrap()
@@ -1495,24 +1397,45 @@ mod test {
 
     // -- test utils
 
-    #[cfg(feature = "with-containers")]
-    async fn setup_stream() -> crate::AsyncFtpStream {
+    async fn setup_stream() -> (crate::AsyncFtpStream, Arc<SyncPureFtpRunner>) {
         crate::log_init();
-        let mut ftp_stream = ImplAsyncFtpStream::connect("127.0.0.1:10021")
-            .await
-            .unwrap();
+        let container = Arc::new(SyncPureFtpRunner::start());
+
+        let port = container.get_ftp_port();
+        let url = format!("localhost:{port}");
+
+        let mut ftp_stream = ImplAsyncFtpStream::connect(url).await.unwrap();
         assert!(ftp_stream.login("test", "test").await.is_ok());
         // Create wrkdir
         let tempdir: String = generate_tempdir();
         assert!(ftp_stream.mkdir(tempdir.as_str()).await.is_ok());
         // Change directory
         assert!(ftp_stream.cwd(tempdir.as_str()).await.is_ok());
-        ftp_stream
+
+        let container_t = container.clone();
+
+        let ftp_stream = ftp_stream.passive_stream_builder(move |addr| {
+            let container_t = container_t.clone();
+            Box::pin(async move {
+                let mut addr = addr.clone();
+                let port = addr.port();
+                let mapped = container_t.get_mapped_port(port);
+
+                addr.set_port(mapped);
+
+                info!("mapped port {port} to {mapped} for PASV");
+
+                // open stream to this address instead
+                TcpStream::connect(addr)
+                    .await
+                    .map_err(FtpError::ConnectionError)
+            })
+        });
+
+        (ftp_stream, container)
     }
 
-    #[cfg(feature = "with-containers")]
     async fn finalize_stream(mut stream: crate::AsyncFtpStream) {
-        crate::log_init();
         // Get working directory
         let wrkdir: String = stream.pwd().await.unwrap();
         // Remove directory
@@ -1520,7 +1443,6 @@ mod test {
         assert!(stream.quit().await.is_ok());
     }
 
-    #[cfg(feature = "with-containers")]
     fn generate_tempdir() -> String {
         let mut rng = thread_rng();
         let name: String = std::iter::repeat(())

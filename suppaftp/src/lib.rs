@@ -143,6 +143,9 @@ mod sync_ftp;
 pub mod list;
 pub mod types;
 
+#[cfg(test)]
+mod test_container;
+
 // -- secure deps
 #[cfg(feature = "native-tls")]
 // #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
@@ -221,5 +224,8 @@ pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
 // -- test logging
 #[cfg(test)]
 pub fn log_init() {
-    let _ = env_logger::builder().is_test(true).try_init();
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Debug)
+        .try_init();
 }
