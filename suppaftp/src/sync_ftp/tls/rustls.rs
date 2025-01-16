@@ -85,7 +85,9 @@ impl TlsStream for RustlsStream {
 impl Drop for RustlsStream {
     fn drop(&mut self) {
         if self.ssl_shutdown {
+            let _ = self.stream.flush();
             self.stream.conn.send_close_notify();
+            let _ = self.stream.conn.write_tls(&mut self.stream.sock);
         }
     }
 }
