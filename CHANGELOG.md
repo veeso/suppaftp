@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.6](#606)
   - [6.0.5](#605)
   - [6.0.4](#604)
   - [6.0.3](#603)
@@ -37,6 +38,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.6
+
+Released on 17/01/2025
+
+- [Issue 95](https://github.com/veeso/suppaftp/issues/95): Fixed TLS Stream not properly closed when using rustls.
 
 ## 6.0.5
 
