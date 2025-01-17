@@ -38,7 +38,10 @@ impl TlsConnector for RustlsConnector {
         let connection = ClientConnection::new(Arc::clone(&self.connector), server_name)
             .map_err(|e| FtpError::SecureError(e.to_string()))?;
         let stream = StreamOwned::new(connection, stream);
-        Ok(RustlsStream { stream })
+        Ok(RustlsStream {
+            stream,
+            ssl_shutdown: true,
+        })
     }
 }
 
@@ -49,14 +52,17 @@ impl TlsConnector for RustlsConnector {
 #[derive(Debug)]
 pub struct RustlsStream {
     stream: StreamOwned<ClientConnection, TcpStream>,
+    ssl_shutdown: bool,
 }
 
 impl TlsStream for RustlsStream {
     type InnerStream = StreamOwned<ClientConnection, TcpStream>;
 
     /// Get underlying tcp stream
-    fn tcp_stream(self) -> TcpStream {
+    fn tcp_stream(mut self) -> TcpStream {
         let mut stream = self.get_ref().try_clone().unwrap();
+        // Don't perform shutdown later
+        self.ssl_shutdown = false;
         // flush stream (otherwise can cause bad chars on channel)
         if let Err(err) = stream.flush() {
             error!("Error in flushing tcp stream: {}", err);
@@ -73,5 +79,19 @@ impl TlsStream for RustlsStream {
     /// Get mutable reference to tls stream
     fn mut_ref(&mut self) -> &mut Self::InnerStream {
         &mut self.stream
+    }
+}
+
+impl Drop for RustlsStream {
+    fn drop(&mut self) {
+        if self.ssl_shutdown {
+            if let Err(err) = self.stream.flush() {
+                error!("error in flushing rustls stream on drop: {err}");
+            }
+            self.stream.conn.send_close_notify();
+            if let Err(err) = self.stream.conn.write_tls(&mut self.stream.sock) {
+                error!("error in terminating rustls stream: {err}");
+            }
+        }
     }
 }
