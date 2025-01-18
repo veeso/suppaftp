@@ -989,7 +989,7 @@ where
         let port = (u16::from(msb) << 8) | u16::from(lsb);
         let addr = SocketAddr::new(ip.into(), port);
         trace!("Passive address: {}", addr);
-        if self.nat_workaround && ip.is_private() {
+        if self.nat_workaround {
             let mut remote = self
                 .reader
                 .get_ref()
