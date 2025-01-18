@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.7](#607)
   - [6.0.6](#606)
   - [6.0.5](#605)
   - [6.0.4](#604)
@@ -38,6 +39,10 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.7
+
+- [Issue 88](https://github.com/veeso/suppaftp/issues/88): Removed `ip.is_private()` check on NAT workaround, which prevented public IPs to be used for Natting.
 
 ## 6.0.6
 
