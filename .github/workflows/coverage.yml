@@ -1,4 +1,4 @@
-name: Coverage
+name: coverage
 
 on: [push, pull_request]
 
@@ -6,27 +6,25 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  coverage:
+    name: Generate coverage
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v2
-      - name: Setup nightly toolchain
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Setup rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly
-      - name: Run tests (nightly)
-        run: cargo test --lib --package suppaftp --no-default-features --features native-tls,deprecated,async-native-tls --no-fail-fast
-        env:
-          RUST_LOG: trace
-          CARGO_INCREMENTAL: "0"
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"
-          RUSTDOCFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"
-      - name: Coverage with grcov
-        id: coverage
-        uses: actions-rs/grcov@v0.1
+          toolchain: stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Run tests
+        run: cargo llvm-cov --no-fail-fast --no-default-features --features native-tls,deprecated,async-native-tls --workspace --lcov --output-path lcov.info
       - name: Coveralls
-        uses: coverallsapp/github-action@v1.1.1
+        uses: coverallsapp/github-action@v2.3.6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ${{ steps.coverage.outputs.report }}
+          file: lcov.info
+          # currently we only run one coverage report per build
+          parallel: false
