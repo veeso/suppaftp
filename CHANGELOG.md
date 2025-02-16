@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.0.8](#608)
   - [6.0.7](#607)
   - [6.0.6](#606)
   - [6.0.5](#605)
@@ -39,6 +40,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.0.8
+
+Released on ??? (TBD)
+
+- [Issue 98](https://github.com/veeso/suppaftp/issues/98): doc: fixed minor typos that referenced `termscp`
 
 ## 6.0.7
 

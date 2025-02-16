@@ -37,7 +37,7 @@ Check the issue is always assigned to `veeso`.
 
 ### Bug reports
 
-If you want to report an issue or a bug you've encountered while using termscp, open an issue using the `Bug report` template.
+If you want to report an issue or a bug you've encountered while using suppaftp, open an issue using the `Bug report` template.
 The `Bug` label should already be set and the issue should already be assigned to `veeso`.
 
 When you open a bug try to be the most precise as possible in describing your issue. I'm not saying you should always be that precise, since sometimes it's very easy for maintainers to understand what you're talking about. Just try to be reasonable to understand sometimes we might not know what you're talking about or we just don't have the technical knowledge you might think.
@@ -53,7 +53,7 @@ Maintainers will may add additional labels to your issue:
 ### Feature requests
 
 Whenever you have a good idea which chould improve the project, it is a good idea to submit it to the project owner.
-The first thing you should do though, is not starting to write the code, but is to become concern about how termscp works, what kind
+The first thing you should do though, is not starting to write the code, but is to become concern about how suppaftp works, what kind
 of contribution I appreciate and what kind of contribution I won't consider.
 Said so, follow these steps:
 
@@ -101,7 +101,7 @@ Let's make it simple and clear:
 
 In addition to the process described for the PRs, I've also decided to introduce a list of guidelines to follow when writing the code, that should be followed:
 
-1. **Let's stop the NPM apocalypse**: personally I'm against the abuse of dependencies we make in software projects and I think that NodeJS has opened the way to this drama (and has already gone too far). Nowadays nobody cares about adding hundreds of dependencies to their projects. Don't misunderstand me: I think that package managers are cool, but I'm totally against the abuse we're making of them. I think when we work on a project, we should try to use the minor quantity of dependencies as possible, especially because it's not hard to see how many libraries are getting abandoned right now, causing compatibility issues after a while. So please, when working on termscp, try not to add useless dependencies.
+1. **Let's stop the NPM apocalypse**: personally I'm against the abuse of dependencies we make in software projects and I think that NodeJS has opened the way to this drama (and has already gone too far). Nowadays nobody cares about adding hundreds of dependencies to their projects. Don't misunderstand me: I think that package managers are cool, but I'm totally against the abuse we're making of them. I think when we work on a project, we should try to use the minor quantity of dependencies as possible, especially because it's not hard to see how many libraries are getting abandoned right now, causing compatibility issues after a while. So please, when working on suppaftp, try not to add useless dependencies.
 2. **No C-bindings**: personally I think that Rust still relies too much on C. And that's bad, really bad. Many libraries in Rust are just wrappers to C libraries, which is a huge problem, especially considering this is a multiplatform project. Everytime you add a C-binding to your project, you're forcing your users to install additional libraries to their systems. Sometimes these libraries are already installed on their systems (as happens for libssh2 or openssl in this case), but sometimes not. So if you really have to add a dependency to this project, please AVOID completely adding C-bounded libraries.
 3. **Test units matter**: Whenever you implement something new to this project, always implement test units which cover the most cases as possible.
 4. **Comments are useful**: Many people say that the code should be that simple to talk by itself about what it does, and comments should then be useless. I personally don't agree. I'm not saying they're wrong, but I'm just saying that this approach has, in my personal opinion, many aspects which are underrated:
