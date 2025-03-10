@@ -1,7 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
-  - [6.0.8](#608)
+  - [6.1.0](#610)
   - [6.0.7](#607)
   - [6.0.6](#606)
   - [6.0.5](#605)
@@ -41,10 +41,11 @@
 
 ---
 
-## 6.0.8
+## 6.1.0
 
-Released on ??? (TBD)
+Released on 10/03/2025
 
+- [Issue 100](https://github.com/veeso/suppaftp/issues/100): Migrated away from unmaintained `async-tls` to `futures-rustls`
 - [Issue 98](https://github.com/veeso/suppaftp/issues/98): doc: fixed minor typos that referenced `termscp`
 
 ## 6.0.7

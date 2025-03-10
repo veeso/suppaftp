@@ -6,10 +6,11 @@ use std::pin::Pin;
 
 use async_std::io::{Read, Write};
 use async_std::net::TcpStream;
-use async_tls::client::TlsStream;
-use async_tls::TlsConnector as RustlsTlsConnector;
 use async_trait::async_trait;
+use futures_rustls::client::TlsStream;
+use futures_rustls::TlsConnector as RustlsTlsConnector;
 use pin_project::pin_project;
+use rustls_pki_types::{DnsName, ServerName};
 
 use super::{AsyncTlsConnector, AsyncTlsStream};
 use crate::{FtpError, FtpResult};
@@ -36,8 +37,13 @@ impl AsyncTlsConnector for AsyncRustlsConnector {
     type Stream = AsyncRustlsStream;
 
     async fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream> {
+        let server_name = ServerName::DnsName(
+            DnsName::try_from(domain.to_string())
+                .map_err(|e| FtpError::SecureError(e.to_string()))?,
+        );
+
         self.connector
-            .connect(domain, stream)
+            .connect(server_name, stream)
             .await
             .map(AsyncRustlsStream::from)
             .map_err(|e| FtpError::SecureError(e.to_string()))
@@ -95,7 +101,7 @@ impl AsyncTlsStream for AsyncRustlsStream {
     type InnerStream = TlsStream<TcpStream>;
 
     fn get_ref(&self) -> &TcpStream {
-        self.stream.get_ref()
+        self.stream.get_ref().0
     }
 
     fn mut_ref(&mut self) -> &mut Self::InnerStream {
@@ -103,6 +109,6 @@ impl AsyncTlsStream for AsyncRustlsStream {
     }
 
     fn tcp_stream(self) -> TcpStream {
-        self.stream.get_ref().clone()
+        self.stream.get_ref().0.clone()
     }
 }
