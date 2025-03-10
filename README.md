@@ -137,7 +137,8 @@ suppaftp = { version = "^6", features = ["native-tls"] }
 suppaftp = { version = "^6", features = ["rustls"] }
 ```
 
-> 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
+> [!NOTE]
+> 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.  
 > ❗ If you want to link libssl statically, enable feature `native-tls-vendored`
 
 #### Async support
@@ -148,8 +149,9 @@ If you want to enable **async** support, you must enable `async` feature in your
 suppaftp = { version = "^6", features = ["async"] }
 ```
 
-> ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️
-> ⚠️ If you want to enable both **rustls** and **async** you must use the **async-rustls** feature ⚠️
+> [!CAUTION]
+> ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️  
+> ⚠️ If you want to enable both **rustls** and **async** you must use the **async-rustls** feature ⚠️  
 > ❗ If you want to link libssl statically, enable feature `async-native-tls-vendored`
 
 #### Deprecated methods
