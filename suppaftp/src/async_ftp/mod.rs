@@ -8,7 +8,7 @@ mod tls;
 use std::future::Future;
 #[cfg(not(feature = "async-secure"))]
 use std::marker::PhantomData;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::string::String;
 use std::time::Duration;
@@ -29,13 +29,14 @@ pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 #[cfg(feature = "async-rustls")]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 
-use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
+use super::regex::{EPSV_PORT_RE, MDTM_RE, SIZE_RE};
 use super::types::{FileType, FtpError, FtpResult, Mode, Response};
 use super::Status;
 use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
 use crate::types::Features;
+use crate::FtpStream;
 
 /// A function that creates a new stream for the data connection in passive mode.
 ///
@@ -850,24 +851,7 @@ where
         self.perform(Command::Pasv).await?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
         let response: Response = self.read_response(Status::PassiveMode).await?;
-        let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
-        let caps = PASV_PORT_RE
-            .captures(&response_str)
-            .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
-        // If the regex matches we can be sure groups contains numbers
-        let (oct1, oct2, oct3, oct4) = (
-            caps[1].parse::<u8>().unwrap(),
-            caps[2].parse::<u8>().unwrap(),
-            caps[3].parse::<u8>().unwrap(),
-            caps[4].parse::<u8>().unwrap(),
-        );
-        let (msb, lsb) = (
-            caps[5].parse::<u8>().unwrap(),
-            caps[6].parse::<u8>().unwrap(),
-        );
-        let ip = Ipv4Addr::new(oct1, oct2, oct3, oct4);
-        let port = (u16::from(msb) << 8) | u16::from(lsb);
-        let addr = SocketAddr::new(ip.into(), port);
+        let addr = FtpStream::parse_passive_address_from_response(response)?;
         trace!("Passive address: {}", addr);
         if self.nat_workaround {
             let mut remote = self
@@ -876,7 +860,7 @@ where
                 .get_ref()
                 .peer_addr()
                 .map_err(FtpError::ConnectionError)?;
-            remote.set_port(port);
+            remote.set_port(addr.port());
             trace!("Replacing site local address {} with {}", addr, remote);
             Ok(remote)
         } else {
@@ -922,6 +906,7 @@ where
             match data_stream.read_line(&mut line).await {
                 Ok(0) => break,
                 Ok(_) => {
+                    trace!("STREAM IN: {:?}", line);
                     if line.ends_with('\n') {
                         line.pop();
                         if line.ends_with('\r') {
@@ -933,7 +918,10 @@ where
                     }
                     lines.push(line);
                 }
-                Err(_) => return Err(FtpError::BadResponse),
+                Err(err) => {
+                    error!("failed to get lines from stream: {err}");
+                    return Err(FtpError::BadResponse);
+                }
             }
         }
         trace!("Lines from stream {:?}", lines);

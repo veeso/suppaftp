@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.1.1](#611)
   - [6.1.0](#610)
   - [6.0.7](#607)
   - [6.0.6](#606)
@@ -40,6 +41,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.1.1
+
+Released on 17/03/2025
+
+- added a couple of logs to debug streams.
 
 ## 6.1.0
 
