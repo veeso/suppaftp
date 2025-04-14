@@ -770,6 +770,7 @@ where
             match data_stream.read_line(&mut line) {
                 Ok(0) => break,
                 Ok(_) => {
+                    trace!("STREAM IN: {:?}", line);
                     if line.ends_with('\n') {
                         line.pop();
                         if line.ends_with('\r') {
@@ -781,7 +782,10 @@ where
                     }
                     lines.push(line);
                 }
-                Err(_) => return Err(FtpError::BadResponse),
+                Err(err) => {
+                    error!("failed to get lines from stream: {err}");
+                    return Err(FtpError::BadResponse);
+                }
             }
         }
         trace!("Lines from stream {:?}", lines);
@@ -969,8 +973,28 @@ where
         debug!("PASV command");
         self.perform(Command::Pasv)?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
-        let response: Response = self.read_response(Status::PassiveMode)?;
+        let response = self.read_response(Status::PassiveMode)?;
+        let addr = Self::parse_passive_address_from_response(response)?;
+        trace!("Passive address: {addr}",);
+        if self.nat_workaround {
+            let mut remote = self
+                .reader
+                .get_ref()
+                .get_ref()
+                .peer_addr()
+                .map_err(FtpError::ConnectionError)?;
+            remote.set_port(addr.port());
+            trace!("Replacing site local address {} with {}", addr, remote);
+            Ok(remote)
+        } else {
+            Ok(addr)
+        }
+    }
+
+    /// Parse passive address from response
+    pub(crate) fn parse_passive_address_from_response(response: Response) -> FtpResult<SocketAddr> {
         let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
+        trace!("PASV response: {response_str}",);
         let caps = PASV_PORT_RE
             .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
@@ -988,20 +1012,8 @@ where
         let ip = Ipv4Addr::new(oct1, oct2, oct3, oct4);
         let port = (u16::from(msb) << 8) | u16::from(lsb);
         let addr = SocketAddr::new(ip.into(), port);
-        trace!("Passive address: {}", addr);
-        if self.nat_workaround {
-            let mut remote = self
-                .reader
-                .get_ref()
-                .get_ref()
-                .peer_addr()
-                .map_err(FtpError::ConnectionError)?;
-            remote.set_port(port);
-            trace!("Replacing site local address {} with {}", addr, remote);
-            Ok(remote)
-        } else {
-            Ok(addr)
-        }
+
+        Ok(addr)
     }
 
     /// Execute a command which returns list of strings in a separate stream
@@ -1022,6 +1034,7 @@ where
 #[cfg(test)]
 mod test {
 
+    use std::net::IpAddr;
     use std::sync::Arc;
 
     #[cfg(feature = "secure")]
@@ -1039,6 +1052,41 @@ mod test {
     fn connect() {
         crate::log_init();
         with_test_ftp_stream(|_stream| {});
+    }
+
+    #[test]
+    fn test_should_parse_passive_address_from_response() {
+        let response = vec![
+            50, 50, 55, 32, 69, 110, 116, 101, 114, 105, 110, 103, 32, 80, 97, 115, 115, 105, 118,
+            101, 32, 77, 111, 100, 101, 32, 40, 49, 50, 55, 44, 48, 44, 48, 44, 49, 44, 49, 49, 55,
+            44, 53, 54, 41, 13, 10,
+        ];
+        let response = Response::new(Status::PassiveMode, response);
+
+        let address = FtpStream::parse_passive_address_from_response(response)
+            .expect("Failed to parse passive address");
+        assert_eq!(
+            address.ip(),
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            "IP address is not correct"
+        );
+        assert_eq!(address.port(), 30008, "Port is not correct");
+
+        let response = vec![
+            50, 50, 55, 32, 69, 110, 116, 101, 114, 105, 110, 103, 32, 80, 97, 115, 115, 105, 118,
+            101, 32, 77, 111, 100, 101, 32, 40, 53, 56, 44, 50, 52, 55, 44, 57, 50, 44, 49, 50, 50,
+            44, 49, 52, 54, 44, 50, 51, 57, 41, 46, 13, 10,
+        ];
+        let response = Response::new(Status::PassiveMode, response);
+
+        let address = FtpStream::parse_passive_address_from_response(response)
+            .expect("Failed to parse passive address");
+        assert_eq!(
+            address.ip(),
+            IpAddr::V4(Ipv4Addr::new(58, 247, 92, 122)),
+            "IP address is not correct"
+        );
+        assert_eq!(address.port(), 37615, "Port is not correct");
     }
 
     #[test]
@@ -1163,7 +1211,6 @@ mod test {
     }
 
     #[test]
-
     fn should_transfer_file() {
         with_test_ftp_stream(|stream| {
             // Set transfer type to Binary

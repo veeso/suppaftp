@@ -224,8 +224,14 @@ pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
 // -- test logging
 #[cfg(test)]
 pub fn log_init() {
-    let _ = env_logger::builder()
-        .is_test(true)
-        .filter_level(log::LevelFilter::Debug)
-        .try_init();
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    INIT.call_once(|| {
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Trace)
+            .is_test(true)
+            .try_init();
+    });
 }

@@ -146,7 +146,7 @@ impl File {
         self.size
     }
 
-    //// Returns the last time the file was modified
+    /// Returns the last time the file was modified
     pub fn modified(&self) -> SystemTime {
         self.modified
     }
