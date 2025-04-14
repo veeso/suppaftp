@@ -284,7 +284,7 @@ where
     }
 
     /// Returns a reference to the underlying TcpStream.
-    pub async fn get_ref(&self) -> &TcpStream {
+    pub fn get_ref(&self) -> &TcpStream {
         self.reader.get_ref().get_ref()
     }
 
@@ -1119,7 +1119,7 @@ mod test {
 
     async fn get_ref() {
         let (stream, _container) = setup_stream().await;
-        assert!(stream.get_ref().await.set_ttl(255).is_ok());
+        assert!(stream.get_ref().set_ttl(255).is_ok());
         finalize_stream(stream).await;
     }
 
