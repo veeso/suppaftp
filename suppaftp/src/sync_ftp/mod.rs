@@ -367,7 +367,7 @@ where
     /// Sets the type of file to be transferred. That is the implementation
     /// of `TYPE` command.
     pub fn transfer_type(&mut self, file_type: FileType) -> FtpResult<()> {
-        debug!("Setting transfer type {}", file_type.to_string());
+        debug!("Setting transfer type {}", file_type);
         self.perform(Command::Type(file_type))?;
         self.read_response(Status::CommandOk).map(|_| ())
     }

@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.1.2](#612)
   - [6.1.1](#611)
   - [6.1.0](#610)
   - [6.0.7](#607)
@@ -41,6 +42,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.1.2
+
+Released on 14/04/2025
+
+- [fix: `get_ref` for async tls stream was unnecessarily async](https://github.com/veeso/suppaftp/pull/103)
 
 ## 6.1.1
 
