@@ -217,6 +217,8 @@ fn main() {
 
 #### Ftp with TLS (rustls)
 
+You can also find and run this example in the `suppaftp/examples/` directory (`cargo run --example rustls --features rustls`).
+
 ```rust
 use std::sync::Arc;
 use suppaftp::{RustlsFtpStream, RustlsConnector};

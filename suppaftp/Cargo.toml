@@ -85,3 +85,7 @@ no-log = ["log/max_level_off"]
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[example]]
+name = "rustls"
+required-features = ["rustls"]
