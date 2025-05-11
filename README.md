@@ -218,31 +218,28 @@ fn main() {
 #### Ftp with TLS (rustls)
 
 ```rust
-use std::str;
-use std::io::Cursor;
 use std::sync::Arc;
 use suppaftp::{RustlsFtpStream, RustlsConnector};
+use suppaftp::rustls;
 use suppaftp::rustls::ClientConfig;
 
 fn main() {
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
+    let root_store = rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS
+            .iter()
+            .cloned(),
+    );
+
     let config = ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth();
+
     // Create a connection to an FTP server and authenticate to it.
-    let config = Arc::new(rustls_config());
     let mut ftp_stream = RustlsFtpStream::connect("test.rebex.net:21")
         .unwrap()
-        .into_secure(RustlsConnector::from(Arc::clone(&config)), "test.rebex.net")
+        .into_secure(RustlsConnector::from(Arc::new(config)), "test.rebex.net")
         .unwrap();
+
     // Terminate the connection to the server.
     let _ = ftp_stream.quit();
 }
