@@ -5,16 +5,13 @@
 //! rustls).
 
 use std::sync::Arc;
-use suppaftp::{RustlsFtpStream, RustlsConnector};
-use suppaftp::rustls;
+
 use suppaftp::rustls::ClientConfig;
+use suppaftp::{rustls, RustlsConnector, RustlsFtpStream};
 
 fn main() {
-    let root_store = rustls::RootCertStore::from_iter(
-        webpki_roots::TLS_SERVER_ROOTS
-            .iter()
-            .cloned(),
-    );
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
     let config = ClientConfig::builder()
         .with_root_certificates(root_store)

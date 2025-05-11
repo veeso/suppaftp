@@ -88,3 +88,4 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
 name = "rustls"
+required-features = ["rustls"]
