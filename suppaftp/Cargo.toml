@@ -11,6 +11,7 @@ repository = { workspace = true }
 documentation = "https://docs.rs/suppaftp/"
 description = "A super FTP/FTPS client library for Rust"
 include = [
+  "examples/**/*",
   "src/**/*",
   "../LICENSE-APACHE",
   "../LICENSE-MIT",
