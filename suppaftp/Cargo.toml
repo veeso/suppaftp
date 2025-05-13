@@ -50,10 +50,10 @@ futures-lite = "2"
 async-attributes = "1.1.2"
 env_logger = "^0.11"
 pretty_assertions = "^1.0.0"
-rand = "^0.8.4"
+rand = "^0.9"
 serial_test = "^3.0"
-testcontainers = { version = "0.23", features = ["blocking"] }
-webpki-roots = "0.26"
+testcontainers = { version = "0.24", features = ["blocking"] }
+webpki-roots = "1"
 
 [features]
 default = []

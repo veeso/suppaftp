@@ -1041,8 +1041,8 @@ mod test {
 
     #[cfg(feature = "secure")]
     use pretty_assertions::assert_eq;
-    use rand::distributions::Alphanumeric;
-    use rand::{thread_rng, Rng};
+    use rand::distr::Alphanumeric;
+    use rand::{rng, Rng};
     use serial_test::serial;
 
     use super::*;
@@ -1403,7 +1403,7 @@ mod test {
     }
 
     fn generate_tempdir() -> String {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let name: String = std::iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
             .map(char::from)

@@ -64,7 +64,7 @@ impl SyncPureFtpRunner {
         let resp = container
             .exec(
                 ExecCommand::new(["/bin/mkdir", "-p", "/home/test/invalid-utf8"])
-                    .with_cmd_ready_condition(CmdWaitFor::ExitCode { code: 0 }),
+                    .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
             )
             .expect("Failed to create directory");
         assert_eq!(
@@ -79,7 +79,7 @@ impl SyncPureFtpRunner {
                     "/usr/bin/touch",
                     "/home/test/invalid-utf8/caf\\303\\251.txt",
                 ])
-                .with_cmd_ready_condition(CmdWaitFor::ExitCode { code: 0 }),
+                .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
             )
             .expect("Failed to create file");
         assert_eq!(
