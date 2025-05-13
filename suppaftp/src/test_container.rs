@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use testcontainers::core::WaitFor;
+use testcontainers::core::{CmdWaitFor, ExecCommand, WaitFor};
 use testcontainers::{Container, ContainerAsync, Image};
 
 #[derive(Debug, Default, Clone)]
@@ -60,6 +60,34 @@ impl SyncPureFtpRunner {
     pub fn start() -> Self {
         use testcontainers::runners::SyncRunner;
         let container = PureFtpImage::default().start().unwrap();
+
+        let resp = container
+            .exec(
+                ExecCommand::new(["/bin/mkdir", "-p", "/home/test/invalid-utf8"])
+                    .with_cmd_ready_condition(CmdWaitFor::ExitCode { code: 0 }),
+            )
+            .expect("Failed to create directory");
+        assert_eq!(
+            resp.exit_code()
+                .expect("failed to get exit code for mkdir")
+                .expect("no exit code for mkdir"),
+            0
+        );
+        let resp = container
+            .exec(
+                ExecCommand::new([
+                    "/usr/bin/touch",
+                    "/home/test/invalid-utf8/caf\\303\\251.txt",
+                ])
+                .with_cmd_ready_condition(CmdWaitFor::ExitCode { code: 0 }),
+            )
+            .expect("Failed to create file");
+        assert_eq!(
+            resp.exit_code()
+                .expect("failed to get exit code for touch")
+                .expect("no exit code for touch"),
+            0
+        );
 
         Self { container }
     }

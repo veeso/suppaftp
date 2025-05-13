@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.2.1](#621)
   - [6.2.0](#620)
   - [6.1.1](#611)
   - [6.1.0](#610)
@@ -42,6 +43,13 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.2.1
+
+Released on 13/05/2025
+
+- [Issue 106](https://github.com/veeso/suppaftp/issues/106): Fixed `list` related commands which failed if the file name contained non UTF-8 characters.
+- MSRV updated to 1.80.1
 
 ## 6.2.0
 

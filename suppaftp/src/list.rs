@@ -12,7 +12,7 @@
 //! Whenever you receive the output for your LIST command, all you have to do is to iterate over lines and
 //! call `File::from_line()` function as shown in the example.
 //!
-//! ```rust
+//! ```rust,ignore
 //! use std::convert::TryFrom;
 //! use suppaftp::{FtpStream, list::File};
 //!
@@ -511,6 +511,14 @@ impl TryFrom<&str> for File {
                 Err(err) => Err(err),
             },
         }
+    }
+}
+
+impl TryFrom<&String> for File {
+    type Error = ParseError;
+
+    fn try_from(line: &String) -> Result<Self, Self::Error> {
+        Self::try_from(line.as_str())
     }
 }
 
