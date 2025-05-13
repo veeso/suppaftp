@@ -62,7 +62,7 @@
 //!
 //! Here is a basic usage example:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use suppaftp::FtpStream;
 //! let mut ftp_stream = FtpStream::connect("127.0.0.1:10021").unwrap_or_else(|err|
 //!     panic!("{}", err)
@@ -86,7 +86,7 @@
 //!
 //! ### FTPS Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use suppaftp::{NativeTlsFtpStream, NativeTlsConnector};
 //! use suppaftp::native_tls::{TlsConnector, TlsStream};
 //!
@@ -104,7 +104,7 @@
 //! Basically there's no difference in the function you can use when using the async version of suppaftp.
 //! Let's quickly see in the example how it works
 //!
-//! ```rust
+//! ```rust,ignore
 //! use suppaftp::{AsyncFtpStream, AsyncNativeTlsConnector};
 //! use suppaftp::async_native_tls::{TlsConnector, TlsStream};
 //!

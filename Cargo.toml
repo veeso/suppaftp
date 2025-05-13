@@ -3,9 +3,9 @@ members = ["suppaftp", "suppaftp-cli"]
 resolver = "2"
 
 [workspace.package]
-version = "6.2.0"
+version = "6.2.1"
 edition = "2021"
-rust-version = "1.71.1"
+rust-version = "1.80.1"
 authors = [
   "Christian Visintin <christian.visintin@veeso.dev>",
   "Matt McCoy <mattnenterprise@yahoo.com>",

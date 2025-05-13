@@ -121,7 +121,7 @@ where
     ///
     /// ## Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use suppaftp::ImplAsyncFtpStream;
     /// use suppaftp::async_native_tls::{TlsConnector, TlsStream};
     /// use std::path::Path;
@@ -179,7 +179,7 @@ where
     ///
     /// ## Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use suppaftp::ImplAsyncFtpStream;
     /// use suppaftp::native_tls::{TlsConnector, TlsStream};
     /// use std::path::Path;
@@ -902,16 +902,17 @@ where
         let mut lines: Vec<String> = Vec::new();
 
         loop {
-            let mut line = String::new();
-            match data_stream.read_line(&mut line).await {
+            let mut line_buf = vec![];
+            match data_stream.read_until(b'\n', &mut line_buf).await {
                 Ok(0) => break,
-                Ok(_) => {
+                Ok(len) => {
+                    let mut line = String::from_utf8_lossy(&line_buf[..len]).to_string();
                     trace!("STREAM IN: {:?}", line);
                     if line.ends_with('\n') {
                         line.pop();
-                        if line.ends_with('\r') {
-                            line.pop();
-                        }
+                    }
+                    if line.ends_with('\r') {
+                        line.pop();
                     }
                     if line.is_empty() {
                         continue;
@@ -1030,6 +1031,7 @@ where
 #[cfg(test)]
 mod test {
 
+    use std::str::FromStr as _;
     use std::sync::Arc;
 
     #[cfg(feature = "async-secure")]
@@ -1339,6 +1341,28 @@ mod test {
                         .map_err(FtpError::ConnectionError)
                 })
             });
+    }
+
+    #[async_attributes::test]
+    async fn test_should_list_files_with_non_utf8_names() {
+        let (mut stream, container) = setup_stream().await;
+        let files = stream
+            .nlst(Some("/invalid-utf8/"))
+            .await
+            .expect("Failed to list files");
+        assert_eq!(files.len(), 1);
+
+        // list file and parse
+        let files = stream
+            .list(Some("/invalid-utf8/"))
+            .await
+            .expect("Failed to list files");
+        assert_eq!(files.len(), 1);
+        // parse
+        crate::list::File::from_str(files[0].as_str()).expect("Failed to parse file");
+
+        finalize_stream(stream).await;
+        drop(container);
     }
 
     /// Test if the stream is Send

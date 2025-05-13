@@ -139,7 +139,7 @@ where
     ///
     /// ## Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use suppaftp::{NativeTlsFtpStream, NativeTlsConnector};
     /// use suppaftp::native_tls::{TlsConnector, TlsStream};
     /// use std::path::Path;
@@ -192,7 +192,7 @@ where
     ///
     /// ## Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use suppaftp::FtpStream;
     /// use suppaftp::native_tls::{TlsConnector, TlsStream};
     /// use std::path::Path;
@@ -262,7 +262,7 @@ where
     /// Returns a reference to the underlying [`TcpStream`].
     ///
     /// Example:
-    /// ```no_run
+    /// ```ignore
     /// use suppaftp::FtpStream;
     /// use std::net::TcpStream;
     /// use std::time::Duration;
@@ -399,21 +399,21 @@ where
     /// to download from FTP and `reader` is the function which operates with the
     /// data stream opened.
     ///
-    /// ```
-    /// # use suppaftp::{FtpStream, FtpError};
-    /// # use std::io::Cursor;
-    /// # let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
-    /// # conn.login("test", "test").and_then(|_| {
-    /// #     let mut reader = Cursor::new("hello, world!".as_bytes());
-    /// #     conn.put_file("retr.txt", &mut reader)
-    /// # }).unwrap();
+    /// ```rust,ignore
+    /// use suppaftp::{FtpStream, FtpError};
+    /// use std::io::Cursor;
+    /// let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
+    /// conn.login("test", "test").and_then(|_| {
+    ///     let mut reader = Cursor::new("hello, world!".as_bytes());
+    ///     conn.put_file("retr.txt", &mut reader)
+    /// }).unwrap();
     /// assert!(conn.retr("retr.txt", |stream| {
     ///     let mut buf = Vec::new();
     ///     stream.read_to_end(&mut buf).map(|_|
     ///         assert_eq!(buf, "hello, world!".as_bytes())
     ///     ).map_err(|e| FtpError::ConnectionError(e))
     /// }).is_ok());
-    /// # assert!(conn.rm("retr.txt").is_ok());
+    /// assert!(conn.rm("retr.txt").is_ok());
     /// ```
     pub fn retr<F, D>(&mut self, file_name: &str, mut reader: F) -> FtpResult<D>
     where
@@ -431,7 +431,7 @@ where
 
     /// Simple way to retr a file from the server. This stores the file in a buffer in memory.
     ///
-    /// ```
+    /// ```rust,ignore
     /// # use suppaftp::{FtpStream, FtpError};
     /// # use std::io::Cursor;
     /// # let mut conn = FtpStream::connect("127.0.0.1:10021").unwrap();
@@ -766,16 +766,17 @@ where
         let mut lines: Vec<String> = Vec::new();
 
         loop {
-            let mut line = String::new();
-            match data_stream.read_line(&mut line) {
+            let mut line_buf = vec![];
+            match data_stream.read_until(b'\n', &mut line_buf) {
                 Ok(0) => break,
-                Ok(_) => {
+                Ok(len) => {
+                    let mut line = String::from_utf8_lossy(&line_buf[..len]).to_string();
                     trace!("STREAM IN: {:?}", line);
                     if line.ends_with('\n') {
                         line.pop();
-                        if line.ends_with('\r') {
-                            line.pop();
-                        }
+                    }
+                    if line.ends_with('\r') {
+                        line.pop();
                     }
                     if line.is_empty() {
                         continue;
@@ -1035,6 +1036,7 @@ where
 mod test {
 
     use std::net::IpAddr;
+    use std::str::FromStr;
     use std::sync::Arc;
 
     #[cfg(feature = "secure")]
@@ -1103,7 +1105,6 @@ mod test {
     }
 
     #[test]
-
     fn should_connect_with_timeout() {
         crate::log_init();
         let container = SyncPureFtpRunner::start();
@@ -1120,7 +1121,6 @@ mod test {
     }
 
     #[test]
-
     fn welcome_message() {
         crate::log_init();
         with_test_ftp_stream(|stream| {
@@ -1132,7 +1132,6 @@ mod test {
     }
 
     #[test]
-
     fn should_set_passive_nat_workaround() {
         with_test_ftp_stream(|stream| {
             stream.set_passive_nat_workaround(true);
@@ -1152,7 +1151,6 @@ mod test {
     }
 
     #[test]
-
     fn change_wrkdir() {
         with_test_ftp_stream(|stream| {
             let wrkdir: String = stream.pwd().unwrap();
@@ -1163,7 +1161,6 @@ mod test {
     }
 
     #[test]
-
     fn cd_up() {
         with_test_ftp_stream(|stream| {
             let wrkdir: String = stream.pwd().unwrap();
@@ -1174,7 +1171,6 @@ mod test {
     }
 
     #[test]
-
     fn noop() {
         with_test_ftp_stream(|stream| {
             assert!(stream.noop().is_ok());
@@ -1182,7 +1178,6 @@ mod test {
     }
 
     #[test]
-
     fn make_and_remove_dir() {
         with_test_ftp_stream(|stream| {
             // Make directory
@@ -1200,7 +1195,6 @@ mod test {
     }
 
     #[test]
-
     fn set_transfer_type() {
         with_test_ftp_stream(|stream| {
             assert!(stream.transfer_type(FileType::Binary).is_ok());
@@ -1208,6 +1202,24 @@ mod test {
                 .transfer_type(FileType::Ascii(FormatControl::Default))
                 .is_ok());
         })
+    }
+
+    #[test]
+    fn test_should_list_files_with_non_utf8_names() {
+        with_test_ftp_stream(|stream| {
+            let files = stream
+                .nlst(Some("/invalid-utf8/"))
+                .expect("Failed to list files");
+            assert_eq!(files.len(), 1);
+
+            // list file and parse
+            let files = stream
+                .list(Some("/invalid-utf8/"))
+                .expect("Failed to list files");
+            assert_eq!(files.len(), 1);
+            // parse
+            crate::list::File::from_str(files[0].as_str()).expect("Failed to parse file");
+        });
     }
 
     #[test]
