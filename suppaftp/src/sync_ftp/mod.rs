@@ -700,32 +700,30 @@ where
     /// Retrieves the features supported by the server, through the FEAT command.
     pub fn feat(&mut self) -> FtpResult<Features> {
         debug!("Getting server supported features");
+        // Send FEAT command
         self.perform(Command::Feat)?;
 
-        self.read_response(Status::System)?;
+        // Read the response
+        let response = self.read_response(Status::System)?;
 
-        let mut supported_features = Features::default();
+        let first_line = String::from_utf8_lossy(&response.body);
+        let mut feat_lines = vec![first_line.to_string()];
         loop {
             let mut line = Vec::new();
-            self.read_line(&mut line)?;
+            let line_sz = self.read_line(&mut line)?;
+            if line_sz == 0 {
+                // EOF reached
+                break;
+            }
             let line = String::from_utf8_lossy(&line);
-            if line.starts_with(' ') {
-                let mut feature_line = line.trim().split(' ');
-                let feature_name = feature_line.next();
-                let feature_values = match feature_line.collect::<Vec<&str>>().join(" ") {
-                    values if values.is_empty() => None,
-                    values => Some(values),
-                };
-                if let Some(feature_name) = feature_name {
-                    debug!("found supported feature: {feature_name}: {feature_values:?}");
-                    supported_features.insert(feature_name.to_string(), feature_values);
-                }
-            } else {
+            trace!("FEAT IN: {:?}", line);
+            feat_lines.push(line.to_string());
+            if crate::command::feat::is_last_line(&line) {
                 break;
             }
         }
 
-        Ok(supported_features)
+        crate::command::feat::parse_features(&feat_lines)
     }
 
     /// Set option `option` with an optional value
@@ -835,7 +833,7 @@ where
 
         let response: Response = Response::new(code, body);
         // Return Ok or error with response
-        if expected_code.iter().any(|ec| code == *ec) {
+        if expected_code.contains(&code) {
             Ok(response)
         } else {
             Err(FtpError::UnexpectedResponse(response))
@@ -1278,7 +1276,8 @@ mod test {
     #[test]
     fn should_get_feat_and_set_opts() {
         with_test_ftp_stream(|stream| {
-            assert!(stream.feat().is_ok());
+            let features = stream.feat().expect("Failed to get features");
+            assert!(features.contains_key("UTF8"));
             assert!(stream.opts("UTF8", Some("ON")).is_ok());
         })
     }

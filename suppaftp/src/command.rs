@@ -2,6 +2,8 @@
 //!
 //! The set of FTP commands
 
+pub mod feat;
+
 use std::fmt;
 use std::net::SocketAddr;
 use std::string::ToString;
