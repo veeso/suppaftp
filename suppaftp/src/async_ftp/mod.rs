@@ -48,7 +48,7 @@ pub type PassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct ImplAsyncFtpStream<T>
 where
-    T: AsyncTlsStream,
+    T: AsyncTlsStream + Send,
 {
     reader: BufReader<DataStream<T>>,
     mode: Mode,
@@ -66,7 +66,7 @@ where
 
 impl<T> ImplAsyncFtpStream<T>
 where
-    T: AsyncTlsStream,
+    T: AsyncTlsStream + Send,
 {
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");
@@ -416,14 +416,24 @@ where
     /// The implementation of `RETR` command where `filename` is the name of the file
     /// to download from FTP and `reader` is the function which operates with the
     /// data stream opened.
+    ///
+    /// `reader` is an async pinned closure that takes the [`DataStream<T>`] and returns
+    /// both the result `U` and the [`DataStream<T>`] back in a tuple `(U, DataStream<T>)`.
+    ///
+    /// This is necessary because the stream is then finalized with `finalize_retr_stream()`
+    /// within this method.
+    ///
+    /// > Warning: Don't call [`Self::finalize_retr_stream`] manually, otherwise this will cause an error.
     pub async fn retr<S, F, U>(&mut self, file_name: S, mut reader: F) -> FtpResult<U>
     where
-        F: FnMut(&mut dyn Read) -> FtpResult<U>,
+        F: FnMut(
+            DataStream<T>,
+        ) -> Pin<Box<dyn Future<Output = FtpResult<(U, DataStream<T>)>> + Send>>,
         S: AsRef<str>,
     {
         match self.retr_as_stream(file_name).await {
-            Ok(mut stream) => {
-                let result = reader(&mut stream)?;
+            Ok(stream) => {
+                let (result, stream) = reader(stream).await?;
                 self.finalize_retr_stream(stream).await?;
                 Ok(result)
             }
@@ -1028,6 +1038,7 @@ mod test {
     use std::str::FromStr as _;
     use std::sync::Arc;
 
+    use async_std::io::ReadExt;
     #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
@@ -1168,6 +1179,31 @@ mod test {
             .await
             .is_ok());
         finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_should_use_retr() {
+        use async_std::io::Cursor;
+
+        let (mut stream, _container) = setup_stream().await;
+        // Set transfer type to Binary
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        // Write file
+        let file_data = "test data\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+        // Read file
+        let reader = stream
+            .retr("test.txt", |mut reader| {
+                Box::pin(async move {
+                    let mut buf = Vec::new();
+                    reader.read_to_end(&mut buf).await.expect("failed to read");
+                    Ok((buf, reader))
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(reader, "test data\n".as_bytes());
     }
 
     #[async_attributes::test]
