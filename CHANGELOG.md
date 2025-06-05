@@ -49,6 +49,20 @@
 
 Released on 05/06/2025
 
+- [Issue 85](https://github.com/veeso/suppaftp/issues/85): Fixed `retr` method signature on the `AsyncFtpStream` to allow passing a closure taking the stream reader.
+
+    ```rust
+    stream
+      .retr("test.txt", |mut reader| {
+            Box::pin(async move {
+                let mut buf = Vec::new();
+                reader.read_to_end(&mut buf).await.expect("failed to read stream");
+                Ok((buf, reader))
+            })
+        })
+        .await
+    ```
+
 - [Issue 108](https://github.com/veeso/suppaftp/issues/108): fixed FEAT command response parser
 
 ## 6.2.1
