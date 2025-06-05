@@ -709,30 +709,24 @@ where
         debug!("Getting server supported features");
         self.perform(Command::Feat).await?;
 
-        self.read_response(Status::System).await?;
+        let response = self.read_response(Status::System).await?;
 
-        let mut supported_features = Features::default();
+        let first_line = String::from_utf8_lossy(&response.body);
+        debug!("FEAT response: {}", first_line);
+        let mut feat_lines = vec![first_line.to_string()];
+
         loop {
             let mut line = Vec::new();
             self.read_line(&mut line).await?;
             let line = String::from_utf8_lossy(&line);
-            if line.starts_with(' ') {
-                let mut feature_line = line.trim().split(' ');
-                let feature_name = feature_line.next();
-                let feature_values = match feature_line.collect::<Vec<&str>>().join(" ") {
-                    values if values.is_empty() => None,
-                    values => Some(values),
-                };
-                if let Some(feature_name) = feature_name {
-                    debug!("found supported feature: {feature_name}: {feature_values:?}");
-                    supported_features.insert(feature_name.to_string(), feature_values);
-                }
-            } else {
+            trace!("FEAT IN: {:?}", line);
+            feat_lines.push(line.to_string());
+            if crate::command::feat::is_last_line(&line) {
                 break;
             }
         }
 
-        Ok(supported_features)
+        crate::command::feat::parse_features(&feat_lines)
     }
 
     /// Set option `option` with an optional value
@@ -982,7 +976,7 @@ where
 
         let response: Response = Response::new(code, body);
         // Return Ok or error with response
-        if expected_code.iter().any(|ec| code == *ec) {
+        if expected_code.contains(&code) {
             Ok(response)
         } else {
             Err(FtpError::UnexpectedResponse(response))
@@ -1096,7 +1090,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn should_set_passive_nat_workaround() {
         crate::log_init();
         let (mut stream, _container) = setup_stream().await;
@@ -1106,7 +1099,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn get_ref() {
         let (stream, _container) = setup_stream().await;
         assert!(stream.get_ref().set_ttl(255).is_ok());
@@ -1114,7 +1106,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn change_wrkdir() {
         let (mut stream, _container) = setup_stream().await;
         let wrkdir: String = stream.pwd().await.unwrap();
@@ -1125,7 +1116,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn cd_up() {
         let (mut stream, _container) = setup_stream().await;
         let wrkdir: String = stream.pwd().await.unwrap();
@@ -1136,7 +1126,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn noop() {
         let (mut stream, _container) = setup_stream().await;
         assert!(stream.noop().await.is_ok());
@@ -1144,7 +1133,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn make_and_remove_dir() {
         let (mut stream, _container) = setup_stream().await;
         // Make directory
@@ -1162,17 +1150,16 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn should_get_feat_and_set_opts() {
         let (mut stream, _container) = setup_stream().await;
-        assert!(stream.feat().await.is_ok());
+        let features = stream.feat().await.expect("failed to get features");
+        assert!(features.contains_key("UTF8"));
         assert!(stream.opts("UTF8", Some("ON")).await.is_ok());
 
         finalize_stream(stream).await;
     }
 
     #[async_attributes::test]
-
     async fn set_transfer_type() {
         let (mut stream, _container) = setup_stream().await;
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
@@ -1184,7 +1171,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn transfer_file() {
         use async_std::io::Cursor;
 
@@ -1310,7 +1296,6 @@ mod test {
     }
 
     #[async_attributes::test]
-
     async fn should_transfer_file_with_extended_passive_mode() {
         crate::log_init();
         use async_std::io::Cursor;

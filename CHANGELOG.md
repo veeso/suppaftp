@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [6.2.2](#622)
   - [6.2.1](#621)
   - [6.2.0](#620)
   - [6.1.1](#611)
@@ -43,6 +44,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 6.2.2
+
+Released on 05/06/2025
+
+- [Issue 108](https://github.com/veeso/suppaftp/issues/108): fixed FEAT command response parser
 
 ## 6.2.1
 
