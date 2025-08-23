@@ -33,7 +33,7 @@ thiserror = "^2"
 # async
 async-std = { version = "^1.10", optional = true }
 tokio = {version = "1.47", optional = true}
-async-native-tls-crate = { package = "async-native-tls", version = "^0.5", optional = true }
+async-native-tls-crate = { package = "async-native-tls", version = "^0.5", default-features = false, optional = true }
 async-trait = { version = "0.1.64", optional = true }
 futures-rustls = { version = "^0.26", optional = true }
 tokio-rustls = { version = "0.26", optional = true }
@@ -61,13 +61,19 @@ webpki-roots = "1"
 [features]
 default = []
 # Enable async support for suppaftp
-async = ["dep:async-std", "dep:async-trait", "dep:pin-project"]
+# For compatibility, this will enable async-std feature.
+async = ["async-std"]
+# Enable async-std support
+async-std = ["dep:async-std", "dep:async-trait", "dep:pin-project"]
 # Enable tokio support
 tokio = ["dep:tokio", "dep:async-trait", "dep:pin-project"]
 async-default-tls = ["async-native-tls"]
-async-native-tls = ["dep:async-native-tls-crate", "async-secure"]
+# For compatibility, this will enable async-native-tls-std feature.
+async-native-tls = ["async-native-tls-std", "async-secure"]
 async-rustls = ["dep:futures-rustls", "dep:rustls-pki-types", "async-secure"]
+async-native-tls-std = ["dep:async-native-tls-crate","async-native-tls-crate/runtime-async-std", "async-native-tls-crate/futures-util", "async-secure"]
 tokio-rustls = ["dep:tokio-rustls", "dep:rustls-pki-types", "async-secure"]
+async-native-tls-tokio = ["dep:async-native-tls-crate", "async-native-tls-crate/runtime-tokio", "async-secure"]
 async-secure = []
 
 # Enable deprecated FTP/FTPS methods
@@ -77,8 +83,13 @@ deprecated = []
 default-tls = ["native-tls"]
 native-tls = ["native-tls-crate", "secure"]
 native-tls-vendored = ["native-tls", "native-tls-crate/vendored"]
+# For compatibility, this will enable async-native-tls-std feature.
 async-native-tls-vendored = [
-  "async-native-tls",
+  "async-native-tls-std",
+  "async-native-tls-crate/vendored",
+]
+async-native-tls-tokio-vendored = [
+  "async-native-tls-tokio",
   "async-native-tls-crate/vendored",
 ]
 rustls = ["rustls-crate", "secure"]

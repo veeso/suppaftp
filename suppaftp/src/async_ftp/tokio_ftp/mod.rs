@@ -1,6 +1,6 @@
 //! # Async
 //!
-//! This module contains the definition for all async implementation of suppaftp
+//! This module contains the definition for tokio async implementation of suppaftp
 
 mod data_stream;
 mod tls;
@@ -23,14 +23,14 @@ pub use tls::AsyncNoTlsStream;
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
 use tls::AsyncTlsStream;
-#[cfg(feature = "async-native-tls")]
+#[cfg(feature = "async-native-tls-tokio")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 #[cfg(feature = "tokio-rustls")]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 
-use super::regex::{EPSV_PORT_RE, MDTM_RE, SIZE_RE};
-use super::types::{FileType, FtpError, FtpResult, Mode, Response};
-use super::{Status};
+use super::super::regex::{EPSV_PORT_RE, MDTM_RE, SIZE_RE};
+use super::super::types::{FileType, FtpError, FtpResult, Mode, Response};
+use super::super::{Status};
 use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
@@ -1046,7 +1046,7 @@ mod test {
     use super::*;
     use crate::test_container::SyncPureFtpRunner;
     use crate::types::FormatControl;
-    use crate::AsyncFtpStream;
+    use super::super::tokio::AsyncFtpStream;
 
     #[tokio::test]
     async fn connect() {
@@ -1427,7 +1427,7 @@ mod test {
 
     // -- test utils
 
-    async fn setup_stream() -> (crate::AsyncFtpStream, Arc<SyncPureFtpRunner>) {
+    async fn setup_stream() -> (AsyncFtpStream, Arc<SyncPureFtpRunner>) {
         crate::log_init();
         let container = Arc::new(SyncPureFtpRunner::start());
 
@@ -1465,7 +1465,7 @@ mod test {
         (ftp_stream, container)
     }
 
-    async fn finalize_stream(mut stream: crate::AsyncFtpStream) {
+    async fn finalize_stream(mut stream: AsyncFtpStream) {
         // Get working directory
         let wrkdir: String = stream.pwd().await.unwrap();
         // Remove directory

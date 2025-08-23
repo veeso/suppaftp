@@ -4,12 +4,11 @@
 
 use std::pin::Pin;
 
-use async_native_tls::{TlsConnector, TlsStream};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
+use async_native_tls_crate::{TlsConnector, TlsStream};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use async_trait::async_trait;
 use pin_project::pin_project;
-
+use tokio::net::TcpStream;
 use super::{AsyncTlsConnector, AsyncTlsStream};
 use crate::{FtpError, FtpResult};
 
@@ -55,8 +54,8 @@ impl AsyncRead for AsyncNativeTlsStream {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         self.project().stream.poll_read(cx, buf)
     }
 }
@@ -77,11 +76,11 @@ impl AsyncWrite for AsyncNativeTlsStream {
         self.project().stream.poll_flush(cx)
     }
 
-    fn poll_close(
+    fn poll_shutdown(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        self.project().stream.poll_close(cx)
+        self.project().stream.poll_shutdown(cx)
     }
 }
 
@@ -97,6 +96,16 @@ impl AsyncTlsStream for AsyncNativeTlsStream {
     }
 
     fn tcp_stream(self) -> TcpStream {
-        self.stream.get_ref().clone()
+        // Obtain a raw pointer to the underlying TcpStream
+        let ptr: *const TcpStream = self.stream.get_ref() as *const _;
+        // Prevent the original object from being deallocated
+        std::mem::forget(self.stream);
+        // Reconstruct ownership from the raw pointer
+        unsafe {
+            // Convert *const to *mut
+            let mut_ptr = ptr as *mut TcpStream;
+            // Rebuild ownership from the raw pointer
+            *Box::from_raw(mut_ptr)
+        }
     }
 }
