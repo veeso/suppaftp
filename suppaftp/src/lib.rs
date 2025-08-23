@@ -134,6 +134,8 @@ extern crate log;
 // -- private
 #[cfg(feature = "async")]
 mod async_ftp;
+#[cfg(feature = "tokio")]
+mod async_tokio;
 pub(crate) mod command;
 mod regex;
 mod status;
@@ -191,34 +193,71 @@ pub type RustlsFtpStream = ImplFtpStream<RustlsStream>;
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 use async_ftp::AsyncNoTlsStream;
+#[cfg(feature = "tokio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+use async_tokio::AsyncNoTlsStream;
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub use async_ftp::ImplAsyncFtpStream;
+#[cfg(feature = "tokio")]
+pub use async_tokio::ImplAsyncFtpStream;
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
+#[cfg(feature = "tokio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
 // -- export async secure (native-tls)
-#[cfg(feature = "async-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls")))]
+#[cfg(all(feature = "async", feature = "async-native-tls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "async", feature = "async-native-tls"))))]
 pub use async_ftp::AsyncNativeTlsConnector;
-#[cfg(feature = "async-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls")))]
+#[cfg(all(feature = "tokio", feature = "async-native-tls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "async-native-tls"))))]
+use async_tokio::AsyncNativeTlsStream;
+
+#[cfg(all(feature = "async", feature = "async-native-tls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "async", feature = "async-native-tls"))))]
+pub use async_ftp::AsyncNativeTlsConnector;
+
+#[cfg(all(feature = "tokio", feature = "async-native-tls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "async-native-tls"))))]
+pub use async_tokio::AsyncNativeTlsConnector;
+
+#[cfg(all(feature = "async", feature = "async-native-tls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "async", feature = "async-native-tls"))))]
 use async_ftp::AsyncNativeTlsStream;
+
+#[cfg(all(feature = "tokio", feature = "async-native-tls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "async-native-tls"))))]
+use async_tokio::AsyncNativeTlsStream;
+
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 pub use async_ftp::DataStream as AsyncDataStream;
+#[cfg(feature = "tokio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+pub use async_tokio::DataStream as AsyncDataStream;
 #[cfg(feature = "async-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls")))]
 pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
 // -- export async secure (rustls)
-#[cfg(feature = "async-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-rustls")))]
+#[cfg(all(feature = "async", feature = "async-rustls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "async", feature = "async-rustls"))))]
 pub use async_ftp::AsyncRustlsConnector;
-#[cfg(feature = "async-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-rustls")))]
+#[cfg(all(feature = "async", feature = "async-rustls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "async", feature = "async-rustls"))))]
 use async_ftp::AsyncRustlsStream;
-#[cfg(feature = "async-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-rustls")))]
+#[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
+pub use async_tokio::AsyncRustlsConnector;
+#[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
+use async_tokio::AsyncRustlsStream;
+#[cfg(all(feature = "async", feature = "async-rustls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "async", feature = "async-rustls"))))]
+pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
+#[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
 pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
 
 // -- test logging
