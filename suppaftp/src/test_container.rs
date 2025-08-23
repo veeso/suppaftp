@@ -43,12 +43,46 @@ impl AsyncPureFtpRunner {
     pub async fn start() -> Self {
         use testcontainers::runners::AsyncRunner;
         let container = PureFtpImage::default().start().await.unwrap();
-
+        let resp = container
+            .exec(
+                ExecCommand::new(["/bin/mkdir", "-p", "/home/test/invalid-utf8"])
+                    .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
+            )
+            .await
+            .expect("Failed to create directory");
+        assert_eq!(
+            resp.exit_code()
+                .await
+                .expect("failed to get exit code for mkdir")
+                .expect("no exit code for mkdir"),
+            0
+        );
+        let resp = container
+            .exec(
+                ExecCommand::new([
+                    "/usr/bin/touch",
+                    "/home/test/invalid-utf8/caf\\303\\251.txt",
+                ])
+                    .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
+            )
+            .await
+            .expect("Failed to create file");
+        assert_eq!(
+            resp.exit_code()
+                .await
+                .expect("failed to get exit code for touch")
+                .expect("no exit code for touch"),
+            0
+        );
         Self { container }
     }
 
     pub async fn get_ftp_port(&self) -> u16 {
         self.container.get_host_port_ipv4(21).await.unwrap()
+    }
+
+    pub async fn get_mapped_port(&self, port: u16) -> u16 {
+        self.container.get_host_port_ipv4(port).await.unwrap()
     }
 }
 
