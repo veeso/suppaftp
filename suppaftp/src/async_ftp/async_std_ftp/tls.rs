@@ -10,9 +10,9 @@ use async_trait::async_trait;
 
 use crate::FtpResult;
 
-#[cfg(feature = "async-native-tls")]
+#[cfg(feature = "async-native-tls-std")]
 mod native_tls;
-#[cfg(feature = "async-native-tls")]
+#[cfg(feature = "async-native-tls-std")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
 #[cfg(feature = "async-rustls")]

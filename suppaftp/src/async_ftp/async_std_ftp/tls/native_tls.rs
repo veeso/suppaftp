@@ -4,7 +4,7 @@
 
 use std::pin::Pin;
 
-use async_native_tls::{TlsConnector, TlsStream};
+use async_native_tls_crate::{TlsConnector, TlsStream};
 use async_std::io::{Read, Write};
 use async_std::net::TcpStream;
 use async_trait::async_trait;

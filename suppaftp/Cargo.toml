@@ -71,8 +71,10 @@ async-default-tls = ["async-native-tls"]
 # For compatibility, this will enable async-native-tls-std feature.
 async-native-tls = ["async-native-tls-std", "async-secure"]
 async-rustls = ["dep:futures-rustls", "dep:rustls-pki-types", "async-secure"]
+# Due to lack of maintanance in async-native-tls crate, this couldn't enable with async-native-tls-tokio
 async-native-tls-std = ["dep:async-native-tls-crate","async-native-tls-crate/runtime-async-std", "async-native-tls-crate/futures-util", "async-secure"]
 tokio-rustls = ["dep:tokio-rustls", "dep:rustls-pki-types", "async-secure"]
+# Due to lack of maintanance in async-native-tls crate, this couldn't enable with async-native-tls-std
 async-native-tls-tokio = ["dep:async-native-tls-crate", "async-native-tls-crate/runtime-tokio", "async-secure"]
 async-secure = []
 

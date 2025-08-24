@@ -4,9 +4,9 @@
 
 use std::pin::Pin;
 
-#[cfg(any(feature = "async", feature = "async-secure"))]
+#[cfg(any(feature = "async-std", feature = "async-secure"))]
 use async_std::io::{Read, Result, Write};
-#[cfg(any(feature = "async", feature = "async-secure"))]
+#[cfg(any(feature = "async-std", feature = "async-secure"))]
 use async_std::net::TcpStream;
 use pin_project::pin_project;
 

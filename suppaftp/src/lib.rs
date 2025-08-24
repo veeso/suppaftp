@@ -192,7 +192,7 @@ pub type RustlsFtpStream = ImplFtpStream<RustlsStream>;
 // When enable async-std and disable tokio, use async-std
 // this is for compatibility for old version
 #[cfg(all(feature = "async-std", not(feature = "tokio")))]
-pub use async_std::*;
+pub use crate::async_ftp::async_std::*;
 
 // When enable tokio and disable async-std, use tokio
 #[cfg(all(feature = "tokio", not(feature = "async-std")))]
