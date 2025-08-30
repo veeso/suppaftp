@@ -21,6 +21,7 @@ jobs:
             async-std-rustls,
             tokio-rustls,
           ]
+      fail-fast: false
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
