@@ -29,6 +29,6 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
       - name: Run tests
-        run: cargo test --package suppaftp --no-default-features --features ${{ matrix.features }} --no-fail-fast
+        run: cargo test --package suppaftp --features ${{ matrix.features }} --no-fail-fast
       - name: Clippy
-        run: cargo clippy --package suppaftp --all-features -- -Dwarnings
+        run: cargo clippy --package suppaftp --features ${{ matrix.features }} -- -Dwarnings
