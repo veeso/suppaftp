@@ -63,7 +63,7 @@ impl AsyncPureFtpRunner {
                     "/usr/bin/touch",
                     "/home/test/invalid-utf8/caf\\303\\251.txt",
                 ])
-                    .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
+                .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
             )
             .await
             .expect("Failed to create file");

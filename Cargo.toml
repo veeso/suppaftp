@@ -3,13 +3,10 @@ members = ["suppaftp", "suppaftp-cli"]
 resolver = "2"
 
 [workspace.package]
-version = "6.3.0"
-edition = "2021"
-rust-version = "1.80.1"
-authors = [
-  "Christian Visintin <christian.visintin@veeso.dev>",
-  "Matt McCoy <mattnenterprise@yahoo.com>",
-]
+version = "7.0.0"
+edition = "2024"
+rust-version = "1.85.1"
+authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
 repository = "https://github.com/veeso/suppaftp"
 license = "MIT OR Apache-2.0"
 keywords = ["ftp", "ftps", "network-protocol", "async", "ftp-client"]

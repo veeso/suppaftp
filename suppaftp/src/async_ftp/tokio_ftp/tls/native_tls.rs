@@ -5,10 +5,11 @@
 use std::pin::Pin;
 
 use async_native_tls_crate::{TlsConnector, TlsStream};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use async_trait::async_trait;
 use pin_project::pin_project;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
+
 use super::{AsyncTlsConnector, AsyncTlsStream};
 use crate::{FtpError, FtpResult};
 

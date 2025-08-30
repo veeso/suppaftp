@@ -1,0 +1,33 @@
+name: test
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          [
+            native-tls,
+            rustls,
+            async-std,
+            tokio,
+            async-native-tls-std,
+            async-native-tls-tokio,
+            async-std-rustls,
+            tokio-rustls,
+          ]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Run tests
+        run: cargo test --package suppaftp --no-default-features --features ${{ matrix.features }} --no-fail-fast
+      - name: Clippy
+        run: cargo clippy --package suppaftp --all-features -- -Dwarnings

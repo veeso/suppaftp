@@ -4,12 +4,13 @@
 
 use std::pin::Pin;
 
+use pin_project::pin_project;
 #[cfg(all(feature = "tokio"))]
-use tokio::io::{Result};
+use tokio::io::Result;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 #[cfg(all(feature = "tokio"))]
 use tokio::net::TcpStream;
-use pin_project::pin_project;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
 use super::AsyncTlsStream;
 
 /// Data Stream used for communications. It can be both of type Tcp in case of plain communication or Ssl in case of FTPS
@@ -43,8 +44,8 @@ where
     /// Returns a reference to the underlying TcpStream.
     pub fn get_ref(&self) -> &TcpStream {
         match self {
-            DataStream::Tcp(ref stream) => stream,
-            DataStream::Ssl(ref stream) => stream.get_ref(),
+            DataStream::Tcp(stream) => stream,
+            DataStream::Ssl(stream) => stream.get_ref(),
         }
     }
 }

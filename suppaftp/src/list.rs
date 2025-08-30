@@ -38,8 +38,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use chrono::prelude::{NaiveDate, NaiveDateTime, Utc};
 use chrono::Datelike;
+use chrono::prelude::{NaiveDate, NaiveDateTime, Utc};
 use lazy_regex::{Lazy, Regex};
 use thiserror::Error;
 
@@ -341,12 +341,7 @@ impl File {
                 };
                 trace!(
                     "Found file with name {}, type: {:?}, size: {}, uid: {:?}, gid: {:?}, pex: {:?}",
-                    name,
-                    file_type,
-                    size,
-                    uid,
-                    gid,
-                    posix_pex
+                    name, file_type, size, uid, gid, posix_pex
                 );
                 Ok(File {
                     name,
@@ -405,9 +400,7 @@ impl File {
                 let name: String = String::from(metadata.get(4).unwrap().as_str());
                 trace!(
                     "Found file with name {}, type: {:?}, size: {}",
-                    name,
-                    file_type,
-                    size,
+                    name, file_type, size,
                 );
                 // Return entry
                 Ok(File {
@@ -788,10 +781,10 @@ mod test {
 
     #[test]
     fn should_parse_utf8_names_in_ls_output() {
-        assert!(File::try_from(
-            "-rw-rw-r-- 1 омар  www-data  8192 Nov 5 2018 фообар.txt".to_string()
-        )
-        .is_ok());
+        assert!(
+            File::try_from("-rw-rw-r-- 1 омар  www-data  8192 Nov 5 2018 фообар.txt".to_string())
+                .is_ok()
+        );
     }
 
     #[test]

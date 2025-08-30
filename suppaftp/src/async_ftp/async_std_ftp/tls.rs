@@ -15,9 +15,9 @@ mod native_tls;
 #[cfg(feature = "async-native-tls-std")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
-#[cfg(feature = "async-rustls")]
+#[cfg(feature = "async-std-rustls")]
 mod rustls;
-#[cfg(feature = "async-rustls")]
+#[cfg(feature = "async-std-rustls")]
 pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 
 #[async_trait]

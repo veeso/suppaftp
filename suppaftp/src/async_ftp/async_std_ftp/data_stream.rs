@@ -43,8 +43,8 @@ where
     /// Returns a reference to the underlying TcpStream.
     pub fn get_ref(&self) -> &TcpStream {
         match self {
-            DataStream::Tcp(ref stream) => stream,
-            DataStream::Ssl(ref stream) => stream.get_ref(),
+            DataStream::Tcp(stream) => stream,
+            DataStream::Ssl(stream) => stream.get_ref(),
         }
     }
 }

@@ -13,12 +13,9 @@ use std::pin::Pin;
 use std::string::String;
 use std::time::Duration;
 
-
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use data_stream::DataStream;
-use tokio::io::{copy, AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 pub use tls::AsyncNoTlsStream;
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
@@ -27,15 +24,17 @@ use tls::AsyncTlsStream;
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 #[cfg(feature = "tokio-rustls")]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader, copy};
+use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 
+use super::super::Status;
 use super::super::regex::{EPSV_PORT_RE, MDTM_RE, SIZE_RE};
 use super::super::types::{FileType, FtpError, FtpResult, Mode, Response};
-use super::super::{Status};
+use crate::FtpStream;
 use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
 use crate::types::Features;
-use crate::FtpStream;
 
 /// A function that creates a new stream for the data connection in passive mode.
 ///
@@ -81,7 +80,9 @@ where
         debug!("Connecting to server {addr}");
         let stream = tokio::time::timeout(timeout, async move { TcpStream::connect(addr).await })
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::TimedOut, e.to_string())).map_err(FtpError::ConnectionError)?.map_err(FtpError::ConnectionError)?;
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::TimedOut, e.to_string()))
+            .map_err(FtpError::ConnectionError)?
+            .map_err(FtpError::ConnectionError)?;
 
         Self::connect_with_stream(stream).await
     }
@@ -144,10 +145,7 @@ where
         self.read_response(Status::AuthOk).await?;
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
-            .connect(
-                domain,
-                self.reader.into_inner().into_tcp_stream(),
-            )
+            .connect(domain, self.reader.into_inner().into_tcp_stream())
             .await
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         let mut secured_ftp_tream = ImplAsyncFtpStream {
@@ -526,7 +524,10 @@ where
     /// Finalize put when using stream
     /// This method must be called once the file has been written and
     /// `put_with_stream` has been used to write the file
-    pub async fn finalize_put_stream(&mut self, mut stream: impl AsyncWriteExt + Unpin) -> FtpResult<()> {
+    pub async fn finalize_put_stream(
+        &mut self,
+        mut stream: impl AsyncWriteExt + Unpin,
+    ) -> FtpResult<()> {
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         stream.shutdown().await.map_err(FtpError::ConnectionError)?;
@@ -793,7 +794,7 @@ where
                         return Err(FtpError::ConnectionError(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
                             e,
-                        )))
+                        )));
                     }
                 }
             }
@@ -1040,14 +1041,14 @@ mod test {
     #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
-    use rand::{rng, Rng};
+    use rand::{Rng, rng};
     use serial_test::serial;
     use tokio::io::AsyncReadExt;
-    use tokio::task::block_in_place;
+
+    use super::super::tokio::AsyncFtpStream;
     use super::*;
     use crate::test_container::AsyncPureFtpRunner;
     use crate::types::FormatControl;
-    use super::super::tokio::AsyncFtpStream;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn connect() {
@@ -1082,20 +1083,24 @@ mod test {
             .await
             .unwrap();
         assert!(stream.login("test", "test").await.is_ok());
-        assert!(stream
-            .get_welcome_msg()
-            .unwrap()
-            .contains("220 You will be disconnected after 15 minutes of inactivity."));
+        assert!(
+            stream
+                .get_welcome_msg()
+                .unwrap()
+                .contains("220 You will be disconnected after 15 minutes of inactivity.")
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn welcome_message() {
         crate::log_init();
         let (stream, _container) = setup_stream().await;
-        assert!(stream
-            .get_welcome_msg()
-            .unwrap()
-            .contains("220 You will be disconnected after 15 minutes of inactivity."));
+        assert!(
+            stream
+                .get_welcome_msg()
+                .unwrap()
+                .contains("220 You will be disconnected after 15 minutes of inactivity.")
+        );
         finalize_stream(stream).await;
     }
 
@@ -1173,10 +1178,12 @@ mod test {
     async fn set_transfer_type() {
         let (mut stream, _container) = setup_stream().await;
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        assert!(stream
-            .transfer_type(FileType::Ascii(FormatControl::Default))
-            .await
-            .is_ok());
+        assert!(
+            stream
+                .transfer_type(FileType::Ascii(FormatControl::Default))
+                .await
+                .is_ok()
+        );
         finalize_stream(stream).await;
     }
 

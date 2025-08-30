@@ -4,15 +4,16 @@
 
 use std::pin::Pin;
 
-use super::{AsyncTlsConnector, AsyncTlsStream};
-use crate::{FtpError, FtpResult};
 use async_trait::async_trait;
 use pin_project::pin_project;
 use rustls_pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
-use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector as RustlsTlsConnector;
+use tokio_rustls::client::TlsStream;
+
+use super::{AsyncTlsConnector, AsyncTlsStream};
+use crate::{FtpError, FtpResult};
 
 /// A Wrapper for the tls connector
 pub struct AsyncRustlsConnector {
@@ -37,8 +38,8 @@ impl AsyncTlsConnector for AsyncRustlsConnector {
 
     async fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream> {
         let domain = domain.to_owned();
-        let server_name = ServerName::try_from(domain)
-            .map_err(|e| FtpError::SecureError(e.to_string()))?;
+        let server_name =
+            ServerName::try_from(domain).map_err(|e| FtpError::SecureError(e.to_string()))?;
 
         self.connector
             .connect(server_name, stream)

@@ -14,7 +14,7 @@ use std::string::String;
 use std::time::Duration;
 
 use async_std::io::prelude::BufReadExt;
-use async_std::io::{copy, BufReader, Read, Write};
+use async_std::io::{BufReader, Read, Write, copy};
 use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
@@ -26,17 +26,17 @@ pub use tls::AsyncTlsConnector;
 use tls::AsyncTlsStream;
 #[cfg(feature = "async-native-tls-std")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
-#[cfg(feature = "async-rustls")]
+#[cfg(feature = "async-std-rustls")]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 
+use super::super::Status;
 use super::super::regex::{EPSV_PORT_RE, MDTM_RE, SIZE_RE};
 use super::super::types::{FileType, FtpError, FtpResult, Mode, Response};
-use super::super::Status;
+use crate::FtpStream;
 use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
 use crate::types::Features;
-use crate::FtpStream;
 
 /// A function that creates a new stream for the data connection in passive mode.
 ///
@@ -794,7 +794,7 @@ where
                         return Err(FtpError::ConnectionError(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
                             e,
-                        )))
+                        )));
                     }
                 }
             }
@@ -1042,8 +1042,9 @@ mod test {
     #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
-    use rand::{rng, Rng};
+    use rand::{Rng, rng};
     use serial_test::serial;
+
     use super::super::async_std::AsyncFtpStream;
     use super::*;
     use crate::test_container::SyncPureFtpRunner;
@@ -1082,20 +1083,24 @@ mod test {
             .await
             .unwrap();
         assert!(stream.login("test", "test").await.is_ok());
-        assert!(stream
-            .get_welcome_msg()
-            .unwrap()
-            .contains("220 You will be disconnected after 15 minutes of inactivity."));
+        assert!(
+            stream
+                .get_welcome_msg()
+                .unwrap()
+                .contains("220 You will be disconnected after 15 minutes of inactivity.")
+        );
     }
 
     #[async_attributes::test]
     async fn welcome_message() {
         crate::log_init();
         let (stream, _container) = setup_stream().await;
-        assert!(stream
-            .get_welcome_msg()
-            .unwrap()
-            .contains("220 You will be disconnected after 15 minutes of inactivity."));
+        assert!(
+            stream
+                .get_welcome_msg()
+                .unwrap()
+                .contains("220 You will be disconnected after 15 minutes of inactivity.")
+        );
         finalize_stream(stream).await;
     }
 
@@ -1173,10 +1178,12 @@ mod test {
     async fn set_transfer_type() {
         let (mut stream, _container) = setup_stream().await;
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        assert!(stream
-            .transfer_type(FileType::Ascii(FormatControl::Default))
-            .await
-            .is_ok());
+        assert!(
+            stream
+                .transfer_type(FileType::Ascii(FormatControl::Default))
+                .await
+                .is_ok()
+        );
         finalize_stream(stream).await;
     }
 
