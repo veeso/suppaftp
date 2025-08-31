@@ -49,7 +49,6 @@
 //! suppaftp = { version = "^7", features = ["tokio"] }
 //! ```
 //!
-//! > [!CAUTION]
 //! > ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-std-async-native-tls** feature ⚠️  
 //! > ⚠️ If you want to enable both **native-tls** and **tokio** you must use the **tokio-async-native-tls** feature ⚠️
 //! > ⚠️ If you want to enable both **rustls** and **async** you must use the **async-std-rustls** feature ⚠️  
@@ -174,9 +173,9 @@ pub extern crate async_native_tls_crate as async_native_tls;
 
 // -- export (common)
 pub use status::Status;
-// -- export sync
-pub use sync_ftp::ImplFtpStream;
 use sync_ftp::NoTlsStream;
+// -- export sync
+pub use sync_ftp::{ImplFtpStream, PassiveStreamBuilder};
 pub use types::{FtpError, FtpResult, Mode};
 pub type FtpStream = ImplFtpStream<NoTlsStream>;
 pub use sync_ftp::DataStream;

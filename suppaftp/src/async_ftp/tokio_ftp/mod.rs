@@ -39,7 +39,7 @@ use crate::types::Features;
 /// A function that creates a new stream for the data connection in passive mode.
 ///
 /// It takes a [`SocketAddr`] and returns a [`TcpStream`].
-pub type PassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send + Sync>>
+pub type TokioPassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send + Sync>>
     + Send
     + Sync;
 
@@ -53,7 +53,7 @@ where
     nat_workaround: bool,
     welcome_msg: Option<String>,
     active_timeout: Duration,
-    passive_stream_builder: Box<PassiveStreamBuilder>,
+    passive_stream_builder: Box<TokioPassiveStreamBuilder>,
     #[cfg(not(feature = "async-secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "async-secure")]
@@ -250,7 +250,7 @@ where
         self
     }
 
-    /// Set a custom [`StreamBuilder`] for passive mode.
+    /// Set a custom [`TokioPassiveStreamBuilder`] for passive mode.
     ///
     /// The stream builder is a function that takes a `SocketAddr` and returns a `TcpStream` and it's used
     /// to create the [`TcpStream`] for the data connection in passive mode.
@@ -1061,7 +1061,7 @@ where
         lines
     }
 
-    fn default_passive_stream_builder() -> Box<PassiveStreamBuilder> {
+    fn default_passive_stream_builder() -> Box<TokioPassiveStreamBuilder> {
         Box::new(|address| {
             Box::pin(async move {
                 TcpStream::connect(address)

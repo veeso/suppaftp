@@ -12,6 +12,7 @@ pub mod async_std {
     #[cfg(feature = "async-std")]
     #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
     use crate::async_ftp::async_std_ftp::AsyncNoTlsStream;
+    pub use crate::async_ftp::async_std_ftp::AsyncStdPassiveStreamBuilder;
     #[cfg(feature = "async-std")]
     #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
     pub use crate::async_ftp::async_std_ftp::ImplAsyncFtpStream;
@@ -42,7 +43,10 @@ pub mod async_std {
     pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
     // -- export async secure (rustls)async-std-rustls
     #[cfg(all(feature = "async-std", feature = "async-std-rustls"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "async-std-rustls" feature = "async-std-rustls"))))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(feature = "async-std-rustls", feature = "async-std-rustls")))
+    )]
     pub use crate::async_ftp::async_std_ftp::AsyncRustlsConnector;
     #[cfg(all(feature = "async-std", feature = "async-std-rustls"))]
     #[cfg_attr(
@@ -77,7 +81,7 @@ pub mod tokio {
         doc(cfg(all(feature = "tokio", feature = "tokio-async-native-tls")))
     )]
     use super::tokio_ftp::AsyncNativeTlsStream;
-    pub use super::tokio_ftp::DataStream as AsyncDataStream;
+    pub use super::tokio_ftp::{DataStream as AsyncDataStream, TokioPassiveStreamBuilder};
 
     #[cfg(feature = "tokio-async-native-tls")]
     #[cfg_attr(docsrs, doc(cfg(feature = "tokio-async-native-tls")))]

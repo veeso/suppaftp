@@ -111,7 +111,7 @@ where
         self
     }
 
-    /// Set a custom [`StreamBuilder`] for passive mode.
+    /// Set a custom [`PassiveStreamBuilder`] for passive mode.
     ///
     /// The stream builder is a function that takes a `SocketAddr` and returns a `TcpStream` and it's used
     /// to create the [`TcpStream`] for the data connection in passive mode.

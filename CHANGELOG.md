@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [7.0.3](#703)
   - [7.0.1](#701)
   - [7.0.0](#700)
   - [6.3.0](#630)
@@ -46,6 +47,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 7.0.3
+
+Released on 31/08/2025
+
+- Just docs.rs whining like a baby he can't fix a single missing comma.
 
 ## 7.0.1
 
