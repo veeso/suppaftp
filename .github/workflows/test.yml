@@ -6,9 +6,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  coverage:
+    name: Test (${{ matrix.features }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         features:
           [
@@ -21,14 +23,46 @@ jobs:
             async-std-rustls,
             tokio-rustls,
           ]
-      fail-fast: false
     steps:
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Setup rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: rustfmt, clippy
-      - name: Run tests
-        run: cargo test --package suppaftp --features ${{ matrix.features }} --no-fail-fast
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
       - name: Clippy
         run: cargo clippy --package suppaftp --features ${{ matrix.features }} -- -Dwarnings
+
+      - name: Run tests with coverage
+        run: cargo llvm-cov --no-fail-fast --no-default-features --features ${{ matrix.features }} --workspace --lcov --output-path lcov-${{ matrix.features }}.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.features }}
+          path: lcov-${{ matrix.features }}.info
+
+  coverage-upload:
+    name: Upload coverage to Coveralls
+    runs-on: ubuntu-latest
+    needs: coverage
+    steps:
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage
+
+      - name: Show files (debug)
+        run: ls -R coverage
+
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@v2.3.6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel: false
