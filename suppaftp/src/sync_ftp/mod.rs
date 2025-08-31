@@ -757,10 +757,49 @@ where
         self.read_response_in(expected_code)
     }
 
-    // -- private
+    /// Perform a custom command using the data connection.
+    /// It returns both the [`Response`] and the [`DataStream`].
+    ///
+    /// The [`DataStream`] implements both [`Write`] and [`Read`] and so it can be written or read to interact with the
+    /// data channel.
+    ///
+    /// If you want you can easily parse lines from the [`DataStream`] using [`Self::get_lines_from_stream`].
+    ///
+    /// The stream must eventually be closed using [`Self::close_data_connection`].
+    pub fn custom_data_command(
+        &mut self,
+        command: impl ToString,
+        expected_code: &[Status],
+    ) -> FtpResult<(Response, DataStream<T>)> {
+        let command = command.to_string();
+        debug!("Sending custom data command: {}", command);
+        let data_stream = self.data_command(Command::Custom(command))?;
+        let response = self.read_response_in(expected_code)?;
+        Ok((response, data_stream))
+    }
 
-    /// Retrieve stream "message"
-    fn get_lines_from_stream(data_stream: &mut BufReader<DataStream<T>>) -> FtpResult<Vec<String>> {
+    /// Close data connection.
+    ///
+    /// Call this function when you're done with the stream obtained with [`Self::custom_data_command`].
+    ///
+    /// # Warning
+    ///
+    /// Passing any other [`Read`] which is not the [`DataStream`]
+    /// obtained with [`Self::custom_data_command`] may lead to undefined behavior.
+    pub fn close_data_connection(&mut self, stream: impl Read) -> FtpResult<()> {
+        debug!("closing data connection");
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(stream);
+        trace!("dropped stream");
+        // Then read response
+        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
+            .map(|_| ())
+    }
+
+    /// Read a [`DataStream`] line by line.
+    pub fn get_lines_from_stream(
+        data_stream: &mut BufReader<DataStream<T>>,
+    ) -> FtpResult<Vec<String>> {
         let mut lines: Vec<String> = Vec::new();
 
         loop {
@@ -1350,6 +1389,33 @@ mod test {
             // Remove file
             assert!(stream.rm("test.txt").is_ok());
         })
+    }
+
+    #[test]
+    fn test_should_perform_custom_command() {
+        with_test_ftp_stream(|stream| {
+            let command = "PWD";
+            assert!(
+                stream
+                    .custom_command(command, &[Status::PathCreated])
+                    .is_ok()
+            );
+        });
+    }
+
+    #[test]
+    fn test_should_perform_custom_data_command() {
+        with_test_ftp_stream(|stream| {
+            let command = "LIST";
+            let (response, data_stream) = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .expect("Failed to perform custom data command");
+            assert_eq!(response.status, Status::AboutToSend);
+            let mut reader = BufReader::new(data_stream);
+            FtpStream::get_lines_from_stream(&mut reader).expect("Failed to get lines from stream");
+            // finalize
+            assert!(stream.close_data_connection(reader).is_ok());
+        });
     }
 
     // -- test utils

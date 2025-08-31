@@ -775,6 +775,80 @@ where
         self.read_response_in(expected_code).await
     }
 
+    /// Perform a custom command using the data connection.
+    /// It returns both the [`Response`] and the [`DataStream`].
+    ///
+    /// The [`DataStream`] implements both [`Write`] and [`Read`] and so it can be written or read to interact with the
+    /// data channel.
+    ///
+    /// If you want you can easily parse lines from the [`DataStream`] using [`Self::get_lines_from_stream`].
+    ///
+    /// The stream must eventually be closed using [`Self::close_data_connection`].
+    pub async fn custom_data_command(
+        &mut self,
+        command: impl ToString,
+        expected_code: &[Status],
+    ) -> FtpResult<(Response, DataStream<T>)> {
+        let command = command.to_string();
+        debug!("Sending custom data command: {}", command);
+        let data_stream = self.data_command(Command::Custom(command)).await?;
+        let response = self.read_response_in(expected_code).await?;
+        Ok((response, data_stream))
+    }
+
+    /// Close data connection.
+    ///
+    /// Call this function when you're done with the stream obtained with [`Self::custom_data_command`].
+    ///
+    /// # Warning
+    ///
+    /// Passing any other [`Read`] which is not the [`DataStream`]
+    /// obtained with [`Self::custom_data_command`] may lead to undefined behavior.
+    pub async fn close_data_connection(&mut self, stream: impl Read) -> FtpResult<()> {
+        debug!("closing data connection");
+        // Drop stream NOTE: must be done first, otherwise server won't return any response
+        drop(stream);
+        trace!("dropped stream");
+        // Then read response
+        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
+            .await
+            .map(|_| ())
+    }
+
+    /// Read a [`DataStream`] line by line.
+    pub async fn get_lines_from_stream(
+        data_stream: &mut BufReader<DataStream<T>>,
+    ) -> FtpResult<Vec<String>> {
+        let mut lines: Vec<String> = Vec::new();
+
+        loop {
+            let mut line_buf = vec![];
+            match data_stream.read_until(b'\n', &mut line_buf).await {
+                Ok(0) => break,
+                Ok(len) => {
+                    let mut line = String::from_utf8_lossy(&line_buf[..len]).to_string();
+                    trace!("STREAM IN: {:?}", line);
+                    if line.ends_with('\n') {
+                        line.pop();
+                    }
+                    if line.ends_with('\r') {
+                        line.pop();
+                    }
+                    if line.is_empty() {
+                        continue;
+                    }
+                    lines.push(line);
+                }
+                Err(err) => {
+                    error!("failed to get lines from stream: {err}");
+                    return Err(FtpError::BadResponse);
+                }
+            }
+        }
+        trace!("Lines from stream {:?}", lines);
+        Ok(lines)
+    }
+
     // -- private
 
     /// Execute command which send data back in a separate stream
@@ -897,40 +971,6 @@ where
         self.read_response(Status::CommandOk).await?;
 
         Ok(conn)
-    }
-
-    /// Retrieve stream "message"
-    async fn get_lines_from_stream(
-        data_stream: &mut BufReader<DataStream<T>>,
-    ) -> FtpResult<Vec<String>> {
-        let mut lines: Vec<String> = Vec::new();
-
-        loop {
-            let mut line_buf = vec![];
-            match data_stream.read_until(b'\n', &mut line_buf).await {
-                Ok(0) => break,
-                Ok(len) => {
-                    let mut line = String::from_utf8_lossy(&line_buf[..len]).to_string();
-                    trace!("STREAM IN: {:?}", line);
-                    if line.ends_with('\n') {
-                        line.pop();
-                    }
-                    if line.ends_with('\r') {
-                        line.pop();
-                    }
-                    if line.is_empty() {
-                        continue;
-                    }
-                    lines.push(line);
-                }
-                Err(err) => {
-                    error!("failed to get lines from stream: {err}");
-                    return Err(FtpError::BadResponse);
-                }
-            }
-        }
-        trace!("Lines from stream {:?}", lines);
-        Ok(lines)
     }
 
     /// Write data to stream
@@ -1370,6 +1410,36 @@ mod test {
 
         finalize_stream(stream).await;
         drop(container);
+    }
+
+    #[async_attributes::test]
+    async fn test_should_perform_custom_command() {
+        let (mut stream, _container) = setup_stream().await;
+
+        let command = "PWD";
+        assert!(
+            stream
+                .custom_command(command, &[Status::PathCreated])
+                .await
+                .is_ok()
+        );
+    }
+
+    #[async_attributes::test]
+    async fn test_should_perform_custom_data_command() {
+        let (mut stream, _container) = setup_stream().await;
+        let command = "LIST";
+        let (response, data_stream) = stream
+            .custom_data_command(command, &[Status::AboutToSend])
+            .await
+            .expect("Failed to perform custom data command");
+        assert_eq!(response.status, Status::AboutToSend);
+        let mut reader = BufReader::new(data_stream);
+        AsyncFtpStream::get_lines_from_stream(&mut reader)
+            .await
+            .expect("Failed to get lines from stream");
+        // finalize
+        assert!(stream.close_data_connection(reader).await.is_ok());
     }
 
     /// Test if the stream is Send

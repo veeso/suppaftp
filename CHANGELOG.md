@@ -1,7 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
-  - [Unreleased](#unreleased)
+  - [7.0.0](#700)
   - [6.3.0](#630)
   - [6.2.1](#621)
   - [6.2.0](#620)
@@ -46,7 +46,9 @@
 
 ---
 
-## Unreleased
+## 7.0.0
+
+Released on 31/08/2025
 
 - **Breaking changes**:
   - Removed `async` feature; use either `async-std` or `tokio`.
@@ -55,11 +57,15 @@
   - Removed `async-default-tls`.
   - Removed `default-tls`
   - Renamed `async-rustls` to `async-std-rustls`.
-- Tokio support:
+- **Tokio support**:
   - Added tokio support along with async-std.
   - Use `tokio` feature to use tokio
   - Use `tokio-rustls` feature to use tokio with rustls
   - Use `tokio-async-native-tls` feature to use async-native-tls with tokio
+- **Custom Data commands**:
+  - Added `custom_data_command` to perform the execution of custom data commands.
+  - Added `close_data_connection` to close the `DataStream` once consumed after executing custom data commands.
+  - Made `get_lines_from_stream` public to easily read String lines from the `DataStream`.
 
 ## 6.3.0
 
