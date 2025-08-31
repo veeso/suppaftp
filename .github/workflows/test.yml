@@ -6,7 +6,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  coverage:
+  test:
     name: Test (${{ matrix.features }})
     runs-on: ubuntu-latest
     strategy:
@@ -42,27 +42,20 @@ jobs:
       - name: Run tests with coverage
         run: cargo llvm-cov --no-fail-fast --no-default-features --features ${{ matrix.features }} --workspace --lcov --output-path lcov-${{ matrix.features }}.info
 
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.features }}
-          path: lcov-${{ matrix.features }}.info
-
-  coverage-upload:
-    name: Upload coverage to Coveralls
-    runs-on: ubuntu-latest
-    needs: coverage
-    steps:
-      - name: Download all coverage artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: coverage
-
-      - name: Show files (debug)
-        run: ls -R coverage
-
       - name: Upload to Coveralls
         uses: coverallsapp/github-action@v2.3.6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          parallel: false
+          parallel: true
+          file: lcov-${{ matrix.features }}.info
+
+  wait-for-coverage:
+    name: Wait for coverage
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Wait for coveralls
+        uses: coverallsapp/github-action@v2.3.6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
