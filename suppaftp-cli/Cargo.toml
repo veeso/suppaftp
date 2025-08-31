@@ -22,4 +22,4 @@ argh = "^0.1"
 env_logger = "^0.11"
 log = "^0.4"
 rpassword = "^7.2"
-suppaftp = { path = "../suppaftp", version = "^6.0", features = ["native-tls"] }
+suppaftp = { path = "../suppaftp", version = "^7", features = ["native-tls"] }

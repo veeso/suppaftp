@@ -1,67 +1,78 @@
-//! # Native TLS
+//! # Rustls
 //!
-//! Native tls types for suppaftp
+//! rustls types for suppaftp
 
 use std::pin::Pin;
 
-use async_native_tls::{TlsConnector, TlsStream};
-use async_std::io::{Read, Write};
-use async_std::net::TcpStream;
 use async_trait::async_trait;
 use pin_project::pin_project;
+use rustls_pki_types::ServerName;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector as RustlsTlsConnector;
+use tokio_rustls::client::TlsStream;
 
 use super::{AsyncTlsConnector, AsyncTlsStream};
 use crate::{FtpError, FtpResult};
 
-#[derive(Debug)]
 /// A Wrapper for the tls connector
-pub struct AsyncNativeTlsConnector {
-    connector: TlsConnector,
+pub struct AsyncRustlsConnector {
+    connector: RustlsTlsConnector,
 }
 
-impl From<TlsConnector> for AsyncNativeTlsConnector {
-    fn from(connector: TlsConnector) -> Self {
+impl std::fmt::Debug for AsyncRustlsConnector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<?>")
+    }
+}
+
+impl From<RustlsTlsConnector> for AsyncRustlsConnector {
+    fn from(connector: RustlsTlsConnector) -> Self {
         Self { connector }
     }
 }
 
 #[async_trait]
-impl AsyncTlsConnector for AsyncNativeTlsConnector {
-    type Stream = AsyncNativeTlsStream;
+impl AsyncTlsConnector for AsyncRustlsConnector {
+    type Stream = AsyncRustlsStream;
 
     async fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream> {
+        let domain = domain.to_owned();
+        let server_name =
+            ServerName::try_from(domain).map_err(|e| FtpError::SecureError(e.to_string()))?;
+
         self.connector
-            .connect(domain, stream)
+            .connect(server_name, stream)
             .await
-            .map(AsyncNativeTlsStream::from)
+            .map(AsyncRustlsStream::from)
             .map_err(|e| FtpError::SecureError(e.to_string()))
     }
 }
 
 #[derive(Debug)]
-#[pin_project(project = AsyncNativeTlsStreamProj)]
-pub struct AsyncNativeTlsStream {
+#[pin_project(project = AsyncRustlsStreamProj)]
+pub struct AsyncRustlsStream {
     #[pin]
     stream: TlsStream<TcpStream>,
 }
 
-impl From<TlsStream<TcpStream>> for AsyncNativeTlsStream {
+impl From<TlsStream<TcpStream>> for AsyncRustlsStream {
     fn from(stream: TlsStream<TcpStream>) -> Self {
         Self { stream }
     }
 }
 
-impl Read for AsyncNativeTlsStream {
+impl AsyncRead for AsyncRustlsStream {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-        buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         self.project().stream.poll_read(cx, buf)
     }
 }
 
-impl Write for AsyncNativeTlsStream {
+impl AsyncWrite for AsyncRustlsStream {
     fn poll_write(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -77,19 +88,19 @@ impl Write for AsyncNativeTlsStream {
         self.project().stream.poll_flush(cx)
     }
 
-    fn poll_close(
+    fn poll_shutdown(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        self.project().stream.poll_close(cx)
+        self.project().stream.poll_shutdown(cx)
     }
 }
 
-impl AsyncTlsStream for AsyncNativeTlsStream {
+impl AsyncTlsStream for AsyncRustlsStream {
     type InnerStream = TlsStream<TcpStream>;
 
     fn get_ref(&self) -> &TcpStream {
-        self.stream.get_ref()
+        self.stream.get_ref().0
     }
 
     fn mut_ref(&mut self) -> &mut Self::InnerStream {
@@ -97,6 +108,6 @@ impl AsyncTlsStream for AsyncNativeTlsStream {
     }
 
     fn tcp_stream(self) -> TcpStream {
-        self.stream.get_ref().clone()
+        self.stream.into_inner().0
     }
 }

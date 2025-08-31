@@ -1,0 +1,2 @@
+[alias]
+lint = "clippy -p suppaftp --features native-tls,rustls,async-std,tokio,tokio-async-native-tls,async-std-rustls,tokio-rustls"

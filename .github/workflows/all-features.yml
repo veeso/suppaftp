@@ -1,4 +1,4 @@
-name: cli-bin
+name: all_features
 
 on: [push, pull_request]
 
@@ -8,9 +8,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./suppaftp-cli
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
@@ -18,6 +15,6 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
       - name: Build
-        run: cargo build --package suppaftp-cli
-      - name: Clippy
-        run: cargo clippy --package suppaftp-cli -- -Dwarnings
+        run: cargo build --package suppaftp --features native-tls,rustls,async-std,tokio,tokio-async-native-tls,async-std-rustls,tokio-rustls
+      - name: Format
+        run: cargo fmt --all -- --check

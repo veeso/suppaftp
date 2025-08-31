@@ -22,7 +22,7 @@
 //! To get started, first add **suppaftp** to your dependencies:
 //!
 //! ```toml
-//! suppaftp = "^6"
+//! suppaftp = "^7"
 //! ```
 //!
 //! ### Features
@@ -32,23 +32,29 @@
 //! If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 //!
 //! ```toml
-//! suppaftp = { version = "^6", features = ["native-tls"] }
+//! suppaftp = { version = "^7", features = ["native-tls"] }
 //! # or
-//! suppaftp = { version = "^6", features = ["rustls"] }
+//! suppaftp = { version = "^7", features = ["rustls"] }
 //! ```
 //!
 //! > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
 //!
 //! #### Async support
 //!
-//! If you want to enable **async** support, you must enable `async` feature in your cargo dependencies.
+//! If you want to enable **async** support, you must enable either `async-std` feature,
+//! to use [async-std](https://crates.io/crates/async-std)
+//! or `tokio` feature, to use [tokio](https://crates.io/crates/tokio) as backend, in your cargo dependencies.
 //!
 //! ```toml
-//! suppaftp = { version = "^6", features = ["async"] }
+//! suppaftp = { version = "^7", features = ["tokio"] }
 //! ```
 //!
-//! > ⚠️ If you want to enable both **native-tls** and **async** you must use the **async-native-tls** feature ⚠️
-//! > ⚠️ If you want to enable both **rustls** and **async** you must use the **async-rustls** feature ⚠️
+//! > [!CAUTION]
+//! > ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-std-async-native-tls** feature ⚠️  
+//! > ⚠️ If you want to enable both **native-tls** and **tokio** you must use the **tokio-async-native-tls** feature ⚠️
+//! > ⚠️ If you want to enable both **rustls** and **async** you must use the **async-std-rustls** feature ⚠️  
+//! > ❗ If you want to link libssl statically with `async-std`, enable feature `async-std-async-native-tls-vendored`
+//! > ❗ If you want to link libssl statically with `tokio`, enable feature `tokio-async-native-tls-vendored`
 //!
 //! #### Deprecated methods
 //!
@@ -125,6 +131,13 @@
     html_logo_url = "https://raw.githubusercontent.com/veeso/suppaftp/main/assets/images/cargo/suppaftp-512.png"
 )]
 
+// Give compile error if both `async-std-async-native-tls` and `tokio-async-native-tls` are enabled
+#[cfg(all(
+    feature = "async-std-async-native-tls",
+    feature = "tokio-async-native-tls"
+))]
+compile_error!("async-std-async-native-tls and tokio-async-native-tls are mutually exclusive");
+
 // -- common deps
 #[macro_use]
 extern crate lazy_regex;
@@ -132,8 +145,9 @@ extern crate lazy_regex;
 extern crate log;
 
 // -- private
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async-std", feature = "tokio", feature = "async-std"))]
 mod async_ftp;
+
 pub(crate) mod command;
 mod regex;
 mod status;
@@ -148,14 +162,14 @@ mod test_container;
 
 // -- secure deps
 #[cfg(feature = "native-tls")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
 pub extern crate native_tls_crate as native_tls;
 #[cfg(feature = "rustls")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
 pub extern crate rustls_crate as rustls;
 // -- async deps
-#[cfg(feature = "async-native-tls")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls")))]
+#[cfg(feature = "async-std-async-native-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-std-async-native-tls")))]
 pub extern crate async_native_tls_crate as async_native_tls;
 
 // -- export (common)
@@ -187,39 +201,8 @@ use sync_ftp::RustlsStream;
 #[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
 pub type RustlsFtpStream = ImplFtpStream<RustlsStream>;
 
-// -- export async
-#[cfg(feature = "async")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-use async_ftp::AsyncNoTlsStream;
-#[cfg(feature = "async")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub use async_ftp::ImplAsyncFtpStream;
-#[cfg(feature = "async")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
-// -- export async secure (native-tls)
-#[cfg(feature = "async-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls")))]
-pub use async_ftp::AsyncNativeTlsConnector;
-#[cfg(feature = "async-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls")))]
-use async_ftp::AsyncNativeTlsStream;
-#[cfg(feature = "async")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-pub use async_ftp::DataStream as AsyncDataStream;
-#[cfg(feature = "async-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls")))]
-pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
-// -- export async secure (rustls)
-#[cfg(feature = "async-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-rustls")))]
-pub use async_ftp::AsyncRustlsConnector;
-#[cfg(feature = "async-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-rustls")))]
-use async_ftp::AsyncRustlsStream;
-#[cfg(feature = "async-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-rustls")))]
-pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
+#[cfg(any(feature = "tokio", feature = "async-std"))]
+pub use crate::async_ftp::*;
 
 // -- test logging
 #[cfg(test)]

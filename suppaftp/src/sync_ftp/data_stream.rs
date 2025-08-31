@@ -39,8 +39,8 @@ where
     /// Returns a reference to the underlying TcpStream.
     pub fn get_ref(&self) -> &TcpStream {
         match self {
-            DataStream::Tcp(ref stream) => stream,
-            DataStream::Ssl(ref stream) => stream.get_ref(),
+            DataStream::Tcp(stream) => stream,
+            DataStream::Ssl(stream) => stream.get_ref(),
         }
     }
 }
@@ -53,8 +53,8 @@ where
 {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         match self {
-            DataStream::Tcp(ref mut stream) => stream.read(buf),
-            DataStream::Ssl(ref mut stream) => stream.mut_ref().read(buf),
+            DataStream::Tcp(stream) => stream.read(buf),
+            DataStream::Ssl(stream) => stream.mut_ref().read(buf),
         }
     }
 }
@@ -65,8 +65,8 @@ where
 {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         match self {
-            DataStream::Tcp(ref mut stream) => stream.write(buf),
-            DataStream::Ssl(ref mut stream) => stream.mut_ref().write(buf),
+            DataStream::Tcp(stream) => stream.write(buf),
+            DataStream::Ssl(stream) => stream.mut_ref().write(buf),
         }
     }
 
@@ -75,8 +75,8 @@ where
         T: TlsStream,
     {
         match self {
-            DataStream::Tcp(ref mut stream) => stream.flush(),
-            DataStream::Ssl(ref mut stream) => stream.mut_ref().flush(),
+            DataStream::Tcp(stream) => stream.flush(),
+            DataStream::Ssl(stream) => stream.mut_ref().flush(),
         }
     }
 }
