@@ -31,12 +31,19 @@ lazy-regex = "^3"
 log = "^0.4"
 thiserror = "^2"
 # async
+async-native-tls-crate = { package = "async-native-tls", version = "^0.5", default-features = false, optional = true }
 async-std = { version = "^1.10", optional = true }
-async-native-tls-crate = { package = "async-native-tls", version = "^0.5", optional = true }
 async-trait = { version = "0.1.64", optional = true }
 futures-rustls = { version = "^0.26", optional = true }
 pin-project = { version = "^1", optional = true }
 rustls-pki-types = { version = "1", optional = true, features = ["alloc"] }
+tokio = { version = "1", features = [
+  "io-util",
+  "net",
+  "rt",
+  "time",
+], optional = true }
+tokio-rustls = { version = "0.26", optional = true }
 # secure
 native-tls-crate = { package = "native-tls", version = "^0.2", optional = true }
 rustls-crate = { package = "rustls", version = "^0.23", default-features = false, features = [
@@ -58,30 +65,61 @@ webpki-roots = "1"
 
 [features]
 default = []
-# Enable async support for suppaftp
-async = ["dep:async-std", "dep:async-trait", "dep:pin-project"]
-async-default-tls = ["async-native-tls"]
-async-native-tls = ["dep:async-native-tls-crate", "async-secure"]
-async-rustls = ["dep:futures-rustls", "dep:rustls-pki-types", "async-secure"]
-async-secure = ["async"]
 
-# Enable deprecated FTP/FTPS methods
-deprecated = []
-
-# Enable support for FTPS which requires native-tls (openssl is required on Linux) or RustTLS
-default-tls = ["native-tls"]
+# Sync features
 native-tls = ["native-tls-crate", "secure"]
 native-tls-vendored = ["native-tls", "native-tls-crate/vendored"]
-async-native-tls-vendored = [
-  "async-native-tls",
-  "async-native-tls-crate/vendored",
-]
 rustls = ["rustls-crate", "secure"]
 secure = []
 
+# Async features
+async-secure = []
+
+# Async-std features
+async-std = ["dep:async-std", "dep:async-trait", "dep:pin-project"]
+async-std-rustls = [
+  "dep:futures-rustls",
+  "dep:rustls-pki-types",
+  "async-secure",
+  "async-std",
+]
+async-std-async-native-tls = [
+  "async-std",
+  "dep:async-native-tls-crate",
+  "async-native-tls-crate/runtime-async-std",
+  "async-native-tls-crate/futures-util",
+  "async-secure",
+]
+async-std-async-native-tls-vendored = [
+  "async-std-async-native-tls",
+  "async-native-tls-crate/vendored",
+]
+
+# Tokio
+tokio = ["dep:tokio", "dep:async-trait", "dep:pin-project"]
+tokio-rustls = [
+  "dep:tokio-rustls",
+  "dep:rustls-pki-types",
+  "async-secure",
+  "tokio",
+]
+tokio-async-native-tls = [
+  "tokio",
+  "dep:async-native-tls-crate",
+  "async-native-tls-crate/runtime-tokio",
+  "async-secure",
+]
+tokio-async-native-tls-vendored = [
+  "tokio-async-native-tls",
+  "async-native-tls-crate/vendored",
+]
+
+# Misc features
+
+# Enable deprecated FTP/FTPS methods
+deprecated = []
 # Disable logging
 no-log = ["log/max_level_off"]
-
 
 [package.metadata.docs.rs]
 all-features = true

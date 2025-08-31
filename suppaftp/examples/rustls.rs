@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use suppaftp::rustls::ClientConfig;
-use suppaftp::{rustls, RustlsConnector, RustlsFtpStream};
+use suppaftp::{RustlsConnector, RustlsFtpStream, rustls};
 
 fn main() {
     let root_store =

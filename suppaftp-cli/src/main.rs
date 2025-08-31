@@ -31,12 +31,18 @@ fn usage() {
     println!("CWD <dir>                           Change working directory");
     println!("FEAT                                Get supported features on the server");
     println!("HELP                                Print this help");
-    println!("LIST [dir]                          List files. If directory is not provided, current directory is used");
+    println!(
+        "LIST [dir]                          List files. If directory is not provided, current directory is used"
+    );
     println!("LOGIN                               Login to remote");
     println!("MDTM <file>                         Get modification time for `file`");
     println!("MKDIR <dir>                         Create directory");
-    println!("MLSD [dir]                          List files in a machine-readable format. If directory is not provided, current directory is used");
-    println!("MLST [dir]                          List files in a machine-readable format. If directory is not provided, current directory is used");
+    println!(
+        "MLSD [dir]                          List files in a machine-readable format. If directory is not provided, current directory is used"
+    );
+    println!(
+        "MLST [dir]                          List files in a machine-readable format. If directory is not provided, current directory is used"
+    );
     println!("MODE <PASSIVE|EXTPASSIVE|ACTIVE>    Set mode");
     println!("NOOP                                Ping server");
     println!("OPTS <feature-name> [feature-value] Set a feature on the server (e.g. OPTS UTF8 ON)");

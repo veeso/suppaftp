@@ -7,8 +7,8 @@ use std::pin::Pin;
 use async_std::io::{Read, Write};
 use async_std::net::TcpStream;
 use async_trait::async_trait;
-use futures_rustls::client::TlsStream;
 use futures_rustls::TlsConnector as RustlsTlsConnector;
+use futures_rustls::client::TlsStream;
 use pin_project::pin_project;
 use rustls_pki_types::{DnsName, ServerName};
 

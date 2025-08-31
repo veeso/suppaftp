@@ -6,25 +6,23 @@ use std::fmt::Debug;
 
 use async_std::io::{Read, Write};
 use async_std::net::TcpStream;
-use async_trait::async_trait;
 
-use crate::FtpResult;
-
-#[cfg(feature = "async-native-tls")]
+#[cfg(feature = "async-std-async-native-tls")]
 mod native_tls;
-#[cfg(feature = "async-native-tls")]
+#[cfg(feature = "async-std-async-native-tls")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
-#[cfg(feature = "async-rustls")]
+#[cfg(feature = "async-std-rustls")]
 mod rustls;
-#[cfg(feature = "async-rustls")]
+#[cfg(feature = "async-std-rustls")]
 pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 
-#[async_trait]
+#[cfg(feature = "async-secure")]
+#[async_trait::async_trait]
 pub trait AsyncTlsConnector: Debug {
     type Stream: AsyncTlsStream;
 
-    async fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream>;
+    async fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 
 pub trait AsyncTlsStream: Debug + Read + Write + Unpin {

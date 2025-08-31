@@ -1,5 +1,5 @@
-use crate::types::Features;
 use crate::FtpError;
+use crate::types::Features;
 
 /// Parses a FEAT response line from the FTP server.
 ///
