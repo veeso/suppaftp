@@ -122,7 +122,15 @@ deprecated = []
 no-log = ["log/max_level_off"]
 
 [package.metadata.docs.rs]
-features = ["tokio-rustls", "rustls"]
+features = [
+  "native-tls",
+  "rustls",
+  "async-std",
+  "tokio",
+  "tokio-async-native-tls",
+  "async-std-rustls",
+  "tokio-rustls",
+]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]

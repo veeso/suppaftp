@@ -3,7 +3,7 @@ members = ["suppaftp", "suppaftp-cli"]
 resolver = "2"
 
 [workspace.package]
-version = "7.0.1"
+version = "7.0.2"
 edition = "2024"
 rust-version = "1.85.1"
 authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
