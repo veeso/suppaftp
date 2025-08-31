@@ -122,7 +122,7 @@ deprecated = []
 no-log = ["log/max_level_off"]
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["tokio-rustls", "rustls"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
