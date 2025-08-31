@@ -5,10 +5,10 @@
 use std::pin::Pin;
 
 use pin_project::pin_project;
-#[cfg(all(feature = "tokio"))]
+#[cfg(feature = "tokio")]
 use tokio::io::Result;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-#[cfg(all(feature = "tokio"))]
+#[cfg(feature = "tokio")]
 use tokio::net::TcpStream;
 
 use super::AsyncTlsStream;

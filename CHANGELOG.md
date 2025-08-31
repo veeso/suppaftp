@@ -50,8 +50,8 @@
 
 - **Breaking changes**:
   - Removed `async` feature; use either `async-std` or `tokio`.
-  - Removed `async-native-tls`; use either `async-native-tls-std` (for `async-std`) or `async-native-tls-tokio` (for `tokio`) instead.
-  - Renamed `async-native-tls-vendored` to `async-native-tls-std-vendored`.
+  - Removed `async-native-tls`; use either `async-std-async-native-tls` (for `async-std`) or `tokio-async-native-tls` (for `tokio`) instead.
+  - Renamed `async-native-tls-vendored` to `async-std-async-native-tls-vendored`.
   - Removed `async-default-tls`.
   - Removed `default-tls`
   - Renamed `async-rustls` to `async-std-rustls`.
@@ -59,7 +59,7 @@
   - Added tokio support along with async-std.
   - Use `tokio` feature to use tokio
   - Use `tokio-rustls` feature to use tokio with rustls
-  - Use `async-native-tls-tokio` feature to use async-native-tls with tokio
+  - Use `tokio-async-native-tls` feature to use async-native-tls with tokio
 
 ## 6.3.0
 

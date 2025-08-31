@@ -10,17 +10,17 @@ use std::net::TcpStream;
 mod native_tls;
 #[cfg(feature = "native-tls")]
 pub use self::native_tls::{NativeTlsConnector, NativeTlsStream};
-use crate::FtpResult;
 
 #[cfg(feature = "rustls")]
 mod rustls;
 #[cfg(feature = "rustls")]
 pub use self::rustls::{RustlsConnector, RustlsStream};
 
+#[cfg(feature = "secure")]
 pub trait TlsConnector: Debug {
     type Stream: TlsStream;
 
-    fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream>;
+    fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 
 pub trait TlsStream: Debug {

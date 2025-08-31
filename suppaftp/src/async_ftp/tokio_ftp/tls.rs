@@ -7,9 +7,9 @@ use std::fmt::Debug;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 
-#[cfg(feature = "async-native-tls-tokio")]
+#[cfg(feature = "tokio-async-native-tls")]
 mod native_tls;
-#[cfg(feature = "async-native-tls-tokio")]
+#[cfg(feature = "tokio-async-native-tls")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
 #[cfg(feature = "tokio-rustls")]

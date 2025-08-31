@@ -65,60 +65,61 @@ webpki-roots = "1"
 
 [features]
 default = []
-# Enable async-std support
+
+# Sync features
+native-tls = ["native-tls-crate", "secure"]
+native-tls-vendored = ["native-tls", "native-tls-crate/vendored"]
+rustls = ["rustls-crate", "secure"]
+secure = []
+
+# Async features
+async-secure = []
+
+# Async-std features
 async-std = ["dep:async-std", "dep:async-trait", "dep:pin-project"]
-# Enable tokio support
-tokio = ["dep:tokio", "dep:async-trait", "dep:pin-project"]
-# Enable Rustls for async
 async-std-rustls = [
   "dep:futures-rustls",
   "dep:rustls-pki-types",
   "async-secure",
+  "async-std",
 ]
-# Enable Rustls for tokio
-tokio-rustls = [
-  "dep:tokio-rustls",
-  "dep:rustls-pki-types",
-  "async-secure",
-  "tokio",
-]
-# Enable Native TLS for async-std
-async-native-tls-std = [
+async-std-async-native-tls = [
   "async-std",
   "dep:async-native-tls-crate",
   "async-native-tls-crate/runtime-async-std",
   "async-native-tls-crate/futures-util",
   "async-secure",
 ]
-async-native-tls-std-vendored = [
-  "async-native-tls-std",
+async-std-async-native-tls-vendored = [
+  "async-std-async-native-tls",
   "async-native-tls-crate/vendored",
 ]
-# Enable Native TLS for tokio
-async-native-tls-tokio = [
+
+# Tokio
+tokio = ["dep:tokio", "dep:async-trait", "dep:pin-project"]
+tokio-rustls = [
+  "dep:tokio-rustls",
+  "dep:rustls-pki-types",
+  "async-secure",
+  "tokio",
+]
+tokio-async-native-tls = [
   "tokio",
   "dep:async-native-tls-crate",
   "async-native-tls-crate/runtime-tokio",
   "async-secure",
 ]
-async-native-tls-tokio-vendored = [
-  "async-native-tls-tokio",
+tokio-async-native-tls-vendored = [
+  "tokio-async-native-tls",
   "async-native-tls-crate/vendored",
 ]
-async-secure = []
+
+# Misc features
 
 # Enable deprecated FTP/FTPS methods
 deprecated = []
-
-# Enable support for FTPS which requires native-tls (openssl is required on Linux) or RustTLS
-native-tls = ["native-tls-crate", "secure"]
-native-tls-vendored = ["native-tls", "native-tls-crate/vendored"]
-rustls = ["rustls-crate", "secure"]
-secure = []
-
 # Disable logging
 no-log = ["log/max_level_off"]
-
 
 [package.metadata.docs.rs]
 all-features = true

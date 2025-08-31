@@ -50,11 +50,11 @@
 //! ```
 //!
 //! > [!CAUTION]
-//! > ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-native-tls-std** feature ⚠️  
-//! > ⚠️ If you want to enable both **native-tls** and **tokio** you must use the **async-native-tls-tokio** feature ⚠️
+//! > ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-std-async-native-tls** feature ⚠️  
+//! > ⚠️ If you want to enable both **native-tls** and **tokio** you must use the **tokio-async-native-tls** feature ⚠️
 //! > ⚠️ If you want to enable both **rustls** and **async** you must use the **async-std-rustls** feature ⚠️  
-//! > ❗ If you want to link libssl statically with `async-std`, enable feature `async-native-tls-std-vendored`
-//! > ❗ If you want to link libssl statically with `tokio`, enable feature `async-native-tls-tokio-vendored`
+//! > ❗ If you want to link libssl statically with `async-std`, enable feature `async-std-async-native-tls-vendored`
+//! > ❗ If you want to link libssl statically with `tokio`, enable feature `tokio-async-native-tls-vendored`
 //!
 //! #### Deprecated methods
 //!
@@ -131,9 +131,12 @@
     html_logo_url = "https://raw.githubusercontent.com/veeso/suppaftp/main/assets/images/cargo/suppaftp-512.png"
 )]
 
-// Give compile error if both `async-native-tls-std` and `async-native-tls-tokio` are enabled
-#[cfg(all(feature = "async-native-tls-std", feature = "async-native-tls-tokio"))]
-compile_error!("async-native-tls-std and async-native-tls-tokio are mutually exclusive");
+// Give compile error if both `async-std-async-native-tls` and `tokio-async-native-tls` are enabled
+#[cfg(all(
+    feature = "async-std-async-native-tls",
+    feature = "tokio-async-native-tls"
+))]
+compile_error!("async-std-async-native-tls and tokio-async-native-tls are mutually exclusive");
 
 // -- common deps
 #[macro_use]
@@ -165,8 +168,8 @@ pub extern crate native_tls_crate as native_tls;
 #[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
 pub extern crate rustls_crate as rustls;
 // -- async deps
-#[cfg(feature = "async-native-tls-std")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-native-tls-std")))]
+#[cfg(feature = "async-std-async-native-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-std-async-native-tls")))]
 pub extern crate async_native_tls_crate as async_native_tls;
 
 // -- export (common)

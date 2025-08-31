@@ -16,8 +16,8 @@ jobs:
             rustls,
             async-std,
             tokio,
-            async-native-tls-std,
-            async-native-tls-tokio,
+            async-std-async-native-tls,
+            tokio-async-native-tls,
             async-std-rustls,
             tokio-rustls,
           ]

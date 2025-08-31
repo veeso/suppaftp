@@ -7,9 +7,9 @@ use std::fmt::Debug;
 use async_std::io::{Read, Write};
 use async_std::net::TcpStream;
 
-#[cfg(feature = "async-native-tls-std")]
+#[cfg(feature = "async-std-async-native-tls")]
 mod native_tls;
-#[cfg(feature = "async-native-tls-std")]
+#[cfg(feature = "async-std-async-native-tls")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
 #[cfg(feature = "async-std-rustls")]

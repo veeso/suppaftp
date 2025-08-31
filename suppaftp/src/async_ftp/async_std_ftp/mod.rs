@@ -24,7 +24,7 @@ pub use tls::AsyncNoTlsStream;
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
 use tls::AsyncTlsStream;
-#[cfg(feature = "async-native-tls-std")]
+#[cfg(feature = "async-std-async-native-tls")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 #[cfg(feature = "async-std-rustls")]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
