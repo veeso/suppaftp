@@ -42,7 +42,10 @@ pub struct AsyncPureFtpRunner {
 impl AsyncPureFtpRunner {
     pub async fn start() -> Self {
         use testcontainers::runners::AsyncRunner;
-        let container = PureFtpImage::default().start().await.unwrap();
+        let container = PureFtpImage::default()
+            .start()
+            .await
+            .expect("Failed to start container");
         let resp = container
             .exec(
                 ExecCommand::new(["/bin/mkdir", "-p", "/home/test/invalid-utf8"])
@@ -93,7 +96,9 @@ pub struct SyncPureFtpRunner {
 impl SyncPureFtpRunner {
     pub fn start() -> Self {
         use testcontainers::runners::SyncRunner;
-        let container = PureFtpImage::default().start().unwrap();
+        let container = PureFtpImage::default()
+            .start()
+            .expect("Failed to start container");
 
         let resp = container
             .exec(

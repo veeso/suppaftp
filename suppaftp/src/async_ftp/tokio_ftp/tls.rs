@@ -4,11 +4,8 @@
 
 use std::fmt::Debug;
 
-use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
-
-use crate::FtpResult;
 
 #[cfg(feature = "async-native-tls-tokio")]
 mod native_tls;
@@ -20,11 +17,12 @@ mod rustls;
 #[cfg(feature = "tokio-rustls")]
 pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 
-#[async_trait]
+#[cfg(feature = "async-secure")]
+#[async_trait::async_trait]
 pub trait AsyncTlsConnector: Debug {
     type Stream: AsyncTlsStream;
 
-    async fn connect(&self, domain: &str, stream: TcpStream) -> FtpResult<Self::Stream>;
+    async fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 
 pub trait AsyncTlsStream: Debug + AsyncRead + AsyncWrite + Unpin {

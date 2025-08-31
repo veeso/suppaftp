@@ -1042,7 +1042,6 @@ mod test {
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
     use rand::{Rng, rng};
-    use serial_test::serial;
     use tokio::io::AsyncReadExt;
 
     use super::super::tokio::AsyncFtpStream;
@@ -1050,28 +1049,24 @@ mod test {
     use crate::test_container::AsyncPureFtpRunner;
     use crate::types::FormatControl;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn connect() {
         crate::log_init();
         let (stream, _container) = setup_stream().await;
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    #[serial]
+    #[tokio::test]
     async fn should_change_mode() {
         crate::log_init();
-        let mut ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
-            .await
-            .map(|x| x.active_mode(Duration::from_secs(30)))
-            .unwrap();
-        assert_eq!(ftp_stream.mode, Mode::Active);
-        assert_eq!(ftp_stream.active_timeout, Duration::from_secs(30));
-        ftp_stream.set_mode(Mode::Passive);
-        assert_eq!(ftp_stream.mode, Mode::Passive);
+
+        let (mut stream, _container) = setup_stream().await;
+        assert_eq!(stream.mode, Mode::Passive);
+        stream.set_mode(Mode::Active);
+        assert_eq!(stream.mode, Mode::Active);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn should_connect_with_timeout() {
         crate::log_init();
         let container = AsyncPureFtpRunner::start().await;
@@ -1091,7 +1086,7 @@ mod test {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn welcome_message() {
         crate::log_init();
         let (stream, _container) = setup_stream().await;
@@ -1104,7 +1099,7 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn should_set_passive_nat_workaround() {
         crate::log_init();
         let (mut stream, _container) = setup_stream().await;
@@ -1113,14 +1108,14 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn get_ref() {
         let (stream, _container) = setup_stream().await;
         assert!(stream.get_ref().set_ttl(255).is_ok());
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn change_wrkdir() {
         let (mut stream, _container) = setup_stream().await;
         let wrkdir: String = stream.pwd().await.unwrap();
@@ -1130,7 +1125,7 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn cd_up() {
         let (mut stream, _container) = setup_stream().await;
         let wrkdir: String = stream.pwd().await.unwrap();
@@ -1140,14 +1135,14 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn noop() {
         let (mut stream, _container) = setup_stream().await;
         assert!(stream.noop().await.is_ok());
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn make_and_remove_dir() {
         let (mut stream, _container) = setup_stream().await;
         // Make directory
@@ -1164,7 +1159,7 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn should_get_feat_and_set_opts() {
         let (mut stream, _container) = setup_stream().await;
         let features = stream.feat().await.expect("failed to get features");
@@ -1174,7 +1169,7 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn set_transfer_type() {
         let (mut stream, _container) = setup_stream().await;
         assert!(stream.transfer_type(FileType::Binary).await.is_ok());
@@ -1187,7 +1182,7 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn test_should_use_retr() {
         use std::io::Cursor;
 
@@ -1212,7 +1207,7 @@ mod test {
         assert_eq!(reader, "test data\n".as_bytes());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn transfer_file() {
         use std::io::Cursor;
 
@@ -1262,7 +1257,7 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn should_resume_transfer() {
         let handle = tokio::runtime::Handle::current();
         let (mut stream, container) = setup_stream().await;
@@ -1302,7 +1297,18 @@ mod test {
             Box::pin(async move {
                 let mut addr = addr.clone();
                 let port = addr.port();
-                let mapped = handle.block_on(container_t.get_mapped_port(port));
+
+                let mapped = tokio::task::spawn_blocking(move || {
+                    handle.block_on(container_t.get_mapped_port(port))
+                })
+                .await
+                .map_err(|e| {
+                    FtpError::ConnectionError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("spawn_blocking failed: {e}"),
+                    ))
+                })
+                .expect("failed to join");
 
                 addr.set_port(mapped);
 
@@ -1339,8 +1345,8 @@ mod test {
         finalize_stream(stream).await;
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn should_transfer_file_with_extended_passive_mode() {
+    #[tokio::test]
+    async fn test_should_transfer_file_with_extended_passive_mode() {
         crate::log_init();
 
         let (mut stream, _container) = setup_stream().await;
@@ -1354,21 +1360,6 @@ mod test {
         // Remove file
         assert!(stream.rm("test.txt").await.is_ok());
         finalize_stream(stream).await;
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_should_set_passive_stream_builder() {
-        let _ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
-            .await
-            .unwrap()
-            .passive_stream_builder(|addr| {
-                Box::pin(async move {
-                    println!("Connecting to {}", addr);
-                    TcpStream::connect(addr)
-                        .await
-                        .map_err(FtpError::ConnectionError)
-                })
-            });
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1396,7 +1387,8 @@ mod test {
     /// Test if the stream is Send
     fn is_send<T: Send>(_send: T) {}
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
+    #[ignore = "just needs to compile"]
     async fn test_ftp_stream_should_be_send() {
         crate::log_init();
         let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
@@ -1417,7 +1409,8 @@ mod test {
     /// Test if the stream is Sync
     fn is_sync<T: Sync>(_send: T) {}
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
+    #[ignore = "just needs to compile"]
     async fn test_ftp_stream_should_be_sync() {
         crate::log_init();
         let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
@@ -1455,12 +1448,23 @@ mod test {
 
         let container_t = container.clone();
         let ftp_stream = ftp_stream.passive_stream_builder(move |addr| {
-            let container_t = Arc::clone(&container_t);
+            let container_t = container_t.clone();
             let handle = handle.clone();
             Box::pin(async move {
                 let mut addr = addr.clone();
                 let port = addr.port();
-                let mapped = handle.block_on(container_t.get_mapped_port(port));
+
+                let mapped = tokio::task::spawn_blocking(move || {
+                    handle.block_on(container_t.get_mapped_port(port))
+                })
+                .await
+                .map_err(|e| {
+                    FtpError::ConnectionError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("spawn_blocking failed: {e}"),
+                    ))
+                })
+                .expect("failed to join");
 
                 addr.set_port(mapped);
 

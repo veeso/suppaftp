@@ -1043,7 +1043,6 @@ mod test {
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
     use rand::{Rng, rng};
-    use serial_test::serial;
 
     use super::super::async_std::AsyncFtpStream;
     use super::*;
@@ -1058,17 +1057,13 @@ mod test {
     }
 
     #[async_attributes::test]
-    #[serial]
     async fn should_change_mode() {
         crate::log_init();
-        let mut ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
-            .await
-            .map(|x| x.active_mode(Duration::from_secs(30)))
-            .unwrap();
-        assert_eq!(ftp_stream.mode, Mode::Active);
-        assert_eq!(ftp_stream.active_timeout, Duration::from_secs(30));
-        ftp_stream.set_mode(Mode::Passive);
-        assert_eq!(ftp_stream.mode, Mode::Passive);
+        let (mut stream, _container) = setup_stream().await;
+
+        assert_eq!(stream.mode, Mode::Passive);
+        stream.set_mode(Mode::Active);
+        assert_eq!(stream.mode, Mode::Active);
     }
 
     #[async_attributes::test]
@@ -1338,7 +1333,7 @@ mod test {
     }
 
     #[async_attributes::test]
-    async fn should_transfer_file_with_extended_passive_mode() {
+    async fn test_should_transfer_file_with_extended_passive_mode() {
         crate::log_init();
         use async_std::io::Cursor;
 
@@ -1353,21 +1348,6 @@ mod test {
         // Remove file
         assert!(stream.rm("test.txt").await.is_ok());
         finalize_stream(stream).await;
-    }
-
-    #[async_attributes::test]
-    async fn test_should_set_passive_stream_builder() {
-        let _ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
-            .await
-            .unwrap()
-            .passive_stream_builder(|addr| {
-                Box::pin(async move {
-                    println!("Connecting to {}", addr);
-                    TcpStream::connect(addr)
-                        .await
-                        .map_err(FtpError::ConnectionError)
-                })
-            });
     }
 
     #[async_attributes::test]
@@ -1396,6 +1376,7 @@ mod test {
     fn is_send<T: Send>(_send: T) {}
 
     #[async_attributes::test]
+    #[ignore = "just needs to compile"]
     async fn test_ftp_stream_should_be_send() {
         crate::log_init();
         let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
@@ -1417,6 +1398,7 @@ mod test {
     fn is_sync<T: Sync>(_send: T) {}
 
     #[async_attributes::test]
+    #[ignore = "just needs to compile"]
     async fn test_ftp_stream_should_be_sync() {
         crate::log_init();
         let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")

@@ -1041,7 +1041,6 @@ mod test {
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
     use rand::{Rng, rng};
-    use serial_test::serial;
 
     use super::*;
     use crate::FtpStream;
@@ -1090,16 +1089,12 @@ mod test {
     }
 
     #[test]
-    #[serial]
     fn should_change_mode() {
-        crate::log_init();
-        let mut ftp_stream = FtpStream::connect("test.rebex.net:21")
-            .map(|x| x.active_mode(Duration::from_secs(30)))
-            .unwrap();
-        assert_eq!(ftp_stream.mode, Mode::Active);
-        assert_eq!(ftp_stream.active_timeout, Duration::from_secs(30));
-        ftp_stream.set_mode(Mode::Passive);
-        assert_eq!(ftp_stream.mode, Mode::Passive);
+        with_test_ftp_stream(|stream| {
+            assert_eq!(stream.mode, Mode::Passive);
+            stream.set_mode(Mode::Active);
+            assert_eq!(stream.mode, Mode::Active);
+        })
     }
 
     #[test]
@@ -1419,25 +1414,16 @@ mod test {
         format!("temp_{}", name)
     }
 
-    #[test]
-    fn test_should_set_passive_stream_builder() {
-        crate::log_init();
-        let _ftp_stream = FtpStream::connect("test.rebex.net:21")
-            .unwrap()
-            .passive_stream_builder(|addr| {
-                println!("Connecting to {}", addr);
-                TcpStream::connect(addr).map_err(FtpError::ConnectionError)
-            });
-    }
-
     /// Test if the stream is Send
     fn is_send<T: Send>(_send: T) {}
 
     fn is_sync<T: Sync>(_sync: T) {}
 
     #[test]
+    #[ignore = "just needs to compile"]
     fn test_ftp_stream_should_be_send() {
         crate::log_init();
+
         let ftp_stream = FtpStream::connect("test.rebex.net:21")
             .unwrap()
             .passive_stream_builder(|addr| {
@@ -1449,6 +1435,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "just needs to compile"]
     fn test_ftp_stream_should_be_sync() {
         crate::log_init();
         let ftp_stream = FtpStream::connect("test.rebex.net:21")
