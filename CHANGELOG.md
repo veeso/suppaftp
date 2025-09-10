@@ -71,6 +71,9 @@ Released on 31/08/2025
   - Removed `async-default-tls`.
   - Removed `default-tls`
   - Renamed `async-rustls` to `async-std-rustls`.
+- **Higher MSRV requirements**
+  - Now requires Rust edition 2024 (before: 2021)
+  - Now requires Rust version 1.85.1 or later (before: 1.80.1)
 - **Tokio support**:
   - Added tokio support along with async-std.
   - Use `tokio` feature to use tokio
