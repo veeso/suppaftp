@@ -23,6 +23,9 @@ pub trait TlsConnector: Debug {
     fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 
+/// A trait for a TLS stream.
+///
+/// This kind of stream is returned when using a data connection in FTP.
 pub trait TlsStream: Debug {
     type InnerStream: Read + Write;
 
@@ -43,14 +46,14 @@ impl TlsStream for NoTlsStream {
     type InnerStream = TcpStream;
 
     fn tcp_stream(self) -> TcpStream {
-        panic!()
+        unimplemented!("NoTlsStream has no underlying TcpStream")
     }
 
     fn get_ref(&self) -> &TcpStream {
-        panic!()
+        unimplemented!("NoTlsStream has no underlying TcpStream")
     }
 
     fn mut_ref(&mut self) -> &mut Self::InnerStream {
-        panic!()
+        unimplemented!("NoTlsStream has no underlying TcpStream")
     }
 }

@@ -12,7 +12,7 @@ use futures_rustls::client::TlsStream;
 use pin_project::pin_project;
 use rustls_pki_types::{DnsName, ServerName};
 
-use super::{AsyncTlsConnector, AsyncTlsStream};
+use super::{AsyncStdTlsStream, AsyncTlsConnector};
 use crate::{FtpError, FtpResult};
 
 /// A Wrapper for the tls connector
@@ -97,7 +97,7 @@ impl Write for AsyncRustlsStream {
     }
 }
 
-impl AsyncTlsStream for AsyncRustlsStream {
+impl AsyncStdTlsStream for AsyncRustlsStream {
     type InnerStream = TlsStream<TcpStream>;
 
     fn get_ref(&self) -> &TcpStream {

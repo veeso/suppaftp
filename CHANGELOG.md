@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [7.0.4](#704)
   - [7.0.3](#703)
   - [7.0.1](#701)
   - [7.0.0](#700)
@@ -47,6 +48,15 @@
   - [4.0.0](#400)
 
 ---
+
+## 7.0.4
+
+Released on 22/09/2025
+
+- Exported `TlsStream` types for implementing functions that use the retrieved stream.
+  - `TlsStream` for sync ftp.
+  - `AsyncStdTlsStream` for async-std ftp.
+  - `TokioTlsStream` for tokio ftp.
 
 ## 7.0.3
 

@@ -20,12 +20,11 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use data_stream::DataStream;
 use futures_lite::AsyncWriteExt;
-pub use tls::AsyncNoTlsStream;
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
-use tls::AsyncTlsStream;
 #[cfg(feature = "async-std-async-native-tls")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
+pub use tls::{AsyncNoTlsStream, AsyncStdTlsStream};
 #[cfg(feature = "async-std-rustls")]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 
@@ -48,7 +47,7 @@ pub type AsyncStdPassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct ImplAsyncFtpStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: AsyncStdTlsStream + Send,
 {
     reader: BufReader<DataStream<T>>,
     mode: Mode,
@@ -66,7 +65,7 @@ where
 
 impl<T> ImplAsyncFtpStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: AsyncStdTlsStream + Send,
 {
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");

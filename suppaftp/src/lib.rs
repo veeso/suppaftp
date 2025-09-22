@@ -175,7 +175,7 @@ pub extern crate async_native_tls_crate as async_native_tls;
 pub use status::Status;
 use sync_ftp::NoTlsStream;
 // -- export sync
-pub use sync_ftp::{ImplFtpStream, PassiveStreamBuilder};
+pub use sync_ftp::{ImplFtpStream, PassiveStreamBuilder, TlsStream};
 pub use types::{FtpError, FtpResult, Mode};
 pub type FtpStream = ImplFtpStream<NoTlsStream>;
 pub use sync_ftp::DataStream;

@@ -11,13 +11,13 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 #[cfg(feature = "tokio")]
 use tokio::net::TcpStream;
 
-use super::AsyncTlsStream;
+use super::TokioTlsStream;
 
 /// Data Stream used for communications. It can be both of type Tcp in case of plain communication or Ssl in case of FTPS
 #[pin_project(project = DataStreamProj)]
 pub enum DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: TokioTlsStream + Send,
 {
     Tcp(#[pin] TcpStream),
     Ssl(#[pin] Box<T>),
@@ -26,7 +26,7 @@ where
 #[cfg(feature = "async-secure")]
 impl<T> DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: TokioTlsStream + Send,
 {
     /// Unwrap the stream into TcpStream. This method is only used in secure connection.
     pub fn into_tcp_stream(self) -> TcpStream {
@@ -39,7 +39,7 @@ where
 
 impl<T> DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: TokioTlsStream + Send,
 {
     /// Returns a reference to the underlying TcpStream.
     pub fn get_ref(&self) -> &TcpStream {
@@ -54,7 +54,7 @@ where
 
 impl<T> AsyncRead for DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: TokioTlsStream + Send,
 {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -70,7 +70,7 @@ where
 
 impl<T> AsyncWrite for DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: TokioTlsStream + Send,
 {
     fn poll_write(
         self: Pin<&mut Self>,

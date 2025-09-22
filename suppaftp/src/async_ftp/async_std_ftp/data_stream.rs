@@ -10,13 +10,13 @@ use async_std::io::{Read, Result, Write};
 use async_std::net::TcpStream;
 use pin_project::pin_project;
 
-use super::AsyncTlsStream;
+use super::AsyncStdTlsStream;
 
 /// Data Stream used for communications. It can be both of type Tcp in case of plain communication or Ssl in case of FTPS
 #[pin_project(project = DataStreamProj)]
 pub enum DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: AsyncStdTlsStream + Send,
 {
     Tcp(#[pin] TcpStream),
     Ssl(#[pin] Box<T>),
@@ -25,7 +25,7 @@ where
 #[cfg(feature = "async-secure")]
 impl<T> DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: AsyncStdTlsStream + Send,
 {
     /// Unwrap the stream into TcpStream. This method is only used in secure connection.
     pub fn into_tcp_stream(self) -> TcpStream {
@@ -38,7 +38,7 @@ where
 
 impl<T> DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: AsyncStdTlsStream + Send,
 {
     /// Returns a reference to the underlying TcpStream.
     pub fn get_ref(&self) -> &TcpStream {
@@ -53,7 +53,7 @@ where
 
 impl<T> Read for DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: AsyncStdTlsStream + Send,
 {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -69,7 +69,7 @@ where
 
 impl<T> Write for DataStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: AsyncStdTlsStream + Send,
 {
     fn poll_write(
         self: Pin<&mut Self>,

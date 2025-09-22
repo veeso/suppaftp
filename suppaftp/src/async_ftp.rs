@@ -15,7 +15,7 @@ pub mod async_std {
     pub use crate::async_ftp::async_std_ftp::AsyncStdPassiveStreamBuilder;
     #[cfg(feature = "async-std")]
     #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
-    pub use crate::async_ftp::async_std_ftp::ImplAsyncFtpStream;
+    pub use crate::async_ftp::async_std_ftp::{AsyncStdTlsStream, ImplAsyncFtpStream};
 
     #[cfg(feature = "async-std")]
     #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
@@ -81,7 +81,9 @@ pub mod tokio {
         doc(cfg(all(feature = "tokio", feature = "tokio-async-native-tls")))
     )]
     use super::tokio_ftp::AsyncNativeTlsStream;
-    pub use super::tokio_ftp::{DataStream as AsyncDataStream, TokioPassiveStreamBuilder};
+    pub use super::tokio_ftp::{
+        DataStream as AsyncDataStream, TokioPassiveStreamBuilder, TokioTlsStream,
+    };
 
     #[cfg(feature = "tokio-async-native-tls")]
     #[cfg_attr(docsrs, doc(cfg(feature = "tokio-async-native-tls")))]
