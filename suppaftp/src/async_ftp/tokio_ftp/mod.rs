@@ -16,12 +16,11 @@ use std::time::Duration;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use data_stream::DataStream;
-pub use tls::AsyncNoTlsStream;
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
-use tls::AsyncTlsStream;
 #[cfg(feature = "tokio-async-native-tls")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
+pub use tls::{AsyncNoTlsStream, TokioTlsStream};
 #[cfg(feature = "tokio-rustls")]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader, copy};
@@ -46,7 +45,7 @@ pub type TokioPassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Ou
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct ImplAsyncFtpStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: TokioTlsStream + Send,
 {
     reader: BufReader<DataStream<T>>,
     mode: Mode,
@@ -64,7 +63,7 @@ where
 
 impl<T> ImplAsyncFtpStream<T>
 where
-    T: AsyncTlsStream + Send,
+    T: TokioTlsStream + Send,
 {
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");

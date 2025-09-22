@@ -12,7 +12,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector as RustlsTlsConnector;
 use tokio_rustls::client::TlsStream;
 
-use super::{AsyncTlsConnector, AsyncTlsStream};
+use super::{AsyncTlsConnector, TokioTlsStream};
 use crate::{FtpError, FtpResult};
 
 /// A Wrapper for the tls connector
@@ -96,7 +96,7 @@ impl AsyncWrite for AsyncRustlsStream {
     }
 }
 
-impl AsyncTlsStream for AsyncRustlsStream {
+impl TokioTlsStream for AsyncRustlsStream {
     type InnerStream = TlsStream<TcpStream>;
 
     fn get_ref(&self) -> &TcpStream {

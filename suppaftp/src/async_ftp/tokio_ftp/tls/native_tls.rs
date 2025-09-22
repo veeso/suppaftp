@@ -10,7 +10,7 @@ use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 
-use super::{AsyncTlsConnector, AsyncTlsStream};
+use super::{AsyncTlsConnector, TokioTlsStream};
 use crate::{FtpError, FtpResult};
 
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl AsyncWrite for AsyncNativeTlsStream {
     }
 }
 
-impl AsyncTlsStream for AsyncNativeTlsStream {
+impl TokioTlsStream for AsyncNativeTlsStream {
     type InnerStream = TlsStream<TcpStream>;
 
     fn get_ref(&self) -> &TcpStream {

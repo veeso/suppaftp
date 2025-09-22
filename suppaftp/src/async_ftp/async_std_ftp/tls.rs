@@ -20,12 +20,15 @@ pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 #[cfg(feature = "async-secure")]
 #[async_trait::async_trait]
 pub trait AsyncTlsConnector: Debug {
-    type Stream: AsyncTlsStream;
+    type Stream: AsyncStdTlsStream;
 
     async fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 
-pub trait AsyncTlsStream: Debug + Read + Write + Unpin {
+/// A trait for a Async-std based TLS stream.
+///
+/// This kind of stream is returned when using a data connection in FTP.
+pub trait AsyncStdTlsStream: Debug + Read + Write + Unpin {
     type InnerStream: Read + Write;
 
     /// Get underlying tcp stream
@@ -75,7 +78,7 @@ impl Write for AsyncNoTlsStream {
     }
 }
 
-impl AsyncTlsStream for AsyncNoTlsStream {
+impl AsyncStdTlsStream for AsyncNoTlsStream {
     type InnerStream = TcpStream;
 
     fn tcp_stream(self) -> TcpStream {

@@ -14,12 +14,11 @@ use std::time::{Duration, Instant};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use data_stream::DataStream;
-pub use tls::NoTlsStream;
 #[cfg(feature = "secure")]
 pub use tls::TlsConnector;
-use tls::TlsStream;
 #[cfg(feature = "native-tls")]
 pub use tls::{NativeTlsConnector, NativeTlsStream};
+pub use tls::{NoTlsStream, TlsStream};
 #[cfg(feature = "rustls")]
 pub use tls::{RustlsConnector, RustlsStream};
 
