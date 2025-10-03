@@ -26,7 +26,7 @@ name = "suppaftp"
 path = "src/lib.rs"
 
 [dependencies]
-chrono = { version = "^0.4", default-features = false, features = ["clock"] }
+chrono = { version = "0.4.25", default-features = false, features = ["clock"] }
 lazy-regex = "^3"
 log = "^0.4"
 thiserror = "^2"

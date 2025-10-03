@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [7.0.5](#705)
   - [7.0.4](#704)
   - [7.0.3](#703)
   - [7.0.1](#701)
@@ -48,6 +49,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 7.0.5
+
+Released on 03/10/2025
+
+- Update `chrono` version to `0.4.25` to guarantee compatibility with `and_utc` method.
 
 ## 7.0.4
 
