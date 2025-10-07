@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [7.0.6](#706)
   - [7.0.5](#705)
   - [7.0.4](#704)
   - [7.0.3](#703)
@@ -49,6 +50,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 7.0.6
+
+Released on 07/10/2025
+
+- [Issue 125](https://github.com/veeso/suppaftp/pull/125): Allow to access async_native_tls when using tokio
 
 ## 7.0.5
 
