@@ -167,8 +167,17 @@ pub extern crate native_tls_crate as native_tls;
 #[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
 pub extern crate rustls_crate as rustls;
 // -- async deps
-#[cfg(feature = "async-std-async-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-std-async-native-tls")))]
+#[cfg(any(
+    feature = "tokio-async-native-tls",
+    feature = "async-std-async-native-tls"
+))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+        feature = "tokio-async-native-tls",
+        feature = "async-std-async-native-tls"
+    )))
+)]
 pub extern crate async_native_tls_crate as async_native_tls;
 
 // -- export (common)
