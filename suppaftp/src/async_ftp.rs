@@ -80,7 +80,7 @@ pub mod tokio {
         docsrs,
         doc(cfg(all(feature = "tokio", feature = "tokio-async-native-tls")))
     )]
-    use super::tokio_ftp::AsyncNativeTlsStream;
+    pub use super::tokio_ftp::AsyncNativeTlsStream;
     pub use super::tokio_ftp::{
         DataStream as AsyncDataStream, TokioPassiveStreamBuilder, TokioTlsStream,
     };
@@ -94,7 +94,7 @@ pub mod tokio {
     pub use super::tokio_ftp::AsyncRustlsConnector;
     #[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
     #[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
-    use super::tokio_ftp::AsyncRustlsStream;
+    pub use super::tokio_ftp::AsyncRustlsStream;
 
     #[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
     #[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
