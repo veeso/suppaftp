@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [7.0.7](#707)
   - [7.0.6](#706)
   - [7.0.5](#705)
   - [7.0.4](#704)
@@ -50,6 +51,12 @@
   - [4.0.0](#400)
 
 ---
+
+## 7.0.7
+
+Released on 05/11/2025
+
+- [Issue 126](https://github.com/veeso/suppaftp/pull/126): re-export tls streams when using tokio
 
 ## 7.0.6
 
