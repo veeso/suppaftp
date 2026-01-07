@@ -23,12 +23,15 @@ clippy_all() {
 }
 
 test_all() {
+  local test_name
+  test_name="${1:-}"
   for feature in $FEATURES; do
-    cargo test -p suppaftp --features $feature
+    cargo test -p suppaftp --features $feature $test_name
   done
 }
 
 COMMAND=${1:-x}
+shift
 
 case "$COMMAND" in
 
@@ -37,7 +40,7 @@ case "$COMMAND" in
     ;;
   
   "test")
-    test_all
+    test_all "$@"
     ;;
 
   "build")
