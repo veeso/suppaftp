@@ -55,6 +55,11 @@ where
     welcome_msg: Option<String>,
     active_timeout: Duration,
     passive_stream_builder: Box<AsyncStdPassiveStreamBuilder>,
+    /// flags whether a data connection is currently open
+    ///
+    /// Since it isn't possible to have multiple data connections at the same time,
+    /// this flag is used to track whether a data connection is currently open.
+    data_connection_open: bool,
     #[cfg(not(feature = "async-secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "async-secure")]
@@ -94,6 +99,7 @@ where
             #[cfg(not(feature = "async-secure"))]
             marker: PhantomData {},
             mode: Mode::Passive,
+            data_connection_open: false,
             nat_workaround: false,
             passive_stream_builder: Self::default_passive_stream_builder(),
             welcome_msg: None,
@@ -153,6 +159,7 @@ where
         let mut secured_ftp_tream = ImplAsyncFtpStream {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
+            data_connection_open: self.data_connection_open,
             nat_workaround: self.nat_workaround,
             passive_stream_builder: self.passive_stream_builder,
             tls_ctx: Some(Box::new(tls_connector)),
@@ -207,6 +214,7 @@ where
                 Self {
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
+                    data_connection_open: false,
                     nat_workaround: false,
                     welcome_msg: None,
                     passive_stream_builder: Self::default_passive_stream_builder(),
@@ -226,6 +234,7 @@ where
             reader: BufReader::new(DataStream::Ssl(stream.into())),
             mode: Mode::Passive,
             nat_workaround: false,
+            data_connection_open: false,
             passive_stream_builder: Self::default_passive_stream_builder(),
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
@@ -463,6 +472,7 @@ where
         debug!("Finalizing retr stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
+        self.data_connection_open = false;
         trace!("dropped stream");
         // Then read response
         self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
@@ -531,6 +541,7 @@ where
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         stream.close().await.map_err(FtpError::ConnectionError)?;
         drop(stream);
+        self.data_connection_open = false;
         trace!("Stream dropped");
         // Read response
         self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
@@ -576,6 +587,7 @@ where
         self.perform(Command::Abor).await?;
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(data_stream);
+        self.data_connection_open = false;
         trace!("dropped stream");
         self.read_response_in(&[Status::ClosingDataConnection, Status::TransferAborted])
             .await?;
@@ -807,6 +819,7 @@ where
         debug!("closing data connection");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
+        self.data_connection_open = false;
         trace!("dropped stream");
         // Then read response
         self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
@@ -852,6 +865,10 @@ where
 
     /// Execute command which send data back in a separate stream
     async fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream<T>> {
+        // guard data connection
+        self.guard_multiple_data_connections()?;
+        self.data_connection_open = true;
+
         let stream = match self.mode {
             Mode::Active => {
                 let listener = self.active().await?;
@@ -1069,11 +1086,23 @@ where
             })
         })
     }
+
+    /// guard against multiple data connections
+    ///
+    /// If `data_connection_open` is true, returns an [`FtpError::DataConnectionAlreadyOpen`] indicating that a data connection is already open.
+    /// Otherwise, returns Ok(()).
+    fn guard_multiple_data_connections(&self) -> FtpResult<()> {
+        if self.data_connection_open {
+            Err(FtpError::DataConnectionAlreadyOpen)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
-
+    use std::io::BufReader;
     use std::str::FromStr as _;
     use std::sync::Arc;
 
@@ -1087,6 +1116,7 @@ mod test {
     use super::*;
     use crate::test_container::SyncPureFtpRunner;
     use crate::types::FormatControl;
+    use crate::{FtpError, FtpStream, Status};
 
     #[async_attributes::test]
     async fn connect() {
@@ -1433,7 +1463,73 @@ mod test {
             .await
             .expect("Failed to perform custom data command");
         assert_eq!(response.status, Status::AboutToSend);
-        let mut reader = BufReader::new(data_stream);
+        let mut reader = async_std::io::BufReader::new(data_stream);
+        AsyncFtpStream::get_lines_from_stream(&mut reader)
+            .await
+            .expect("Failed to get lines from stream");
+        // finalize
+        assert!(stream.close_data_connection(reader).await.is_ok());
+    }
+
+    #[async_attributes::test]
+    async fn test_should_prevent_multiple_data_connections() {
+        let (mut stream, _container) = setup_stream().await;
+        let command = "LIST";
+
+        let _data_stream = stream
+            .custom_data_command(command, &[Status::AboutToSend])
+            .await
+            .expect("Failed to perform custom data command");
+        // Try to open another data connection without closing the previous one
+        match stream
+            .custom_data_command(command, &[Status::AboutToSend])
+            .await
+        {
+            Err(FtpError::DataConnectionAlreadyOpen) => {}
+            _ => panic!("Expected DataConnectionAlreadyOpen error"),
+        }
+
+        // try with all other data commands
+        match stream.retr_as_stream("somefile.txt").await {
+            Err(FtpError::DataConnectionAlreadyOpen) => {}
+            _ => panic!("Expected DataConnectionAlreadyOpen error"),
+        }
+
+        match stream.put_with_stream("somefile.txt").await {
+            Err(FtpError::DataConnectionAlreadyOpen) => {}
+            _ => panic!("Expected DataConnectionAlreadyOpen error"),
+        }
+
+        match stream.append_with_stream("somefile.txt").await {
+            Err(FtpError::DataConnectionAlreadyOpen) => {}
+            _ => panic!("Expected DataConnectionAlreadyOpen error"),
+        }
+    }
+
+    #[async_attributes::test]
+    async fn test_should_free_data_connection_after_close() {
+        let (mut stream, _container) = setup_stream().await;
+        let command = "LIST";
+
+        let (response, data_stream) = stream
+            .custom_data_command(command, &[Status::AboutToSend])
+            .await
+            .expect("Failed to perform custom data command");
+        assert_eq!(response.status, Status::AboutToSend);
+        let mut reader = async_std::io::BufReader::new(data_stream);
+        AsyncFtpStream::get_lines_from_stream(&mut reader)
+            .await
+            .expect("Failed to get lines from stream");
+        // finalize
+        assert!(stream.close_data_connection(reader).await.is_ok());
+
+        // Now it should be possible to open another data connection
+        let (response, data_stream) = stream
+            .custom_data_command(command, &[Status::AboutToSend])
+            .await
+            .expect("Failed to perform custom data command");
+        assert_eq!(response.status, Status::AboutToSend);
+        let mut reader = async_std::io::BufReader::new(data_stream);
         AsyncFtpStream::get_lines_from_stream(&mut reader)
             .await
             .expect("Failed to get lines from stream");

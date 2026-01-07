@@ -37,6 +37,9 @@ pub enum FtpError {
     /// The address provided was invalid
     #[error("Invalid address: {0}")]
     InvalidAddress(std::net::AddrParseError),
+    /// Data connection is already open. You can't open more than one data connection at a time.
+    #[error("Data connection is already open")]
+    DataConnectionAlreadyOpen,
 }
 
 /// Defines a response from the ftp server
