@@ -62,6 +62,8 @@ Released on 07/01/2026
     - Deprecated `File::from_dos_line`,  `File::from_mlsx_line`, and `File::from_posix_line` methods in favor of
       `ListParser::parse_dos`, `ListParser::parse_mlst`, `ListParser::parse_mlsd`, and `ListParser::parse_posix`
       respectively.
+- [Issue 127](https://github.com/veeso/suppaftp/issues/127): Prevent commands which require a data connection to be
+  executed if there is already a data connection open.
 
 ## 7.0.7
 

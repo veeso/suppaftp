@@ -44,6 +44,11 @@ where
     mode: Mode,
     nat_workaround: bool,
     welcome_msg: Option<String>,
+    /// flags whether a data connection is currently open
+    ///
+    /// Since it isn't possible to have multiple data connections at the same time,
+    /// this flag is used to track whether a data connection is currently open.
+    data_connection_open: bool,
     active_timeout: Duration,
     passive_stream_builder: Box<PassiveStreamBuilder>,
     #[cfg(not(feature = "secure"))]
@@ -82,6 +87,7 @@ where
             mode: Mode::Passive,
             nat_workaround: false,
             welcome_msg: None,
+            data_connection_open: false,
             active_timeout: Duration::from_secs(60),
             passive_stream_builder: Self::default_passive_stream_builder(),
             #[cfg(feature = "secure")]
@@ -168,6 +174,7 @@ where
         let mut secured_ftp_tream = Self {
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
+            data_connection_open: self.data_connection_open,
             nat_workaround: self.nat_workaround,
             passive_stream_builder: self.passive_stream_builder,
             tls_ctx: Some(Box::new(tls_connector)),
@@ -217,6 +224,7 @@ where
                     reader: BufReader::new(DataStream::Tcp(stream)),
                     mode: Mode::Passive,
                     nat_workaround: false,
+                    data_connection_open: false,
                     passive_stream_builder: Self::default_passive_stream_builder(),
                     welcome_msg: None,
                     tls_ctx: None,
@@ -234,6 +242,7 @@ where
             reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
             mode: Mode::Passive,
             nat_workaround: false,
+            data_connection_open: false,
             tls_ctx: Some(Box::new(tls_connector)),
             passive_stream_builder: Self::default_passive_stream_builder(),
             domain: Some(String::from(domain)),
@@ -471,6 +480,8 @@ where
         debug!("Finalizing retr stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
+        // mark data channel as closed
+        self.data_connection_open = false;
         trace!("dropped stream");
         // Then read response
         self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
@@ -522,6 +533,8 @@ where
         debug!("Finalizing put stream");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
+        // mark data channel as closed
+        self.data_connection_open = false;
         trace!("Stream dropped");
         // Read response
         self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
@@ -552,6 +565,8 @@ where
         self.perform(Command::Abor)?;
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(data_stream);
+        // mark data channel as closed
+        self.data_connection_open = false;
         trace!("dropped stream");
         self.read_response_in(&[Status::ClosingDataConnection, Status::TransferAborted])?;
         self.read_response(Status::ClosingDataConnection)?;
@@ -587,7 +602,7 @@ where
     /// use suppaftp::list::File;
     ///
     /// let file: File = File::from_str("-rw-rw-r-- 1 0  1  8192 Nov 5 2018 omar.txt")
-    ///     
+    ///
     ///     .unwrap();
     /// ```
     pub fn list(&mut self, pathname: Option<&str>) -> FtpResult<Vec<String>> {
@@ -789,6 +804,8 @@ where
         debug!("closing data connection");
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
+        // mark data channel as closed
+        self.data_connection_open = false;
         trace!("dropped stream");
         // Then read response
         self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
@@ -909,6 +926,10 @@ where
 
     /// Execute command which send data back in a separate stream
     fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream<T>> {
+        // guard data connection
+        self.guard_multiple_data_connections()?;
+        self.data_connection_open = true;
+
         let stream = match self.mode {
             Mode::Active => self
                 .active()
@@ -1065,6 +1086,18 @@ where
     /// Default stream builder
     fn default_passive_stream_builder() -> Box<PassiveStreamBuilder> {
         Box::new(|addr| TcpStream::connect(addr).map_err(FtpError::ConnectionError))
+    }
+
+    /// guard against multiple data connections
+    ///
+    /// If `data_connection_open` is true, returns an [`FtpError::DataConnectionAlreadyOpen`] indicating that a data connection is already open.
+    /// Otherwise, returns Ok(()).
+    fn guard_multiple_data_connections(&self) -> FtpResult<()> {
+        if self.data_connection_open {
+            Err(FtpError::DataConnectionAlreadyOpen)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -1417,6 +1450,67 @@ mod test {
         });
     }
 
+    #[test]
+    fn test_should_prevent_multiple_data_connections() {
+        with_test_ftp_stream(|stream| {
+            let command = "LIST";
+
+            let (_, data_stream) = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .expect("Failed to perform custom data command");
+            let mut reader = BufReader::new(data_stream);
+            // Try to open another data connection without closing the previous one
+            match stream.custom_data_command(command, &[Status::AboutToSend]) {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+
+            // try with all other data commands
+            match stream.retr_as_stream("somefile.txt") {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+
+            match stream.put_with_stream("somefile.txt") {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+
+            match stream.append_with_stream("somefile.txt") {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+
+            assert!(stream.close_data_connection(reader).is_ok());
+        });
+    }
+
+    #[test]
+    fn test_should_free_data_connection_after_close() {
+        with_test_ftp_stream(|stream| {
+            let command = "LIST";
+
+            let (response, data_stream) = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .expect("Failed to perform custom data command");
+            assert_eq!(response.status, Status::AboutToSend);
+            let mut reader = BufReader::new(data_stream);
+            FtpStream::get_lines_from_stream(&mut reader).expect("Failed to get lines from stream");
+            // finalize
+            assert!(stream.close_data_connection(reader).is_ok());
+
+            // Now it should be possible to open another data connection
+            let (response, data_stream) = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .expect("Failed to perform custom data command");
+            assert_eq!(response.status, Status::AboutToSend);
+            let mut reader = BufReader::new(data_stream);
+            FtpStream::get_lines_from_stream(&mut reader).expect("Failed to get lines from stream");
+            // finalize
+            assert!(stream.close_data_connection(reader).is_ok());
+        });
+    }
+
     // -- test utils
 
     fn with_test_ftp_stream<F>(f: F)
@@ -1462,10 +1556,6 @@ mod test {
     }
 
     fn finalize_stream(mut stream: FtpStream) {
-        // Get working directory
-        let wrkdir: String = stream.pwd().unwrap();
-        // Remove directory
-        assert!(stream.rmdir(wrkdir.as_str()).is_ok());
         assert!(stream.quit().is_ok());
     }
 
