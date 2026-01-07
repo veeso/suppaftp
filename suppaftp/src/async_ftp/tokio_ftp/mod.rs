@@ -1645,10 +1645,6 @@ mod test {
     }
 
     async fn finalize_stream(mut stream: AsyncFtpStream) {
-        // Get working directory
-        let wrkdir: String = stream.pwd().await.unwrap();
-        // Remove directory
-        assert!(stream.rmdir(wrkdir.as_str()).await.is_ok());
         assert!(stream.quit().await.is_ok());
     }
 

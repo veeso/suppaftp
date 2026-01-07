@@ -1556,10 +1556,6 @@ mod test {
     }
 
     fn finalize_stream(mut stream: FtpStream) {
-        // Get working directory
-        let wrkdir: String = stream.pwd().unwrap();
-        // Remove directory
-        assert!(stream.rmdir(wrkdir.as_str()).is_ok());
         assert!(stream.quit().is_ok());
     }
 
