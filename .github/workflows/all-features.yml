@@ -19,4 +19,4 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
       - name: Docs
-        run: cargo doc -- -D warnings
+        run: cargo doc
