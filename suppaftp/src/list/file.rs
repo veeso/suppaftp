@@ -15,8 +15,10 @@ use super::{FileType, ListParser, ParseError, ParseResult, PosixPex, PosixPexQue
 ///
 /// You can parse a LIST line by using the [`ListParser`] by calling either
 ///
-/// - [`ListParser::from_posix_line`]
-/// - [`ListParser::from_dos_line`]
+/// - [`ListParser::parse_posix`]
+/// - [`ListParser::parse_dos`]
+/// - [`ListParser::parse_mlsd`]
+/// - [`ListParser::parse_mlst`]
 ///
 /// or by using the generic implementation of [`FromStr`] or [`TryFrom<&str>`].
 /// In case you opt for the generic implementations, the parser will first try to parse the line

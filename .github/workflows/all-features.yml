@@ -18,3 +18,5 @@ jobs:
         run: cargo build --package suppaftp --features native-tls,rustls-aws-lc-rs,async-std,tokio-async-native-tls,async-std-rustls-aws-lc-rs,tokio-rustls-aws-lc-rs
       - name: Format
         run: cargo fmt --all -- --check
+      - name: Docs
+        run: cargo doc -- -D warnings

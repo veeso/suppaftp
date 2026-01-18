@@ -14,7 +14,7 @@
 //! ## Get started
 //!
 //! Whenever you receive the output for your LIST command, all you have to do is to iterate over lines and
-//! call [`File::from_str`] function as shown in the example.
+//! call `File::from_str` function as shown in the example.
 //!
 //! ```rust
 //! use suppaftp::list::{File, ListParser};
@@ -70,8 +70,7 @@ pub enum ParseError {
 ///
 /// You can use this parser to parse a [`File`] from a **line** returned by the `LIST` command.
 ///
-/// You can use either the [`ListParser::parse`] which tries to automatically detect the format (POSIX or DOS)
-/// or you can use the more specific methods [`ListParser::parse_posix`] and [`ListParser::parse_dos`].
+/// You can use the [`ListParser::parse_posix`], [`ListParser::parse_dos`], [`ListParser::parse_mlst`], or [`ListParser::parse_mlsd`] methods.
 ///
 /// # Notes
 ///
