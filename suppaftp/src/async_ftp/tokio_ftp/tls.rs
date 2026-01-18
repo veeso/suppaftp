@@ -12,9 +12,9 @@ mod native_tls;
 #[cfg(feature = "tokio-async-native-tls")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
-#[cfg(feature = "tokio-rustls")]
+#[cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring"))]
 mod rustls;
-#[cfg(feature = "tokio-rustls")]
+#[cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring"))]
 pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 
 #[cfg(feature = "async-secure")]

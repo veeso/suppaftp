@@ -21,7 +21,7 @@ pub use tls::AsyncTlsConnector;
 #[cfg(feature = "tokio-async-native-tls")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 pub use tls::{AsyncNoTlsStream, TokioTlsStream};
-#[cfg(feature = "tokio-rustls")]
+#[cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring"))]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader, copy};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};

@@ -1,6 +1,6 @@
 name: all_features
 
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,6 +15,6 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
       - name: Build
-        run: cargo build --package suppaftp --features native-tls,rustls,async-std,tokio,tokio-async-native-tls,async-std-rustls,tokio-rustls
+        run: cargo build --package suppaftp --features native-tls,rustls-aws-lc-rs,async-std,tokio-aws-lc-rs,tokio-async-native-tls,async-std-rustls,tokio-rustls-aws-lc-rs,tokio-rustls-aws-lc-rs
       - name: Format
         run: cargo fmt --all -- --check

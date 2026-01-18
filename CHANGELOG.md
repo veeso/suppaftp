@@ -52,6 +52,21 @@
 
 ---
 
+## 8.0.0
+
+Released on 18/01/2026
+
+- [Issue 131](https://github.com/veeso/suppaftp/issues/131): Added new features to choose the backend for `rustls`:
+    - `rustls-ring`: use `ring` as crypto backend (default)
+    - `rustls-aws-lc-rs`: use `aws-lc-rs` as crypto backend
+    - Removed `rustls` feature. Use either `rustls-ring` or `rustls-aws-lc-rs` instead.
+    - Removed `async-rustls` feature. Use either `async-std-rustls-ring` or `async-std-rustls-aws-lc-rs` instead.
+    - Removed `tokio-rustls` feature. Use either `tokio-rustls-ring` or `tokio-rustls-aws-lc-rs` instead.
+
+> [!CAUTION]
+> In case you're using `rustls`, `tokio-rustls`, or `async-rustls` features, you need to update your `Cargo.toml`
+> accordingly.
+
 ## 7.1.0
 
 Released on 07/01/2026

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">Developed by <a href="https://veeso.me/">veeso</a></p>
-<p align="center">Current version: 7.0.7 (05/11/2025)</p>
+<p align="center">Current version: 8.0.0 (18/01/2026)</p>
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"
@@ -71,29 +71,33 @@
 ---
 
 - [SuppaFTP](#suppaftp)
-  - [Introduction 👋](#introduction-)
-    - [Main differences between SuppaFTP and rust-ftp 🤔](#main-differences-between-suppaftp-and-rust-ftp-)
-  - [Get started 🏁](#get-started-)
-    - [Features](#features)
-      - [SSL/TLS Support](#ssltls-support)
-      - [Async support](#async-support)
-      - [Deprecated methods](#deprecated-methods)
-      - [Logging](#logging)
-    - [Examples 📚](#examples-)
-      - [Ftp with TLS (native-tls)](#ftp-with-tls-native-tls)
-      - [Ftp with TLS (rustls)](#ftp-with-tls-rustls)
-      - [Going Async](#going-async)
-  - [Built-in CLI client 🖥️](#built-in-cli-client-️)
-  - [Support the developer ☕](#support-the-developer-)
-  - [Changelog ⌛](#changelog-)
-  - [License 📜](#license-)
-    - [Contribution 🤝](#contribution-)
+    - [Introduction 👋](#introduction-)
+        - [Main differences between SuppaFTP and rust-ftp 🤔](#main-differences-between-suppaftp-and-rust-ftp-)
+    - [Get started 🏁](#get-started-)
+        - [Features](#features)
+            - [SSL/TLS Support](#ssltls-support)
+            - [Async support](#async-support)
+            - [Deprecated methods](#deprecated-methods)
+            - [Logging](#logging)
+        - [Examples 📚](#examples-)
+            - [Ftp with TLS (native-tls)](#ftp-with-tls-native-tls)
+            - [Ftp with TLS (rustls)](#ftp-with-tls-rustls)
+            - [Going Async](#going-async)
+    - [Built-in CLI client 🖥️](#built-in-cli-client-️)
+    - [Support the developer ☕](#support-the-developer-)
+    - [Changelog ⌛](#changelog-)
+    - [License 📜](#license-)
+        - [Contribution 🤝](#contribution-)
 
 ---
 
 ## Introduction 👋
 
-SuppaFTP is the main FTP/FTPS client library for Rust, with both support for sync/async programming and for all the FTP protocol features. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)", but since the original library is currently unmaintained, I decided to keep working on this library by myself. Currently, I consider myself as the only maintainer of this project, indeed I've already added some features to the library and improved it with better error handling and test units.
+SuppaFTP is the main FTP/FTPS client library for Rust, with both support for sync/async programming and for all the FTP
+protocol features. It is a fork of the original ftp library "[rust-ftp](https://github.com/mattnenterprise/rust-ftp)",
+but since the original library is currently unmaintained, I decided to keep working on this library by myself.
+Currently, I consider myself as the only maintainer of this project, indeed I've already added some features to the
+library and improved it with better error handling and test units.
 
 ### Main differences between SuppaFTP and rust-ftp 🤔
 
@@ -103,11 +107,11 @@ SuppaFTP is the main FTP/FTPS client library for Rust, with both support for syn
 - Added `get_welcome_msg` method 👋
 - Supports for both **sync/async** rust 🕙
 - Supports for more commands 🌟
-  - ABOR
-  - APPE
-  - REST
-  - EPSV
-  - EPRT
+    - ABOR
+    - APPE
+    - REST
+    - EPSV
+    - EPRT
 - Some extra features, such as the **LIST** command output parser
 - Implementation of [RFC 2428](https://www.rfc-editor.org/rfc/rfc2428.html)
 - Implementationb of [RFC 2389](https://www.rfc-editor.org/rfc/rfc2389)
@@ -122,7 +126,7 @@ SuppaFTP is the main FTP/FTPS client library for Rust, with both support for syn
 To get started, first add **suppaftp** to your dependencies:
 
 ```toml
-suppaftp = "^7"
+suppaftp = "^8"
 ```
 
 ### Features
@@ -130,29 +134,43 @@ suppaftp = "^7"
 These are all the possible features, by family
 
 - **sync FTP**:
-  - `native-tls`: enable FTPS support using [native-tls](https://crates.io/crates/native-tls) as backend for TLS
-  - `native-tls-vendored`: enable vendored FTPS support using [native-tls](https://crates.io/crates/native-tls)
-  - `rustls`: enable FTPS support using [rustls](https://crates.io/crates/rustls) as backend for TLS
+    - `native-tls`: enable FTPS support using [native-tls](https://crates.io/crates/native-tls) as backend for TLS
+    - `native-tls-vendored`: enable vendored FTPS support using [native-tls](https://crates.io/crates/native-tls)
+    - `rustls-aws-lc-rs`: enable FTPS support using [rustls](https://crates.io/crates/rustls) with aws-lc-rs as TLS
+      backend.
+    - `rustls-ring`: enable FTPS support using [rustls](https://crates.io/crates/rustls) with ring as TLS backend.
 - **Async FTP**:
-  - **Async-std**:
-    - `async-std`: enable async client using [async-std](https://crates.io/crates/async-std) as async backend
-    - `async-std-async-native-tls`: enable FTPS support using [async-native-tls](https://crates.io/crates/async-native-tls)
-    - `async-std-async-native-tls-vendored`: enable vendored FTPS support using [async-native-tls](https://crates.io/crates/async-native-tls)
-    - `async-std-async-rustls`: enable FTPS support using [async-rustls](https://crates.io/crates/async-rustls)
-  - **Tokio**:
-    - `tokio`: enable async client using [tokio](https://crates.io/crates/tokio) as async backend
-    - `tokio-async-native-tls`: enable FTPS support using [async-native-tls](https://crates.io/crates/async-native-tls)
-    - `tokio-async-native-tls-vendored`: enable vendored FTPS support using [async-native-tls](https://crates.io/crates/async-native-tls)
-    - `tokio-async-rustls`: enable FTPS support using [async-rustls](https://crates.io/crates/async-rustls)
+    - **Async-std**:
+        - `async-std`: enable async client using [async-std](https://crates.io/crates/async-std) as async backend
+        - `async-std-async-native-tls`: enable FTPS support
+          using [async-native-tls](https://crates.io/crates/async-native-tls)
+        - `async-std-async-native-tls-vendored`: enable vendored FTPS support
+          using [async-native-tls](https://crates.io/crates/async-native-tls)
+        - `async-std-async-rustls-aws-lc-rs`: enable FTPS support
+          using [async-rustls](https://crates.io/crates/async-rustls) with aws-lc-rs as TLS backend.
+        - `async-std-async-rustls-ring`: enable FTPS support using [async-rustls](https://crates.io/crates/async-rustls)
+          with ring as TLS backend.
+    - **Tokio**:
+        - `tokio`: enable async client using [tokio](https://crates.io/crates/tokio) as async backend
+        - `tokio-async-native-tls`: enable FTPS support
+          using [async-native-tls](https://crates.io/crates/async-native-tls)
+        - `tokio-async-native-tls-vendored`: enable vendored FTPS support
+          using [async-native-tls](https://crates.io/crates/async-native-tls)
+        - `tokio-async-rustls-aws-lc-rs`: enable FTPS support
+          using [async-rustls](https://crates.io/crates/async-rustls)
+          with aws-lc-rs as TLS backend.
+        - `tokio-async-rustls-ring`: enable FTPS support using [async-rustls](https://crates.io/crates/async-rustls)
+          with ring as TLS backend.
 - **Misc**:
-  - `deprecated`: enable deprecated FTP/FTPS methods
-  - `no-log`: disable logging
+    - `deprecated`: enable deprecated FTP/FTPS methods
+    - `no-log`: disable logging
 
 In more details:
 
 #### SSL/TLS Support
 
-If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
+If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo
+dependencies, based on the TLS provider you prefer.
 
 ```toml
 suppaftp = { version = "^7", features = ["native-tls"] }
@@ -166,14 +184,17 @@ suppaftp = { version = "^7", features = ["rustls"] }
 
 #### Async support
 
-If you want to enable **async** support, you must enable either `async-std` feature, to use [async-std](https://crates.io/crates/async-std) or `tokio` feature, to use [tokio](https://crates.io/crates/tokio) as backend, in your cargo dependencies.
+If you want to enable **async** support, you must enable either `async-std` feature, to
+use [async-std](https://crates.io/crates/async-std) or `tokio` feature, to use [tokio](https://crates.io/crates/tokio)
+as backend, in your cargo dependencies.
 
 ```toml
 suppaftp = { version = "^7", features = ["tokio"] }
 ```
 
 > [!CAUTION]
-> ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-std-async-native-tls** feature ⚠️  
+> ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-std-async-native-tls** feature
+> ⚠️  
 > ⚠️ If you want to enable both **native-tls** and **tokio** you must use the **tokio-async-native-tls** feature ⚠️
 > ⚠️ If you want to enable both **rustls** and **async** you must use the **async-rustls** feature ⚠️  
 > ❗ If you want to link libssl statically with `async-std`, enable feature `async-std-async-native-tls-vendored`
@@ -242,7 +263,8 @@ fn main() {
 
 #### Ftp with TLS (rustls)
 
-You can also find and run this example in the `suppaftp/examples/` directory (`cargo run --example rustls --features rustls`).
+You can also find and run this example in the `suppaftp/examples/` directory (
+`cargo run --example rustls --features rustls`).
 
 ```rust
 use std::sync::Arc;
@@ -287,7 +309,9 @@ assert!(ftp_stream.quit().await.is_ok());
 
 ## Built-in CLI client 🖥️
 
-SuppaFTP comes also with a built-in command-line FTP client. This CLI application provides all the commands to interact with a remote FTP server and supports FTPS too. You can also use it as a reference to implement your project. You can find it in the `cli/` directory.
+SuppaFTP comes also with a built-in command-line FTP client. This CLI application provides all the commands to interact
+with a remote FTP server and supports FTPS too. You can also use it as a reference to implement your project. You can
+find it in the `cli/` directory.
 
 You can simply install as any other rust application via **Cargo**:
 
