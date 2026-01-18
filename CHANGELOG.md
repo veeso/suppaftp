@@ -52,6 +52,12 @@
 
 ---
 
+## 8.0.1
+
+Released on 18/01/2026
+
+- Fixed docs.rs build
+
 ## 8.0.0
 
 Released on 18/01/2026

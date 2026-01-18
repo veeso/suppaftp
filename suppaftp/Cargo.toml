@@ -143,12 +143,12 @@ no-log = ["log/max_level_off"]
 [package.metadata.docs.rs]
 features = [
     "native-tls",
-    "rustls",
+    "rustls-aws-lc-rs",
     "async-std",
     "tokio",
     "tokio-async-native-tls",
-    "async-std-rustls",
-    "tokio-rustls",
+    "async-std-rustls-aws-lc-rs",
+    "tokio-rustls-aws-lc-rs",
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
