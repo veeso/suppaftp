@@ -42,23 +42,62 @@ pub mod async_std {
     #[cfg_attr(docsrs, doc(cfg(feature = "async-std-async-native-tls")))]
     pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
     // -- export async secure (rustls)async-std-rustls
-    #[cfg(all(feature = "async-std", feature = "async-std-rustls"))]
+    #[cfg(all(
+        feature = "async-std",
+        any(
+            feature = "async-std-rustls-aws-lc-rs",
+            feature = "async-std-rustls-ring"
+        )
+    ))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(all(feature = "async-std-rustls", feature = "async-std-rustls")))
+        doc(cfg(all(
+            any(
+                feature = "async-std-rustls-aws-lc-rs",
+                feature = "async-std-rustls-ring"
+            ),
+            any(
+                feature = "async-std-rustls-aws-lc-rs",
+                feature = "async-std-rustls-ring"
+            )
+        )))
     )]
     pub use crate::async_ftp::async_std_ftp::AsyncRustlsConnector;
-    #[cfg(all(feature = "async-std", feature = "async-std-rustls"))]
+    #[cfg(all(
+        feature = "async-std",
+        any(
+            feature = "async-std-rustls-aws-lc-rs",
+            feature = "async-std-rustls-ring"
+        )
+    ))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(all(feature = "async-std", feature = "async-std-rustls")))
+        doc(cfg(all(
+            feature = "async-std",
+            any(
+                feature = "async-std-rustls-aws-lc-rs",
+                feature = "async-std-rustls-ring"
+            )
+        )))
     )]
     use crate::async_ftp::async_std_ftp::AsyncRustlsStream;
 
-    #[cfg(all(feature = "async-std", feature = "async-std-rustls"))]
+    #[cfg(all(
+        feature = "async-std",
+        any(
+            feature = "async-std-rustls-aws-lc-rs",
+            feature = "async-std-rustls-ring"
+        )
+    ))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(all(feature = "async-std", feature = "async-std-rustls")))
+        doc(cfg(all(
+            feature = "async-std",
+            any(
+                feature = "async-std-rustls-aws-lc-rs",
+                feature = "async-std-rustls-ring"
+            )
+        )))
     )]
     pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
 }
@@ -89,14 +128,41 @@ pub mod tokio {
     #[cfg_attr(docsrs, doc(cfg(feature = "tokio-async-native-tls")))]
     pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
 
-    #[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
+    #[cfg(all(
+        feature = "tokio",
+        any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")
+    ))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(
+            feature = "tokio",
+            any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")
+        )))
+    )]
     pub use super::tokio_ftp::AsyncRustlsConnector;
-    #[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
+    #[cfg(all(
+        feature = "tokio",
+        any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")
+    ))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(
+            feature = "tokio",
+            any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")
+        )))
+    )]
     pub use super::tokio_ftp::AsyncRustlsStream;
 
-    #[cfg(all(feature = "tokio", feature = "tokio-rustls"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "tokio", feature = "tokio-rustls"))))]
+    #[cfg(all(
+        feature = "tokio",
+        any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")
+    ))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(
+            feature = "tokio",
+            any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")
+        )))
+    )]
     pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;
 }

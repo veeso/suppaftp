@@ -22,7 +22,7 @@
 //! To get started, first add **suppaftp** to your dependencies:
 //!
 //! ```toml
-//! suppaftp = "^7"
+//! suppaftp = "^8"
 //! ```
 //!
 //! ### Features
@@ -32,9 +32,9 @@
 //! If you want to enable **support for FTPS**, you must enable the `native-tls` or `rustls` feature in your cargo dependencies, based on the TLS provider you prefer.
 //!
 //! ```toml
-//! suppaftp = { version = "^7", features = ["native-tls"] }
+//! suppaftp = { version = "^8", features = ["native-tls"] }
 //! # or
-//! suppaftp = { version = "^7", features = ["rustls"] }
+//! suppaftp = { version = "^8", features = ["rustls-aws-lc-rs"] }
 //! ```
 //!
 //! > 💡 If you don't know what to choose, `native-tls` should be preferred for compatibility reasons.
@@ -46,7 +46,7 @@
 //! or `tokio` feature, to use [tokio](https://crates.io/crates/tokio) as backend, in your cargo dependencies.
 //!
 //! ```toml
-//! suppaftp = { version = "^7", features = ["tokio"] }
+//! suppaftp = { version = "8", features = ["tokio"] }
 //! ```
 //!
 //! > ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-std-async-native-tls** feature ⚠️  
@@ -121,6 +121,42 @@
 //! assert!(ftp_stream.quit().await.is_ok());
 //! ```
 //!
+//! ## Features
+//
+// These are all the possible features, by family
+//
+// - **sync FTP**:
+//     - `native-tls`: enable FTPS support using [native-tls](https://crates.io/crates/native-tls) as backend for TLS
+//     - `native-tls-vendored`: enable vendored FTPS support using [native-tls](https://crates.io/crates/native-tls)
+//     - `rustls-aws-lc-rs`: enable FTPS support using [rustls](https://crates.io/crates/rustls) with aws-lc-rs as TLS
+//       backend.
+//     - `rustls-ring`: enable FTPS support using [rustls](https://crates.io/crates/rustls) with ring as TLS backend.
+// - **Async FTP**:
+//     - **Async-std**:
+//         - `async-std`: enable async client using [async-std](https://crates.io/crates/async-std) as async backend
+//         - `async-std-async-native-tls`: enable FTPS support
+//           using [async-native-tls](https://crates.io/crates/async-native-tls)
+//         - `async-std-async-native-tls-vendored`: enable vendored FTPS support
+//           using [async-native-tls](https://crates.io/crates/async-native-tls)
+//         - `async-std-async-rustls-aws-lc-rs`: enable FTPS support
+//           using [async-rustls](https://crates.io/crates/async-rustls) with aws-lc-rs as TLS backend.
+//         - `async-std-async-rustls-ring`: enable FTPS support using [async-rustls](https://crates.io/crates/async-rustls)
+//           with ring as TLS backend.
+//     - **Tokio**:
+//         - `tokio`: enable async client using [tokio](https://crates.io/crates/tokio) as async backend
+//         - `tokio-async-native-tls`: enable FTPS support
+//           using [async-native-tls](https://crates.io/crates/async-native-tls)
+//         - `tokio-async-native-tls-vendored`: enable vendored FTPS support
+//           using [async-native-tls](https://crates.io/crates/async-native-tls)
+//         - `tokio-async-rustls-aws-lc-rs`: enable FTPS support
+//           using [async-rustls](https://crates.io/crates/async-rustls)
+//           with aws-lc-rs as TLS backend.
+//         - `tokio-async-rustls-ring`: enable FTPS support using [async-rustls](https://crates.io/crates/async-rustls)
+//           with ring as TLS backend.
+// - **Misc**:
+//     - `deprecated`: enable deprecated FTP/FTPS methods
+//     - `no-log`: disable logging
+//!
 
 #![doc(html_playground_url = "https://play.rust-lang.org")]
 #![doc(
@@ -163,8 +199,11 @@ mod test_container;
 #[cfg(feature = "native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
 pub extern crate native_tls_crate as native_tls;
-#[cfg(feature = "rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring")))
+)]
 pub extern crate rustls_crate as rustls;
 // -- async deps
 #[cfg(any(
@@ -179,6 +218,12 @@ pub extern crate rustls_crate as rustls;
     )))
 )]
 pub extern crate async_native_tls_crate as async_native_tls;
+#[cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")))
+)]
+pub extern crate tokio_rustls_crate as tokio_rustls;
 
 // -- export (common)
 pub use status::Status;
@@ -199,14 +244,23 @@ use sync_ftp::NativeTlsStream;
 #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
 pub type NativeTlsFtpStream = ImplFtpStream<NativeTlsStream>;
 // -- export secure (rustls)
-#[cfg(feature = "rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring")))
+)]
 pub use sync_ftp::RustlsConnector;
-#[cfg(feature = "rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring")))
+)]
 use sync_ftp::RustlsStream;
-#[cfg(feature = "rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "rustls")))]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring")))
+)]
 pub type RustlsFtpStream = ImplFtpStream<RustlsStream>;
 
 #[cfg(any(feature = "tokio", feature = "async-std"))]

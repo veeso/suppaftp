@@ -11,9 +11,9 @@ mod native_tls;
 #[cfg(feature = "native-tls")]
 pub use self::native_tls::{NativeTlsConnector, NativeTlsStream};
 
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 mod rustls;
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 pub use self::rustls::{RustlsConnector, RustlsStream};
 
 #[cfg(feature = "secure")]

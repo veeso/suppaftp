@@ -1,6 +1,6 @@
 name: test
 
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,17 +15,20 @@ jobs:
         features:
           [
             native-tls,
-            rustls,
+            rustls-aws-lc-rs,
+            rustls-ring,
             async-std,
             tokio,
             async-std-async-native-tls,
             tokio-async-native-tls,
-            async-std-rustls,
-            tokio-rustls,
+            async-std-rustls-aws-lc-rs,
+            async-std-rustls-ring,
+            tokio-rustls-aws-lc-rs,
+            tokio-rustls-ring,
           ]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
 
       - name: Setup rust toolchain
         uses: dtolnay/rust-toolchain@stable

@@ -12,9 +12,15 @@ mod native_tls;
 #[cfg(feature = "async-std-async-native-tls")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
-#[cfg(feature = "async-std-rustls")]
+#[cfg(any(
+    feature = "async-std-rustls-aws-lc-rs",
+    feature = "async-std-rustls-ring"
+))]
 mod rustls;
-#[cfg(feature = "async-std-rustls")]
+#[cfg(any(
+    feature = "async-std-rustls-aws-lc-rs",
+    feature = "async-std-rustls-ring"
+))]
 pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 
 #[cfg(feature = "async-secure")]

@@ -19,7 +19,7 @@ pub use tls::TlsConnector;
 #[cfg(feature = "native-tls")]
 pub use tls::{NativeTlsConnector, NativeTlsStream};
 pub use tls::{NoTlsStream, TlsStream};
-#[cfg(feature = "rustls")]
+#[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 pub use tls::{RustlsConnector, RustlsStream};
 
 use super::Status;

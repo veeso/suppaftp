@@ -25,7 +25,10 @@ pub use tls::AsyncTlsConnector;
 #[cfg(feature = "async-std-async-native-tls")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 pub use tls::{AsyncNoTlsStream, AsyncStdTlsStream};
-#[cfg(feature = "async-std-rustls")]
+#[cfg(any(
+    feature = "async-std-rustls-aws-lc-rs",
+    feature = "async-std-rustls-ring"
+))]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 
 use super::super::Status;
