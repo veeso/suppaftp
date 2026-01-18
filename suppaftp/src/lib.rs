@@ -218,6 +218,7 @@ pub extern crate rustls_crate as rustls;
     )))
 )]
 pub extern crate async_native_tls_crate as async_native_tls;
+#[cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring"))]
 #[cfg_attr(
     docsrs,
     doc(cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring")))
