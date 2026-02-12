@@ -160,13 +160,13 @@ impl ListParser {
                     f.gid = value.parse::<u32>().ok();
                 }
                 "unix.mode" => {
-                    if value.len() != 3 {
+                    if value.len() != 3 && value.len() != 4 {
                         return Err(ParseError::SyntaxError);
                     }
-                    let chars = value.chars().collect::<Vec<char>>();
-                    // convert to nums
-                    let modes = chars
-                        .iter()
+                    // Take the last 3 characters (handles both "755" and "0755")
+                    let mode_str = &value[value.len() - 3..];
+                    let modes = mode_str
+                        .chars()
                         .map(|c| c.to_digit(8).unwrap_or(0))
                         .collect::<Vec<u32>>();
 
@@ -754,6 +754,50 @@ mod tests {
         pretty_assertions::assert_eq!(
             file.posix_pex,
             (PosixPex::from(6), PosixPex::from(4), PosixPex::from(4))
+        );
+
+        // 4-digit octal mode (e.g. "0644") should parse identically to 3-digit
+        let file = ListParser::parse_mlsd(
+            "type=file;size=4096;modify=20181105163248;unix.mode=0644; omar.txt",
+        )
+        .unwrap();
+        pretty_assertions::assert_eq!(
+            file.posix_pex,
+            (PosixPex::from(6), PosixPex::from(4), PosixPex::from(4))
+        );
+
+        // 4-digit mode "0755"
+        let file = ListParser::parse_mlsd(
+            "type=file;size=4096;modify=20181105163248;unix.mode=0755; script.sh",
+        )
+        .unwrap();
+        pretty_assertions::assert_eq!(
+            file.posix_pex,
+            (PosixPex::from(7), PosixPex::from(5), PosixPex::from(5))
+        );
+
+        // 3-digit mode "755"
+        let file = ListParser::parse_mlsd(
+            "type=file;size=4096;modify=20181105163248;unix.mode=755; script.sh",
+        )
+        .unwrap();
+        pretty_assertions::assert_eq!(
+            file.posix_pex,
+            (PosixPex::from(7), PosixPex::from(5), PosixPex::from(5))
+        );
+
+        // Invalid mode lengths should be rejected
+        assert!(
+            ListParser::parse_mlsd(
+                "type=file;size=4096;modify=20181105163248;unix.mode=64; bad.txt",
+            )
+            .is_err()
+        );
+        assert!(
+            ListParser::parse_mlsd(
+                "type=file;size=4096;modify=20181105163248;unix.mode=06444; bad.txt",
+            )
+            .is_err()
         );
     }
 
