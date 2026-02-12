@@ -97,16 +97,17 @@ impl TokioTlsStream for AsyncNativeTlsStream {
     }
 
     fn tcp_stream(self) -> TcpStream {
-        // Obtain a raw pointer to the underlying TcpStream
-        let ptr: *const TcpStream = self.stream.get_ref() as *const _;
-        // Prevent the original object from being deallocated
-        std::mem::forget(self.stream);
-        // Reconstruct ownership from the raw pointer
-        unsafe {
-            // Convert *const to *mut
-            let mut_ptr = ptr as *mut TcpStream;
-            // Rebuild ownership from the raw pointer
-            *Box::from_raw(mut_ptr)
-        }
+        use std::os::fd::AsFd;
+        let owned_fd = self
+            .stream
+            .get_ref()
+            .as_fd()
+            .try_clone_to_owned()
+            .expect("failed to clone tcp stream fd");
+        let std_stream = std::net::TcpStream::from(owned_fd);
+        std_stream
+            .set_nonblocking(true)
+            .expect("set_nonblocking failed");
+        TcpStream::from_std(std_stream).expect("failed to convert to tokio TcpStream")
     }
 }
