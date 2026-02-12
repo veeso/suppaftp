@@ -180,7 +180,7 @@ extern crate lazy_regex;
 extern crate log;
 
 // -- private
-#[cfg(any(feature = "async-std", feature = "tokio", feature = "async-std"))]
+#[cfg(any(feature = "async-std", feature = "tokio"))]
 mod async_ftp;
 
 pub(crate) mod command;
