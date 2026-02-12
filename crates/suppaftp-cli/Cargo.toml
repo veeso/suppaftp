@@ -9,9 +9,9 @@ categories = { workspace = true }
 repository = { workspace = true }
 description = "FTP command line client, based on suppaftp"
 homepage = "https://github.com/veeso/suppaftp"
-include = ["src/**/*", "../LICENSE", "../README.md", "../CHANGELOG.md"]
+include = ["src/**/*", "../../LICENSE-MIT", "../../LICENSE-APACHE", "../../README.md", "../../CHANGELOG.md"]
 name = "suppaftp-cli"
-readme = "../README.md"
+readme = "../../README.md"
 
 [[bin]]
 name = "suppaftp"
