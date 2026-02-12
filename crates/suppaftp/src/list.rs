@@ -319,6 +319,7 @@ impl ListParser {
                         // If is file, parse arg 3
                         Some(val) => val
                             .as_str()
+                            .replace(',', "")
                             .parse::<usize>()
                             .map_err(|_| ParseError::BadSize)?,
                         None => 0,
