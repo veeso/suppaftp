@@ -568,8 +568,12 @@ where
         // mark data channel as closed
         self.data_connection_open = false;
         trace!("dropped stream");
-        self.read_response_in(&[Status::ClosingDataConnection, Status::TransferAborted])?;
-        self.read_response(Status::ClosingDataConnection)?;
+        let response =
+            self.read_response_in(&[Status::ClosingDataConnection, Status::TransferAborted])?;
+        // If server sent 426 (TransferAborted), expect a follow-up 226
+        if response.status == Status::TransferAborted {
+            self.read_response(Status::ClosingDataConnection)?;
+        }
         debug!("Transfer aborted");
         Ok(())
     }
