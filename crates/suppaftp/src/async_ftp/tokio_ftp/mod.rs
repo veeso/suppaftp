@@ -686,14 +686,14 @@ where
         match MDTM_RE.captures(&body) {
             Some(caps) => {
                 let (year, month, day) = (
-                    caps[1].parse::<i32>().unwrap(),
-                    caps[2].parse::<u32>().unwrap(),
-                    caps[3].parse::<u32>().unwrap(),
+                    caps[1].parse::<i32>().map_err(|_| FtpError::BadResponse)?,
+                    caps[2].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
+                    caps[3].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
                 );
                 let (hour, minute, second) = (
-                    caps[4].parse::<u32>().unwrap(),
-                    caps[5].parse::<u32>().unwrap(),
-                    caps[6].parse::<u32>().unwrap(),
+                    caps[4].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
+                    caps[5].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
+                    caps[6].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
                 );
                 let date = match NaiveDate::from_ymd_opt(year, month, day) {
                     Some(d) => d,
@@ -720,7 +720,7 @@ where
         let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
 
         match SIZE_RE.captures(&body) {
-            Some(caps) => Ok(caps[1].parse().unwrap()),
+            Some(caps) => caps[1].parse().map_err(|_| FtpError::BadResponse),
             None => Err(FtpError::BadResponse),
         }
     }
@@ -926,7 +926,9 @@ where
         let caps = EPSV_PORT_RE
             .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
-        let new_port = caps[1].parse::<u16>().unwrap();
+        let new_port = caps[1]
+            .parse::<u16>()
+            .map_err(|_| FtpError::BadResponse)?;
         trace!("Got port number from EPSV: {}", new_port);
         let mut remote = self
             .reader
