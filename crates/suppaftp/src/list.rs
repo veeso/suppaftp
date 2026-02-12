@@ -160,13 +160,13 @@ impl ListParser {
                     f.gid = value.parse::<u32>().ok();
                 }
                 "unix.mode" => {
-                    if value.len() != 3 {
+                    if value.len() != 3 && value.len() != 4 {
                         return Err(ParseError::SyntaxError);
                     }
-                    let chars = value.chars().collect::<Vec<char>>();
-                    // convert to nums
-                    let modes = chars
-                        .iter()
+                    // Take the last 3 characters (handles both "755" and "0755")
+                    let mode_str = &value[value.len() - 3..];
+                    let modes = mode_str
+                        .chars()
                         .map(|c| c.to_digit(8).unwrap_or(0))
                         .collect::<Vec<u32>>();
 
