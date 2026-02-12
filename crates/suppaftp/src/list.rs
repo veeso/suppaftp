@@ -319,6 +319,7 @@ impl ListParser {
                         // If is file, parse arg 3
                         Some(val) => val
                             .as_str()
+                            .replace(',', "")
                             .parse::<usize>()
                             .map_err(|_| ParseError::BadSize)?,
                         None => 0,
@@ -640,6 +641,23 @@ mod tests {
                 .unwrap(),
             ParseError::BadSize
         );
+    }
+
+    #[test]
+    fn parse_dos_line_with_comma_separated_size() {
+        let file: File = ListParser::parse_dos("04-08-14  03:09PM  1,234 readme.txt")
+            .ok()
+            .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "readme.txt");
+        pretty_assertions::assert_eq!(file.size, 1234);
+        assert!(file.is_file());
+
+        let file: File = ListParser::parse_dos("04-08-14  03:09PM  1,234,567 bigfile.bin")
+            .ok()
+            .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "bigfile.bin");
+        pretty_assertions::assert_eq!(file.size, 1234567);
+        assert!(file.is_file());
     }
 
     #[test]
