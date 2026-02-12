@@ -999,17 +999,29 @@ where
         trace!("Local address is {}", addr);
 
         let ip = match self.reader.get_mut() {
-            DataStream::Tcp(stream) => stream.local_addr().unwrap().ip(),
-            DataStream::Ssl(stream) => stream.get_ref().local_addr().unwrap().ip(),
+            DataStream::Tcp(stream) => stream.local_addr().map_err(FtpError::ConnectionError)?.ip(),
+            DataStream::Ssl(stream) => stream
+                .get_ref()
+                .local_addr()
+                .map_err(FtpError::ConnectionError)?
+                .ip(),
         };
 
-        let msb = addr.port() / 256;
-        let lsb = addr.port() % 256;
-        let ip_port = format!("{},{},{}", ip.to_string().replace('.', ","), msb, lsb);
         debug!("Active mode, listening on {}:{}", ip, addr.port());
 
-        debug!("Running PORT command");
-        self.perform(Command::Port(ip_port))?;
+        match ip {
+            std::net::IpAddr::V4(_) => {
+                let msb = addr.port() / 256;
+                let lsb = addr.port() % 256;
+                let ip_port = format!("{},{},{}", ip.to_string().replace('.', ","), msb, lsb);
+                debug!("Running PORT command");
+                self.perform(Command::Port(ip_port))?;
+            }
+            std::net::IpAddr::V6(_) => {
+                debug!("Running EPRT command");
+                self.perform(Command::Eprt(SocketAddr::new(ip, addr.port())))?;
+            }
+        }
         self.read_response(Status::CommandOk)?;
 
         Ok(conn)
