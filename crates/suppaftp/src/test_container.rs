@@ -2,17 +2,15 @@
 
 use std::borrow::Cow;
 
-use testcontainers::core::{CmdWaitFor, ExecCommand, WaitFor};
+use testcontainers::core::{CmdWaitFor, ContainerPort, ExecCommand, WaitFor};
 use testcontainers::{Container, ContainerAsync, Image};
 
 #[derive(Debug, Default, Clone)]
-struct PureFtpImage {
-    _priv: (),
-}
+struct AlpineFtpServer;
 
-impl Image for PureFtpImage {
+impl Image for AlpineFtpServer {
     fn name(&self) -> &str {
-        "stilliard/pure-ftpd"
+        "delfer/alpine-ftp-server"
     }
 
     fn tag(&self) -> &str {
@@ -20,29 +18,45 @@ impl Image for PureFtpImage {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::message_on_stdout("Starting Pure-FTPd")]
+        vec![WaitFor::message_on_either_std("passwd:")]
+    }
+
+    fn expose_ports(&self) -> &[ContainerPort] {
+        &[
+            ContainerPort::Tcp(21),
+            ContainerPort::Tcp(30_000),
+            ContainerPort::Tcp(30_001),
+            ContainerPort::Tcp(30_002),
+            ContainerPort::Tcp(30_003),
+            ContainerPort::Tcp(30_004),
+            ContainerPort::Tcp(30_005),
+            ContainerPort::Tcp(30_006),
+            ContainerPort::Tcp(30_007),
+            ContainerPort::Tcp(30_008),
+            ContainerPort::Tcp(30_009),
+        ]
     }
 
     fn env_vars(
         &self,
     ) -> impl IntoIterator<Item = (impl Into<Cow<'_, str>>, impl Into<Cow<'_, str>>)> {
         vec![
-            ("PUBLICHOST", "localhost"),
-            ("FTP_USER_NAME", "test"),
-            ("FTP_USER_PASS", "test"),
-            ("FTP_USER_HOME", "/home/test"),
+            ("USERS", "test|test|/home/test"),
+            ("ADDRESS", "127.0.0.1"),
+            ("MIN_PORT", "30000"),
+            ("MAX_PORT", "30009"),
         ]
     }
 }
 
 pub struct AsyncPureFtpRunner {
-    container: ContainerAsync<PureFtpImage>,
+    container: ContainerAsync<AlpineFtpServer>,
 }
 
 impl AsyncPureFtpRunner {
     pub async fn start() -> Self {
         use testcontainers::runners::AsyncRunner;
-        let container = PureFtpImage::default()
+        let container = AlpineFtpServer::default()
             .start()
             .await
             .expect("Failed to start container");
@@ -62,11 +76,8 @@ impl AsyncPureFtpRunner {
         );
         let resp = container
             .exec(
-                ExecCommand::new([
-                    "/usr/bin/touch",
-                    "/home/test/invalid-utf8/caf\\303\\251.txt",
-                ])
-                .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
+                ExecCommand::new(["/bin/touch", "/home/test/invalid-utf8/caf\\303\\251.txt"])
+                    .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
             )
             .await
             .expect("Failed to create file");
@@ -90,13 +101,13 @@ impl AsyncPureFtpRunner {
 }
 
 pub struct SyncPureFtpRunner {
-    container: Container<PureFtpImage>,
+    container: Container<AlpineFtpServer>,
 }
 
 impl SyncPureFtpRunner {
     pub fn start() -> Self {
         use testcontainers::runners::SyncRunner;
-        let container = PureFtpImage::default()
+        let container = AlpineFtpServer::default()
             .start()
             .expect("Failed to start container");
 
@@ -114,11 +125,8 @@ impl SyncPureFtpRunner {
         );
         let resp = container
             .exec(
-                ExecCommand::new([
-                    "/usr/bin/touch",
-                    "/home/test/invalid-utf8/caf\\303\\251.txt",
-                ])
-                .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
+                ExecCommand::new(["/bin/touch", "/home/test/invalid-utf8/caf\\303\\251.txt"])
+                    .with_cmd_ready_condition(CmdWaitFor::Exit { code: Some(0) }),
             )
             .expect("Failed to create file");
         assert_eq!(

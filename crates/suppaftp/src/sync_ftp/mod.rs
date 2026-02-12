@@ -1182,7 +1182,7 @@ mod test {
             stream
                 .get_welcome_msg()
                 .unwrap()
-                .contains("220 You will be disconnected after 15 minutes of inactivity.")
+                .contains("220 Welcome Alpine ftp server")
         );
     }
 
@@ -1194,7 +1194,7 @@ mod test {
                 stream
                     .get_welcome_msg()
                     .unwrap()
-                    .contains("220 You will be disconnected after 15 minutes of inactivity.")
+                    .contains("220 Welcome Alpine ftp server")
             );
         });
     }
@@ -1235,7 +1235,7 @@ mod test {
         with_test_ftp_stream(|stream| {
             let wrkdir: String = stream.pwd().unwrap();
             assert!(stream.cdup().is_ok());
-            assert_eq!(stream.pwd().unwrap().as_str(), "/");
+            assert_eq!(stream.pwd().unwrap().as_str(), "/home/test");
             assert!(stream.cwd(wrkdir.as_str()).is_ok());
         })
     }
@@ -1280,13 +1280,13 @@ mod test {
     fn test_should_list_files_with_non_utf8_names() {
         with_test_ftp_stream(|stream| {
             let files = stream
-                .nlst(Some("/invalid-utf8/"))
+                .nlst(Some("/home/test/invalid-utf8/"))
                 .expect("Failed to list files");
             assert_eq!(files.len(), 1);
 
             // list file and parse
             let files = stream
-                .list(Some("/invalid-utf8/"))
+                .list(Some("/home/test/invalid-utf8/"))
                 .expect("Failed to list files");
             assert_eq!(files.len(), 1);
             // parse

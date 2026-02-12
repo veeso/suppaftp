@@ -11,12 +11,12 @@ repository = { workspace = true }
 documentation = "https://docs.rs/suppaftp/"
 description = "A super FTP/FTPS client library for Rust"
 include = [
-    "examples/**/*",
-    "src/**/*",
-    "../LICENSE-APACHE",
-    "../LICENSE-MIT",
-    "../README.md",
-    "../CHANGELOG.md",
+  "examples/**/*",
+  "src/**/*",
+  "../LICENSE-APACHE",
+  "../LICENSE-MIT",
+  "../README.md",
+  "../CHANGELOG.md",
 ]
 readme = "../README.md"
 
@@ -35,25 +35,25 @@ async-native-tls-crate = { package = "async-native-tls", version = "^0.5", defau
 async-std = { version = "1", optional = true }
 async-trait = { version = "0.1", optional = true }
 futures-rustls = { version = "0.26", optional = true, default-features = false, features = [
-    "tls12", "logging"
+  "tls12", "logging"
 ] }
 pin-project = { version = "1", optional = true }
 rustls-pki-types = { version = "1", optional = true, features = ["alloc"] }
 tokio = { version = "1", features = [
-    "io-util",
-    "net",
-    "rt",
-    "time",
+  "io-util",
+  "net",
+  "rt",
+  "time",
 ], optional = true }
 tokio-rustls-crate = { package = "tokio-rustls", version = "0.26", optional = true, default-features = false, features = [
-    "logging", "tls12"
+  "logging", "tls12"
 ] }
 # secure
 native-tls-crate = { package = "native-tls", version = "0.2", optional = true }
 rustls-crate = { package = "rustls", version = "0.23", default-features = false, features = [
-    "logging",
-    "std",
-    "tls12",
+  "logging",
+  "std",
+  "tls12",
 ], optional = true }
 futures-lite = "2"
 
@@ -81,56 +81,56 @@ async-secure = []
 # Async-std features
 async-std = ["dep:async-std", "dep:async-trait", "dep:pin-project"]
 async-std-rustls-aws-lc-rs = [
-    "dep:futures-rustls",
-    "futures-rustls/aws-lc-rs",
-    "dep:rustls-pki-types",
-    "async-secure",
-    "async-std",
+  "dep:futures-rustls",
+  "futures-rustls/aws-lc-rs",
+  "dep:rustls-pki-types",
+  "async-secure",
+  "async-std",
 ]
 async-std-rustls-ring = [
-    "dep:futures-rustls",
-    "futures-rustls/ring",
-    "dep:rustls-pki-types",
-    "async-secure",
-    "async-std",
+  "dep:futures-rustls",
+  "futures-rustls/ring",
+  "dep:rustls-pki-types",
+  "async-secure",
+  "async-std",
 ]
 async-std-async-native-tls = [
-    "async-std",
-    "dep:async-native-tls-crate",
-    "async-native-tls-crate/runtime-async-std",
-    "async-native-tls-crate/futures-util",
-    "async-secure",
+  "async-std",
+  "dep:async-native-tls-crate",
+  "async-native-tls-crate/runtime-async-std",
+  "async-native-tls-crate/futures-util",
+  "async-secure",
 ]
 async-std-async-native-tls-vendored = [
-    "async-std-async-native-tls",
-    "async-native-tls-crate/vendored",
+  "async-std-async-native-tls",
+  "async-native-tls-crate/vendored",
 ]
 
 # Tokio
 tokio = ["dep:tokio", "dep:async-trait", "dep:pin-project"]
 tokio-rustls-aws-lc-rs = [
-    "dep:tokio-rustls-crate",
-    "dep:rustls-pki-types",
-    "async-secure",
-    "tokio",
-    "tokio-rustls-crate/aws-lc-rs",
+  "dep:tokio-rustls-crate",
+  "dep:rustls-pki-types",
+  "async-secure",
+  "tokio",
+  "tokio-rustls-crate/aws-lc-rs",
 ]
 tokio-rustls-ring = [
-    "dep:tokio-rustls-crate",
-    "dep:rustls-pki-types",
-    "async-secure",
-    "tokio",
-    "tokio-rustls-crate/ring",
+  "dep:tokio-rustls-crate",
+  "dep:rustls-pki-types",
+  "async-secure",
+  "tokio",
+  "tokio-rustls-crate/ring",
 ]
 tokio-async-native-tls = [
-    "tokio",
-    "dep:async-native-tls-crate",
-    "async-native-tls-crate/runtime-tokio",
-    "async-secure",
+  "tokio",
+  "dep:async-native-tls-crate",
+  "async-native-tls-crate/runtime-tokio",
+  "async-secure",
 ]
 tokio-async-native-tls-vendored = [
-    "tokio-async-native-tls",
-    "async-native-tls-crate/vendored",
+  "tokio-async-native-tls",
+  "async-native-tls-crate/vendored",
 ]
 
 # Misc features
@@ -142,16 +142,16 @@ no-log = ["log/max_level_off"]
 
 [package.metadata.docs.rs]
 features = [
-    "native-tls",
-    "rustls-aws-lc-rs",
-    "async-std",
-    "tokio",
-    "tokio-async-native-tls",
-    "async-std-rustls-aws-lc-rs",
-    "tokio-rustls-aws-lc-rs",
+  "native-tls",
+  "rustls-aws-lc-rs",
+  "async-std",
+  "tokio",
+  "tokio-async-native-tls",
+  "async-std-rustls-aws-lc-rs",
+  "tokio-rustls-aws-lc-rs",
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
 name = "rustls"
-required-features = ["rustls"]
+required-features = ["rustls-aws-lc-rs"]
