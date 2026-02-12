@@ -980,6 +980,55 @@ mod tests {
     }
 
     #[test]
+    fn parse_mlsx_with_link_type() {
+        let file =
+            ListParser::parse_mlsd("type=link;size=0;modify=20181105163248; mylink").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "mylink");
+        assert!(file.is_symlink());
+    }
+
+    #[test]
+    fn parse_mlsx_with_uid_gid() {
+        let file = ListParser::parse_mlsd(
+            "type=file;size=1024;modify=20201019151930;unix.uid=1000;unix.gid=2000; data.bin",
+        )
+        .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "data.bin");
+        pretty_assertions::assert_eq!(file.uid, Some(1000));
+        pretty_assertions::assert_eq!(file.gid, Some(2000));
+    }
+
+    #[test]
+    fn parse_mlsx_with_invalid_type() {
+        assert!(
+            ListParser::parse_mlsd("type=unknown;size=0;modify=20181105163248; bad.txt").is_err()
+        );
+    }
+
+    #[test]
+    fn parse_mlsx_with_invalid_size() {
+        assert!(
+            ListParser::parse_mlsd("type=file;size=notanumber;modify=20181105163248; bad.txt")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn parse_mlsx_with_invalid_modify() {
+        assert!(ListParser::parse_mlsd("type=file;size=0;modify=notadate; bad.txt").is_err());
+    }
+
+    #[test]
+    fn parse_posix_symlink() {
+        let file =
+            ListParser::parse_posix("lrwxrwxrwx 1 root root 9 Nov 5 2018 link -> /tmp/target")
+                .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "link");
+        assert!(file.is_symlink());
+        pretty_assertions::assert_eq!(file.symlink(), Some(std::path::Path::new("/tmp/target")));
+    }
+
+    #[test]
     fn get_name_and_link() {
         pretty_assertions::assert_eq!(
             ListParser::get_name_and_link("Cargo.toml"),

@@ -119,6 +119,23 @@ mod test {
     }
 
     #[test]
+    fn test_is_last_line() {
+        assert!(is_last_line("211 END"));
+        assert!(is_last_line("211 "));
+        assert!(!is_last_line("211-Features:"));
+        assert!(!is_last_line(" MLST size*"));
+        assert!(!is_last_line("200 OK"));
+    }
+
+    #[test]
+    fn test_should_not_parse_empty_lines() {
+        let lines: Vec<String> = vec![];
+        let result = parse_features(&lines);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), FtpError::BadResponse));
+    }
+
+    #[test]
     fn test_should_not_parse_invalid_features() {
         let lines = vec![
             "211-Features:".to_string(),

@@ -176,6 +176,16 @@ mod test {
             FtpError::BadResponse.to_string().as_str(),
             "Response contains an invalid syntax"
         );
+        assert_eq!(
+            FtpError::InvalidAddress("127.0.0.1:abc".parse::<std::net::SocketAddr>().unwrap_err())
+                .to_string()
+                .as_str(),
+            "Invalid address: invalid socket address syntax"
+        );
+        assert_eq!(
+            FtpError::DataConnectionAlreadyOpen.to_string().as_str(),
+            "Data connection is already open"
+        );
     }
 
     #[test]
@@ -195,6 +205,12 @@ mod test {
             response.to_string().as_str(),
             "[550] Can't create directory: File exists"
         );
+    }
+
+    #[test]
+    fn response_as_string_with_invalid_utf8() {
+        let response = Response::new(Status::CommandOk, vec![0xff, 0xfe, 0xfd]);
+        assert!(response.as_string().is_err());
     }
 
     #[test]

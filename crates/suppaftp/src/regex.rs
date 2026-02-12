@@ -80,4 +80,31 @@ mod test {
         let size = caps[1].parse::<usize>().unwrap();
         assert_eq!(size, 2048);
     }
+
+    #[test]
+    fn should_not_match_pasv_port() {
+        assert!(PASV_PORT_RE.captures("no passive mode here").is_none());
+        assert!(PASV_PORT_RE.captures("227 Entering Passive Mode").is_none());
+    }
+
+    #[test]
+    fn should_not_match_epsv_port() {
+        assert!(
+            EPSV_PORT_RE
+                .captures("no extended passive mode here")
+                .is_none()
+        );
+        assert!(EPSV_PORT_RE.captures("229 (||6446|)").is_none());
+    }
+
+    #[test]
+    fn should_not_match_mdtm() {
+        assert!(MDTM_RE.captures("no date here").is_none());
+        assert!(MDTM_RE.captures("2023").is_none());
+    }
+
+    #[test]
+    fn should_not_match_size() {
+        assert!(SIZE_RE.captures("no digits here").is_none());
+    }
 }

@@ -1,6 +1,8 @@
 # Changelog
 
 - [Changelog](#changelog)
+    - [8.0.2](#802)
+    - [8.0.1](#801)
     - [7.0.7](#707)
     - [7.0.6](#706)
     - [7.0.5](#705)
@@ -51,6 +53,27 @@
     - [4.0.0](#400)
 
 ---
+
+## 8.0.2
+
+Released on 12/02/2026
+
+- [PR 135](https://github.com/veeso/suppaftp/pull/135): Fixed unsafe undefined behavior in tokio `AsyncNativeTlsStream::tcp_stream()` which could cause use-after-free / double-free.
+- [PR 136](https://github.com/veeso/suppaftp/pull/136): Fixed `data_connection_open` flag being set before the data stream was actually created, which could incorrectly report `DataConnectionAlreadyOpen` on failure.
+- [PR 137](https://github.com/veeso/suppaftp/pull/137): Fixed infinite loop in async `feat()` when the server disconnects mid-response.
+- [PR 138](https://github.com/veeso/suppaftp/pull/138): Fixed infinite loop in `read_response_in()` on multiline responses when the server disconnects.
+- [PR 139](https://github.com/veeso/suppaftp/pull/139): Fixed MLSX parser to accept `cdir` and `pdir` entry types as directories (per RFC 3659).
+- [PR 140](https://github.com/veeso/suppaftp/pull/140): Fixed MLSX `unix.mode` parser to accept 4-digit octal modes (e.g. `0755`).
+- [PR 141](https://github.com/veeso/suppaftp/pull/141): Fixed `abort()` hanging when server sends 226 directly instead of 426+226.
+- [PR 142](https://github.com/veeso/suppaftp/pull/142): Fixed DOS LIST parser to handle comma-separated file sizes (e.g. `1,234,567`).
+- [PR 143](https://github.com/veeso/suppaftp/pull/143): Fixed `parse_lstime` to adjust year for future dates (matches GNU ls behavior).
+- [PR 144](https://github.com/veeso/suppaftp/pull/144): Fixed DOS time parser to handle space before AM/PM (e.g. `01:30 PM`).
+- [PR 145](https://github.com/veeso/suppaftp/pull/145): Fixed active mode to use EPRT command for IPv6 connections.
+- [PR 146](https://github.com/veeso/suppaftp/pull/146): Replaced `unwrap()` panics on server-controlled data (EPSV, SIZE, MDTM) with proper error handling.
+- [PR 147](https://github.com/veeso/suppaftp/pull/147): Removed redundant `feature = "async-std"` in cfg gate.
+- [PR 148](https://github.com/veeso/suppaftp/pull/148): Fixed `doc(cfg)` attribute on `SecureError` variant to show both `secure` and `async-secure` features.
+- [PR 133](https://github.com/veeso/suppaftp/pull/133): Moved crates to `crates/` folder.
+- [PR 134](https://github.com/veeso/suppaftp/pull/134): Changed test container image to `delfer/alpine-ftp-server`.
 
 ## 8.0.1
 
