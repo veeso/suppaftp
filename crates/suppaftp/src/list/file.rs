@@ -224,6 +224,81 @@ mod test {
     }
 
     #[test]
+    fn file_type_getter() {
+        let file = File {
+            name: String::from("test.txt"),
+            file_type: FileType::File,
+            size: 0,
+            modified: SystemTime::UNIX_EPOCH,
+            gid: None,
+            uid: None,
+            posix_pex: (PosixPex::from(0), PosixPex::from(0), PosixPex::from(0)),
+        };
+        assert_eq!(file.file_type(), &FileType::File);
+
+        let dir = File {
+            name: String::from("mydir"),
+            file_type: FileType::Directory,
+            size: 0,
+            modified: SystemTime::UNIX_EPOCH,
+            gid: None,
+            uid: None,
+            posix_pex: (PosixPex::from(0), PosixPex::from(0), PosixPex::from(0)),
+        };
+        assert_eq!(dir.file_type(), &FileType::Directory);
+    }
+
+    #[test]
+    fn try_from_str_posix() {
+        let file = File::try_from("-rw-r--r-- 1 user group 1234 Nov 5 2018 example.txt").unwrap();
+        assert_eq!(file.name(), "example.txt");
+        assert!(file.is_file());
+    }
+
+    #[test]
+    fn try_from_str_dos() {
+        let file = File::try_from("04-08-14  03:09PM  8192 omar.txt").unwrap();
+        assert_eq!(file.name(), "omar.txt");
+        assert!(file.is_file());
+    }
+
+    #[test]
+    fn try_from_str_mlsx() {
+        let file = File::try_from("type=file;size=8192;modify=20181105163248; omar.txt").unwrap();
+        assert_eq!(file.name(), "omar.txt");
+        assert!(file.is_file());
+    }
+
+    #[test]
+    fn try_from_string_ref() {
+        let line = String::from("-rw-r--r-- 1 user group 1234 Nov 5 2018 example.txt");
+        let file = File::try_from(&line).unwrap();
+        assert_eq!(file.name(), "example.txt");
+    }
+
+    #[test]
+    fn try_from_string_owned() {
+        let line = String::from("-rw-r--r-- 1 user group 1234 Nov 5 2018 example.txt");
+        let file = File::try_from(line).unwrap();
+        assert_eq!(file.name(), "example.txt");
+    }
+
+    #[test]
+    fn from_str_trait() {
+        let file: File = "-rw-r--r-- 1 user group 1234 Nov 5 2018 example.txt"
+            .parse()
+            .unwrap();
+        assert_eq!(file.name(), "example.txt");
+    }
+
+    #[test]
+    fn try_from_invalid_line() {
+        // Must include type= with an invalid value to fail the MLSX parser,
+        // since MLSX accepts nearly any string by skipping tokens without '='
+        assert!(File::try_from("type=badtype;size=0;modify=20181105163248; bad.txt").is_err());
+    }
+
+    #[test]
     fn file_type() {
         use std::path::PathBuf;
 

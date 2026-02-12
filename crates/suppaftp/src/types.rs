@@ -176,6 +176,16 @@ mod test {
             FtpError::BadResponse.to_string().as_str(),
             "Response contains an invalid syntax"
         );
+        assert_eq!(
+            FtpError::InvalidAddress("127.0.0.1:abc".parse::<std::net::SocketAddr>().unwrap_err())
+                .to_string()
+                .as_str(),
+            "Invalid address: invalid socket address syntax"
+        );
+        assert_eq!(
+            FtpError::DataConnectionAlreadyOpen.to_string().as_str(),
+            "Data connection is already open"
+        );
     }
 
     #[test]
@@ -195,6 +205,57 @@ mod test {
             response.to_string().as_str(),
             "[550] Can't create directory: File exists"
         );
+    }
+
+    #[test]
+    fn response_as_string_with_invalid_utf8() {
+        let response = Response::new(Status::CommandOk, vec![0xff, 0xfe, 0xfd]);
+        assert!(response.as_string().is_err());
+    }
+
+    #[test]
+    fn response_as_string_trims_trailing_whitespace() {
+        let response = Response::new(Status::CommandOk, "hello world  \r\n".as_bytes().to_vec());
+        assert_eq!(response.as_string().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn response_empty_body() {
+        let response = Response::new(Status::CommandOk, vec![]);
+        assert_eq!(response.as_string().unwrap(), "");
+        assert_eq!(response.to_string(), "[200] ");
+    }
+
+    #[test]
+    fn mode_debug() {
+        assert_eq!(format!("{:?}", Mode::Active), "Active");
+        assert_eq!(format!("{:?}", Mode::Passive), "Passive");
+        assert_eq!(format!("{:?}", Mode::ExtendedPassive), "ExtendedPassive");
+    }
+
+    #[test]
+    fn mode_clone_and_eq() {
+        let mode = Mode::Passive;
+        let cloned = mode;
+        assert_eq!(mode, cloned);
+        assert_ne!(Mode::Active, Mode::Passive);
+        assert_ne!(Mode::ExtendedPassive, Mode::Passive);
+    }
+
+    #[test]
+    fn file_type_clone_and_eq() {
+        let ft = FileType::Binary;
+        let cloned = ft.clone();
+        assert_eq!(ft, cloned);
+        assert_ne!(FileType::Binary, FileType::Ascii(FormatControl::Default));
+        assert_ne!(FileType::Image, FileType::Local(8));
+    }
+
+    #[test]
+    fn format_control_ordering() {
+        assert!(FormatControl::Default < FormatControl::NonPrint);
+        assert!(FormatControl::NonPrint < FormatControl::Telnet);
+        assert!(FormatControl::Telnet < FormatControl::Asa);
     }
 
     #[test]
