@@ -13,12 +13,12 @@ description = "A super FTP/FTPS client library for Rust"
 include = [
   "examples/**/*",
   "src/**/*",
-  "../LICENSE-APACHE",
-  "../LICENSE-MIT",
-  "../README.md",
-  "../CHANGELOG.md",
+  "../../LICENSE-APACHE",
+  "../../LICENSE-MIT",
+  "../../README.md",
+  "../../CHANGELOG.md",
 ]
-readme = "../README.md"
+readme = "../../README.md"
 
 
 [lib]
