@@ -738,7 +738,10 @@ where
 
         loop {
             let mut line = Vec::new();
-            self.read_line(&mut line).await?;
+            let bytes_read = self.read_line(&mut line).await?;
+            if bytes_read == 0 {
+                break;
+            }
             let line = String::from_utf8_lossy(&line);
             trace!("FEAT IN: {:?}", line);
             feat_lines.push(line.to_string());
