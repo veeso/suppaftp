@@ -644,6 +644,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_dos_line_with_comma_separated_size() {
+        let file: File = ListParser::parse_dos("04-08-14  03:09PM  1,234 readme.txt")
+            .ok()
+            .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "readme.txt");
+        pretty_assertions::assert_eq!(file.size, 1234);
+        assert!(file.is_file());
+
+        let file: File = ListParser::parse_dos("04-08-14  03:09PM  1,234,567 bigfile.bin")
+            .ok()
+            .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "bigfile.bin");
+        pretty_assertions::assert_eq!(file.size, 1234567);
+        assert!(file.is_file());
+    }
+
+    #[test]
     fn test_should_parse_name_starting_with_tricky_numbers() {
         let file = ListParser::parse_posix(
             "-r--r--r--    1 23        23         1234567 Jan 1  2000 01 1234 foo.mp3",
