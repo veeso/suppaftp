@@ -988,7 +988,11 @@ where
 
         let ip = match self.reader.get_mut() {
             DataStream::Tcp(stream) => stream.local_addr().map_err(FtpError::ConnectionError)?.ip(),
-            DataStream::Ssl(stream) => stream.get_ref().local_addr().map_err(FtpError::ConnectionError)?.ip(),
+            DataStream::Ssl(stream) => stream
+                .get_ref()
+                .local_addr()
+                .map_err(FtpError::ConnectionError)?
+                .ip(),
         };
 
         debug!("Active mode, listening on {}:{}", ip, addr.port());

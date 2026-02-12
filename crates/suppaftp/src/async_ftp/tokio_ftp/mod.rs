@@ -974,7 +974,11 @@ where
 
         let ip = match self.reader.get_mut() {
             DataStream::Tcp(stream) => stream.local_addr().map_err(FtpError::ConnectionError)?.ip(),
-            DataStream::Ssl(stream) => stream.get_ref().local_addr().map_err(FtpError::ConnectionError)?.ip(),
+            DataStream::Ssl(stream) => stream
+                .get_ref()
+                .local_addr()
+                .map_err(FtpError::ConnectionError)?
+                .ip(),
         };
 
         debug!("Active mode, listening on {}:{}", ip, addr.port());
@@ -989,7 +993,8 @@ where
             }
             std::net::IpAddr::V6(_) => {
                 debug!("Running EPRT command");
-                self.perform(Command::Eprt(SocketAddr::new(ip, addr.port()))).await?;
+                self.perform(Command::Eprt(SocketAddr::new(ip, addr.port())))
+                    .await?;
             }
         }
         self.read_response(Status::CommandOk).await?;
