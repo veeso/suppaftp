@@ -414,6 +414,7 @@ impl ListParser {
     /// Parse date time string in DOS representation ("%m-%d-%y %I:%M%p")
     fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
         NaiveDateTime::parse_from_str(tm, "%m-%d-%y %I:%M%p")
+            .or_else(|_| NaiveDateTime::parse_from_str(tm, "%m-%d-%y %I:%M %p"))
             .map(|dt| {
                 SystemTime::UNIX_EPOCH
                     .checked_add(Duration::from_secs(dt.and_utc().timestamp() as u64))
