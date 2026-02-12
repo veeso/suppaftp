@@ -107,4 +107,46 @@ mod test {
     fn should_not_match_size() {
         assert!(SIZE_RE.captures("no digits here").is_none());
     }
+
+    #[test]
+    fn should_match_size_with_leading_code() {
+        let response = "213 1024";
+        let caps = SIZE_RE.captures(response).unwrap();
+        let size = caps[1].parse::<usize>().unwrap();
+        assert_eq!(size, 1024);
+    }
+
+    #[test]
+    fn should_match_size_with_trailing_spaces() {
+        let response = "213 512   ";
+        let caps = SIZE_RE.captures(response).unwrap();
+        let size = caps[1].parse::<usize>().unwrap();
+        assert_eq!(size, 512);
+    }
+
+    #[test]
+    fn should_match_pasv_with_trailing_dot() {
+        // Some servers append a trailing dot after the closing parenthesis
+        let response = "227 Entering Passive Mode (10,0,0,1,4,0).";
+        let caps = PASV_PORT_RE.captures(response).unwrap();
+        assert_eq!(caps[1].parse::<u8>().unwrap(), 10);
+        assert_eq!(caps[2].parse::<u8>().unwrap(), 0);
+        assert_eq!(caps[3].parse::<u8>().unwrap(), 0);
+        assert_eq!(caps[4].parse::<u8>().unwrap(), 1);
+        let port = (u16::from(caps[5].parse::<u8>().unwrap()) << 8)
+            | u16::from(caps[6].parse::<u8>().unwrap());
+        assert_eq!(port, 1024);
+    }
+
+    #[test]
+    fn should_match_mdtm_at_start() {
+        let response = "213 20210315120000";
+        let caps = MDTM_RE.captures(response).unwrap();
+        assert_eq!(caps[1].parse::<i32>().unwrap(), 2021);
+        assert_eq!(caps[2].parse::<u32>().unwrap(), 3);
+        assert_eq!(caps[3].parse::<u32>().unwrap(), 15);
+        assert_eq!(caps[4].parse::<u32>().unwrap(), 12);
+        assert_eq!(caps[5].parse::<u32>().unwrap(), 0);
+        assert_eq!(caps[6].parse::<u32>().unwrap(), 0);
+    }
 }

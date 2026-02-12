@@ -145,4 +145,46 @@ mod test {
         assert!(result.is_err(), "Expected error for invalid feature line");
         assert!(matches!(result.unwrap_err(), FtpError::BadResponse));
     }
+
+    #[test]
+    fn test_should_not_parse_unknown_first_line() {
+        let lines = vec!["500 Unknown".to_string()];
+        let result = parse_features(&lines);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), FtpError::BadResponse));
+    }
+
+    #[test]
+    fn test_should_parse_features_without_end_marker() {
+        // If end marker is missing, it still parses what it can
+        let lines = vec![
+            "211-Features:".to_string(),
+            " UTF8".to_string(),
+            " MLST size*;modify*".to_string(),
+        ];
+        let features = parse_features(&lines).expect("failed to parse features");
+        assert_eq!(features.len(), 2);
+        assert!(features.contains_key("UTF8"));
+        assert!(features.contains_key("MLST"));
+    }
+
+    #[test]
+    fn test_should_parse_feature_with_value() {
+        let lines = vec![
+            "211-Features:".to_string(),
+            " REST STREAM".to_string(),
+            "211 END".to_string(),
+        ];
+        let features = parse_features(&lines).expect("failed to parse features");
+        assert_eq!(features.len(), 1);
+        assert_eq!(features.get("REST").unwrap().as_deref(), Some("STREAM"));
+    }
+
+    #[test]
+    fn test_is_last_line_edge_cases() {
+        assert!(!is_last_line(""));
+        assert!(!is_last_line("211"));
+        assert!(is_last_line("211 End"));
+        assert!(!is_last_line("2111 "));
+    }
 }

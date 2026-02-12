@@ -1475,6 +1475,107 @@ mod test {
     }
 
     #[test]
+    fn test_abort_transfer() {
+        crate::log_init();
+        let container = Arc::new(SyncPureFtpRunner::start());
+        let port = container.get_ftp_port();
+        let url = format!("localhost:{port}");
+
+        let mut stream: FtpStream = setup_stream(&url, &container);
+
+        assert!(stream.transfer_type(FileType::Binary).is_ok());
+        // Write a file first
+        let file_data = "test data for abort\n";
+        let mut reader = Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("abort_test.txt", &mut reader).is_ok());
+        // Open a retr stream
+        let data_stream = stream.retr_as_stream("abort_test.txt").unwrap();
+        // Abort the transfer - this is the method under test
+        assert!(stream.abort(data_stream).is_ok());
+        // NOTE: after abort, the server may leave extra responses in the buffer,
+        // so we drop the stream without quit. The container cleanup handles the rest.
+        drop(stream);
+    }
+
+    #[test]
+    fn test_retr_with_callback() {
+        with_test_ftp_stream(|stream| {
+            assert!(stream.transfer_type(FileType::Binary).is_ok());
+            let file_data = "hello callback";
+            let mut reader = Cursor::new(file_data.as_bytes());
+            assert!(stream.put_file("callback.txt", &mut reader).is_ok());
+
+            let result = stream
+                .retr("callback.txt", |reader| {
+                    let mut buf = Vec::new();
+                    reader
+                        .read_to_end(&mut buf)
+                        .map_err(FtpError::ConnectionError)?;
+                    Ok(buf)
+                })
+                .unwrap();
+            assert_eq!(result, file_data.as_bytes());
+
+            assert!(stream.rm("callback.txt").is_ok());
+        })
+    }
+
+    #[test]
+    fn test_append_with_stream() {
+        with_test_ftp_stream(|stream| {
+            assert!(stream.transfer_type(FileType::Binary).is_ok());
+            // Create file
+            let mut reader = Cursor::new("part1".as_bytes());
+            assert!(stream.put_file("append_stream.txt", &mut reader).is_ok());
+            // Append via stream
+            let mut data_stream = stream.append_with_stream("append_stream.txt").unwrap();
+            data_stream.write_all(b"part2").unwrap();
+            stream.finalize_put_stream(data_stream).unwrap();
+            // Verify content
+            let content = stream
+                .retr_as_buffer("append_stream.txt")
+                .unwrap()
+                .into_inner();
+            assert_eq!(content, b"part1part2");
+            assert!(stream.rm("append_stream.txt").is_ok());
+        })
+    }
+
+    #[test]
+    fn test_active_mode_builder() {
+        crate::log_init();
+        let stream = FtpStream::connect("test.rebex.net:21").unwrap();
+        let stream = stream.active_mode(Duration::from_secs(30));
+        assert_eq!(stream.mode, Mode::Active);
+        assert_eq!(stream.active_timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_passive_stream_builder() {
+        crate::log_init();
+        let stream = FtpStream::connect("test.rebex.net:21").unwrap();
+        let stream = stream.passive_stream_builder(|addr| {
+            TcpStream::connect(addr).map_err(FtpError::ConnectionError)
+        });
+        // Verify the builder was set (mode should still be passive)
+        assert_eq!(stream.mode, Mode::Passive);
+    }
+
+    #[test]
+    fn test_parse_passive_address_bad_response() {
+        // Non-UTF8 body
+        let response = Response::new(Status::PassiveMode, vec![0xff, 0xfe]);
+        assert!(FtpStream::parse_passive_address_from_response(response).is_err());
+
+        // No matching pattern
+        let response = Response::new(
+            Status::PassiveMode,
+            "227 No passive mode info here".as_bytes().to_vec(),
+        );
+        assert!(FtpStream::parse_passive_address_from_response(response).is_err());
+    }
+
+    #[test]
     fn test_should_prevent_multiple_data_connections() {
         with_test_ftp_stream(|stream| {
             let command = "LIST";
@@ -1533,6 +1634,129 @@ mod test {
             // finalize
             assert!(stream.close_data_connection(reader).is_ok());
         });
+    }
+
+    #[test]
+    fn test_site_command() {
+        with_test_ftp_stream(|stream| {
+            // SITE HELP is commonly supported
+            let result = stream.site("HELP");
+            // Some servers may not support SITE; just verify it doesn't panic
+            // and returns either Ok or an expected error
+            match result {
+                Ok(response) => {
+                    assert_eq!(response.status, Status::CommandOk);
+                }
+                Err(FtpError::UnexpectedResponse(_)) => {
+                    // Server doesn't support SITE, that's ok
+                }
+                Err(err) => panic!("Unexpected error: {}", err),
+            }
+        })
+    }
+
+    #[test]
+    fn test_eprt_command() {
+        with_test_ftp_stream(|stream| {
+            let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+            // EPRT might succeed or fail depending on server config, but should not panic
+            let _ = stream.eprt(addr);
+        })
+    }
+
+    #[test]
+    fn test_transfer_type_variants() {
+        with_test_ftp_stream(|stream| {
+            assert!(
+                stream
+                    .transfer_type(FileType::Ascii(FormatControl::NonPrint))
+                    .is_ok()
+            );
+            assert!(stream.transfer_type(FileType::Image).is_ok());
+            // Local type might not be supported, but should not panic
+            let _ = stream.transfer_type(FileType::Local(8));
+        })
+    }
+
+    #[test]
+    fn test_cwd_error() {
+        with_test_ftp_stream(|stream| match stream.cwd("/nonexistent/directory/path") {
+            Err(FtpError::UnexpectedResponse(response)) => {
+                assert_eq!(response.status, Status::FileUnavailable);
+            }
+            _ => panic!("Expected UnexpectedResponse for nonexistent directory"),
+        })
+    }
+
+    #[test]
+    fn test_rm_nonexistent_file() {
+        with_test_ftp_stream(|stream| match stream.rm("nonexistent_file.txt") {
+            Err(FtpError::UnexpectedResponse(_)) => {}
+            _ => panic!("Expected error when removing nonexistent file"),
+        })
+    }
+
+    #[test]
+    fn test_rmdir_nonexistent() {
+        with_test_ftp_stream(|stream| match stream.rmdir("nonexistent_dir") {
+            Err(FtpError::UnexpectedResponse(_)) => {}
+            _ => panic!("Expected error when removing nonexistent directory"),
+        })
+    }
+
+    #[test]
+    fn test_rename_nonexistent() {
+        with_test_ftp_stream(
+            |stream| match stream.rename("nonexistent.txt", "new_name.txt") {
+                Err(FtpError::UnexpectedResponse(_)) => {}
+                _ => panic!("Expected error when renaming nonexistent file"),
+            },
+        )
+    }
+
+    #[test]
+    fn test_retr_nonexistent_file() {
+        with_test_ftp_stream(
+            |stream| match stream.retr_as_buffer("nonexistent_file.txt") {
+                Err(FtpError::UnexpectedResponse(_)) => {}
+                _ => panic!("Expected error when retrieving nonexistent file"),
+            },
+        )
+    }
+
+    #[test]
+    fn test_list_nonexistent_path() {
+        with_test_ftp_stream(|stream| {
+            // Listing a nonexistent path - behavior varies per server
+            let _ = stream.list(Some("/nonexistent/path"));
+        })
+    }
+
+    #[test]
+    fn test_nlst_with_path() {
+        with_test_ftp_stream(|stream| {
+            // Put a file first
+            let mut reader = Cursor::new("data".as_bytes());
+            assert!(stream.put_file("nlst_test.txt", &mut reader).is_ok());
+
+            let files = stream.nlst(None).unwrap();
+            assert!(files.contains(&"nlst_test.txt".to_string()));
+
+            assert!(stream.rm("nlst_test.txt").is_ok());
+        })
+    }
+
+    #[test]
+    fn test_list_with_explicit_current_dir() {
+        with_test_ftp_stream(|stream| {
+            let mut reader = Cursor::new("data".as_bytes());
+            assert!(stream.put_file("list_test.txt", &mut reader).is_ok());
+
+            let files = stream.list(Some(".")).unwrap();
+            assert!(!files.is_empty());
+
+            assert!(stream.rm("list_test.txt").is_ok());
+        })
     }
 
     // -- test utils

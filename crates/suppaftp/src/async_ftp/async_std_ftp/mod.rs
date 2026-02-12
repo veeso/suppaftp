@@ -1557,6 +1557,195 @@ mod test {
         assert!(stream.close_data_connection(reader).await.is_ok());
     }
 
+    #[async_attributes::test]
+    async fn test_abort_transfer() {
+        crate::log_init();
+        let (mut stream, _container) = setup_stream().await;
+
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        let file_data = "test data for abort\n";
+        let mut reader = async_std::io::Cursor::new(file_data.as_bytes());
+        assert!(stream.put_file("abort_test.txt", &mut reader).await.is_ok());
+        // Open a retr stream
+        let data_stream = stream.retr_as_stream("abort_test.txt").await.unwrap();
+        // Abort the transfer
+        assert!(stream.abort(data_stream).await.is_ok());
+        // NOTE: after abort, the server may leave extra responses in the buffer,
+        // so we drop the stream without quit.
+        drop(stream);
+    }
+
+    #[async_attributes::test]
+    async fn test_append_with_stream() {
+        let (mut stream, _container) = setup_stream().await;
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+        // Create file
+        let mut reader = async_std::io::Cursor::new("part1".as_bytes());
+        assert!(
+            stream
+                .put_file("append_stream.txt", &mut reader)
+                .await
+                .is_ok()
+        );
+        // Append via stream
+        let mut data_stream = stream
+            .append_with_stream("append_stream.txt")
+            .await
+            .unwrap();
+        async_std::io::WriteExt::write_all(&mut data_stream, b"part2")
+            .await
+            .unwrap();
+        stream.finalize_put_stream(data_stream).await.unwrap();
+        // Verify content
+        let mut reader = stream.retr_as_stream("append_stream.txt").await.unwrap();
+        let mut buffer = Vec::new();
+        async_std::io::ReadExt::read_to_end(&mut reader, &mut buffer)
+            .await
+            .unwrap();
+        stream.finalize_retr_stream(reader).await.unwrap();
+        assert_eq!(buffer, b"part1part2");
+        assert!(stream.rm("append_stream.txt").await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_active_mode_builder() {
+        crate::log_init();
+        let stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
+        let stream = stream.active_mode(Duration::from_secs(30));
+        assert_eq!(stream.mode, Mode::Active);
+        assert_eq!(stream.active_timeout, Duration::from_secs(30));
+    }
+
+    #[async_attributes::test]
+    async fn test_passive_stream_builder() {
+        crate::log_init();
+        let stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
+        let stream = stream.passive_stream_builder(|addr| {
+            Box::pin(async move {
+                TcpStream::connect(addr)
+                    .await
+                    .map_err(FtpError::ConnectionError)
+            })
+        });
+        assert_eq!(stream.mode, Mode::Passive);
+    }
+
+    #[async_attributes::test]
+    async fn test_site_command() {
+        let (mut stream, _container) = setup_stream().await;
+        let result = stream.site("HELP").await;
+        match result {
+            Ok(response) => {
+                assert_eq!(response.status, Status::CommandOk);
+            }
+            Err(FtpError::UnexpectedResponse(_)) => {}
+            Err(err) => panic!("Unexpected error: {}", err),
+        }
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_eprt_command() {
+        let (mut stream, _container) = setup_stream().await;
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let _ = stream.eprt(addr).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_transfer_type_variants() {
+        let (mut stream, _container) = setup_stream().await;
+        assert!(
+            stream
+                .transfer_type(FileType::Ascii(FormatControl::NonPrint))
+                .await
+                .is_ok()
+        );
+        assert!(stream.transfer_type(FileType::Image).await.is_ok());
+        let _ = stream.transfer_type(FileType::Local(8)).await;
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_cwd_error() {
+        let (mut stream, _container) = setup_stream().await;
+        match stream.cwd("/nonexistent/directory/path").await {
+            Err(FtpError::UnexpectedResponse(response)) => {
+                assert_eq!(response.status, Status::FileUnavailable);
+            }
+            _ => panic!("Expected UnexpectedResponse for nonexistent directory"),
+        }
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_rm_nonexistent_file() {
+        let (mut stream, _container) = setup_stream().await;
+        match stream.rm("nonexistent_file.txt").await {
+            Err(FtpError::UnexpectedResponse(_)) => {}
+            _ => panic!("Expected error when removing nonexistent file"),
+        }
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_rmdir_nonexistent() {
+        let (mut stream, _container) = setup_stream().await;
+        match stream.rmdir("nonexistent_dir").await {
+            Err(FtpError::UnexpectedResponse(_)) => {}
+            _ => panic!("Expected error when removing nonexistent directory"),
+        }
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_rename_nonexistent() {
+        let (mut stream, _container) = setup_stream().await;
+        match stream.rename("nonexistent.txt", "new_name.txt").await {
+            Err(FtpError::UnexpectedResponse(_)) => {}
+            _ => panic!("Expected error when renaming nonexistent file"),
+        }
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_retr_nonexistent_file() {
+        let (mut stream, _container) = setup_stream().await;
+        match stream.retr_as_stream("nonexistent_file.txt").await {
+            Err(FtpError::UnexpectedResponse(_)) => {}
+            _ => panic!("Expected error when retrieving nonexistent file"),
+        }
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_list_nonexistent_path() {
+        let (mut stream, _container) = setup_stream().await;
+        let _ = stream.list(Some("/nonexistent/path")).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_nlst_with_path() {
+        let (mut stream, _container) = setup_stream().await;
+        let mut reader = async_std::io::Cursor::new("data".as_bytes());
+        assert!(stream.put_file("nlst_test.txt", &mut reader).await.is_ok());
+        let files = stream.nlst(None).await.unwrap();
+        assert!(files.contains(&"nlst_test.txt".to_string()));
+        assert!(stream.rm("nlst_test.txt").await.is_ok());
+        finalize_stream(stream).await;
+    }
+
+    #[async_attributes::test]
+    async fn test_list_with_explicit_current_dir() {
+        let (mut stream, _container) = setup_stream().await;
+        let mut reader = async_std::io::Cursor::new("data".as_bytes());
+        assert!(stream.put_file("list_test.txt", &mut reader).await.is_ok());
+        let files = stream.list(Some(".")).await.unwrap();
+        assert!(!files.is_empty());
+        assert!(stream.rm("list_test.txt").await.is_ok());
+        finalize_stream(stream).await;
+    }
+
     /// Test if the stream is Send
     fn is_send<T: Send>(_send: T) {}
 
