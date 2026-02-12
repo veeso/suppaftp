@@ -1013,9 +1013,7 @@ where
         let caps = EPSV_PORT_RE
             .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
-        let new_port = caps[1]
-            .parse::<u16>()
-            .map_err(|_| FtpError::BadResponse)?;
+        let new_port = caps[1].parse::<u16>().map_err(|_| FtpError::BadResponse)?;
         trace!("Got port number from EPSV: {}", new_port);
         let mut remote = self
             .reader
