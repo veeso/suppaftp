@@ -382,14 +382,25 @@ impl ListParser {
             Err(_) => {
                 // Might be case 1.
                 // We need to add Current Year at the end of the string
-                let this_year: i32 = Utc::now().year();
+                let now = Utc::now();
+                let this_year: i32 = now.year();
                 let date_time_str: String = format!("{tm} {this_year}");
                 // Now parse
-                NaiveDateTime::parse_from_str(
+                let mut dt = NaiveDateTime::parse_from_str(
                     date_time_str.as_ref(),
                     format!("{fmt_hours} %Y").as_ref(),
                 )
-                .map_err(|_| ParseError::InvalidDate)?
+                .map_err(|_| ParseError::InvalidDate)?;
+                // If the date is more than 6 months in the future, it refers to the previous year
+                if dt.and_utc().timestamp() - now.timestamp() > 180 * 24 * 3600 {
+                    let date_time_str: String = format!("{tm} {}", this_year - 1);
+                    dt = NaiveDateTime::parse_from_str(
+                        date_time_str.as_ref(),
+                        format!("{fmt_hours} %Y").as_ref(),
+                    )
+                    .map_err(|_| ParseError::InvalidDate)?;
+                }
+                dt
             }
         };
         // Convert datetime to system time
