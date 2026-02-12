@@ -1043,7 +1043,13 @@ where
         trace!("CC IN: {:?}", line);
         while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
             line.clear();
-            self.read_line(&mut line).await?;
+            let bytes_read = self.read_line(&mut line).await?;
+            if bytes_read == 0 {
+                return Err(FtpError::ConnectionError(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "connection closed during multiline response",
+                )));
+            }
             body.extend(line.iter());
             trace!("CC IN: {:?}", line);
         }
