@@ -141,7 +141,7 @@ impl ListParser {
             match key.to_lowercase().as_str() {
                 "type" => {
                     f.file_type = match value.to_lowercase().as_str() {
-                        "dir" => FileType::Directory,
+                        "dir" | "cdir" | "pdir" => FileType::Directory,
                         "file" => FileType::File,
                         "link" => FileType::Symlink(PathBuf::default()),
                         _ => return Err(ParseError::SyntaxError),
