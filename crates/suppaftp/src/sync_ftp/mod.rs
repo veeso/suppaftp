@@ -928,7 +928,6 @@ where
     fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream<T>> {
         // guard data connection
         self.guard_multiple_data_connections()?;
-        self.data_connection_open = true;
 
         let stream = match self.mode {
             Mode::Active => self
@@ -962,18 +961,21 @@ where
         };
 
         #[cfg(not(feature = "secure"))]
-        {
-            Ok(DataStream::Tcp(stream))
-        }
+        let result = Ok(DataStream::Tcp(stream));
 
         #[cfg(feature = "secure")]
-        match self.tls_ctx {
+        let result = match self.tls_ctx {
             Some(ref tls_ctx) => tls_ctx
                 .connect(self.domain.as_ref().unwrap(), stream)
                 .map(|x| DataStream::Ssl(Box::new(x)))
                 .map_err(|e| FtpError::SecureError(format!("{e}"))),
             None => Ok(DataStream::Tcp(stream)),
+        };
+
+        if result.is_ok() {
+            self.data_connection_open = true;
         }
+        result
     }
 
     /// Create a new tcp listener and send a PORT command for it
