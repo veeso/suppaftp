@@ -414,6 +414,7 @@ impl ListParser {
     /// Parse date time string in DOS representation ("%m-%d-%y %I:%M%p")
     fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
         NaiveDateTime::parse_from_str(tm, "%m-%d-%y %I:%M%p")
+            .or_else(|_| NaiveDateTime::parse_from_str(tm, "%m-%d-%y %I:%M %p"))
             .map(|dt| {
                 SystemTime::UNIX_EPOCH
                     .checked_add(Duration::from_secs(dt.and_utc().timestamp() as u64))
@@ -655,6 +656,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_dos_line_with_space_before_ampm() {
+        let file: File = ListParser::parse_dos("04-08-14  03:09 PM       1234 readme.txt")
+            .ok()
+            .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "readme.txt");
+        pretty_assertions::assert_eq!(file.size, 1234);
+        assert!(file.is_file());
+
+        let file: File = ListParser::parse_dos("04-08-14  10:30 AM       <DIR> somedir")
+            .ok()
+            .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "somedir");
+        assert!(file.is_directory());
+
+        // Verify both formats produce the same timestamp
+        let with_space = ListParser::parse_dos("04-08-14  03:09 PM       1234 readme.txt")
+            .ok()
+            .unwrap();
+        let without_space = ListParser::parse_dos("04-08-14  03:09PM       1234 readme.txt")
+            .ok()
+            .unwrap();
+        pretty_assertions::assert_eq!(with_space.modified, without_space.modified);
+    }
+
+    #[test]
     fn parse_dos_line_with_comma_separated_size() {
         let file: File = ListParser::parse_dos("04-08-14  03:09PM  1,234 readme.txt")
             .ok()
@@ -829,6 +855,36 @@ mod tests {
                 .unwrap(),
             Duration::from_secs(1396969740)
         );
+        // Space before AM/PM
+        pretty_assertions::assert_eq!(
+            ListParser::parse_dostime("04-08-14  03:09 PM")
+                .ok()
+                .unwrap()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1396969740)
+        );
+        // AM variant without space
+        pretty_assertions::assert_eq!(
+            ListParser::parse_dostime("04-08-14  03:09AM")
+                .ok()
+                .unwrap()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1396926540)
+        );
+        // AM variant with space
+        pretty_assertions::assert_eq!(
+            ListParser::parse_dostime("04-08-14  03:09 AM")
+                .ok()
+                .unwrap()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .ok()
+                .unwrap(),
+            Duration::from_secs(1396926540)
+        );
         // Not enough argument for datetime
         assert!(ListParser::parse_dostime("04-08-14").is_err());
     }
@@ -857,6 +913,16 @@ mod tests {
             ListParser::parse_mlsd("type=dir;size=4096;modify=20181105163248; docs").unwrap();
 
         pretty_assertions::assert_eq!(file.name(), "docs");
+        assert!(file.is_directory());
+
+        // cdir (current directory) should parse as directory
+        let file = ListParser::parse_mlsd("type=cdir;size=4096;modify=20181105163248; .").unwrap();
+        pretty_assertions::assert_eq!(file.name(), ".");
+        assert!(file.is_directory());
+
+        // pdir (parent directory) should parse as directory
+        let file = ListParser::parse_mlsd("type=pdir;size=4096;modify=20181105163248; ..").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "..");
         assert!(file.is_directory());
 
         let file = ListParser::parse_mlsd(
