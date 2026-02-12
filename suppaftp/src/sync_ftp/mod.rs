@@ -1458,7 +1458,7 @@ mod test {
             let (_, data_stream) = stream
                 .custom_data_command(command, &[Status::AboutToSend])
                 .expect("Failed to perform custom data command");
-            let mut reader = BufReader::new(data_stream);
+            let reader = BufReader::new(data_stream);
             // Try to open another data connection without closing the previous one
             match stream.custom_data_command(command, &[Status::AboutToSend]) {
                 Err(FtpError::DataConnectionAlreadyOpen) => {}
