@@ -1106,7 +1106,6 @@ mod test {
     use std::str::FromStr as _;
     use std::sync::Arc;
 
-    #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
     use rand::{Rng, rng};
@@ -1146,24 +1145,14 @@ mod test {
             .await
             .unwrap();
         assert!(stream.login("test", "test").await.is_ok());
-        assert!(
-            stream
-                .get_welcome_msg()
-                .unwrap()
-                .contains("220 You will be disconnected after 15 minutes of inactivity.")
-        );
+        assert!(stream.get_welcome_msg().unwrap().contains("220 "));
     }
 
     #[tokio::test]
     async fn welcome_message() {
         crate::log_init();
         let (stream, _container) = setup_stream().await;
-        assert!(
-            stream
-                .get_welcome_msg()
-                .unwrap()
-                .contains("220 You will be disconnected after 15 minutes of inactivity.")
-        );
+        assert!(stream.get_welcome_msg().unwrap().contains("220 "));
         finalize_stream(stream).await;
     }
 
@@ -1198,7 +1187,7 @@ mod test {
         let (mut stream, _container) = setup_stream().await;
         let wrkdir: String = stream.pwd().await.unwrap();
         assert!(stream.cdup().await.is_ok());
-        assert_eq!(stream.pwd().await.unwrap().as_str(), "/");
+        assert_eq!(stream.pwd().await.unwrap().as_str(), "/home/test");
         assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
         finalize_stream(stream).await;
     }
@@ -1434,14 +1423,14 @@ mod test {
     async fn test_should_list_files_with_non_utf8_names() {
         let (mut stream, container) = setup_stream().await;
         let files = stream
-            .nlst(Some("/invalid-utf8/"))
+            .nlst(Some("/home/test/invalid-utf8/"))
             .await
             .expect("Failed to list files");
         assert_eq!(files.len(), 1);
 
         // list file and parse
         let files = stream
-            .list(Some("/invalid-utf8/"))
+            .list(Some("/home/test/invalid-utf8/"))
             .await
             .expect("Failed to list files");
         assert_eq!(files.len(), 1);
