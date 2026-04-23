@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+    - [8.0.3](#803)
     - [8.0.2](#802)
     - [8.0.1](#801)
     - [7.0.7](#707)
@@ -53,6 +54,12 @@
     - [4.0.0](#400)
 
 ---
+
+## 8.0.3
+
+Released on 23/04/2026
+
+- [PR 153](https://github.com/veeso/suppaftp/pull/153): Fixed `cwd()` to accept `200 Command OK` in addition to `250` as success, for compatibility with servers that deviate from RFC 959.
 
 ## 8.0.2
 
