@@ -25,12 +25,12 @@
   /></a>
   <a href="https://crates.io/crates/suppaftp"
     ><img
-      src="https://img.shields.io/crates/d/suppaftp.svg"
+      src="https://img.shields.io/crates/d/suppaftp.svg?logo=rust"
       alt="Downloads counter"
   /></a>
   <a href="https://crates.io/crates/suppaftp"
     ><img
-      src="https://img.shields.io/crates/v/suppaftp.svg"
+      src="https://img.shields.io/crates/v/suppaftp.svg?logo=rust"
       alt="Latest version"
   /></a>
   <a href="https://ko-fi.com/veeso">
@@ -70,23 +70,23 @@
 ---
 
 - [SuppaFTP](#suppaftp)
-    - [Introduction 👋](#introduction-)
-        - [Main differences between SuppaFTP and rust-ftp 🤔](#main-differences-between-suppaftp-and-rust-ftp-)
-    - [Get started 🏁](#get-started-)
-        - [Features](#features)
-            - [SSL/TLS Support](#ssltls-support)
-            - [Async support](#async-support)
-            - [Deprecated methods](#deprecated-methods)
-            - [Logging](#logging)
-        - [Examples 📚](#examples-)
-            - [Ftp with TLS (native-tls)](#ftp-with-tls-native-tls)
-            - [Ftp with TLS (rustls)](#ftp-with-tls-rustls)
-            - [Going Async](#going-async)
-    - [Built-in CLI client 🖥️](#built-in-cli-client-️)
-    - [Support the developer ☕](#support-the-developer-)
-    - [Changelog ⌛](#changelog-)
-    - [License 📜](#license-)
-        - [Contribution 🤝](#contribution-)
+  - [Introduction 👋](#introduction-)
+    - [Main differences between SuppaFTP and rust-ftp 🤔](#main-differences-between-suppaftp-and-rust-ftp-)
+  - [Get started 🏁](#get-started-)
+    - [Features](#features)
+      - [SSL/TLS Support](#ssltls-support)
+      - [Async support](#async-support)
+      - [Deprecated methods](#deprecated-methods)
+      - [Logging](#logging)
+    - [Examples 📚](#examples-)
+      - [Ftp with TLS (native-tls)](#ftp-with-tls-native-tls)
+      - [Ftp with TLS (rustls)](#ftp-with-tls-rustls)
+      - [Going Async](#going-async)
+  - [Built-in CLI client 🖥️](#built-in-cli-client-️)
+  - [Support the developer ☕](#support-the-developer-)
+  - [Changelog ⌛](#changelog-)
+  - [License 📜](#license-)
+    - [Contribution 🤝](#contribution-)
 
 ---
 
