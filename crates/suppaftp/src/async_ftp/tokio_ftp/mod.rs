@@ -332,7 +332,7 @@ where
         debug!("Changing working directory to {}", path.as_ref());
         self.perform(Command::Cwd(path.as_ref().to_string()))
             .await?;
-        self.read_response(Status::RequestedFileActionOk)
+        self.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
             .await
             .map(|_| ())
     }

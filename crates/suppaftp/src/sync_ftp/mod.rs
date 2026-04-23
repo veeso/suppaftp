@@ -319,7 +319,7 @@ where
     pub fn cwd<S: AsRef<str>>(&mut self, path: S) -> FtpResult<()> {
         debug!("Changing working directory to {}", path.as_ref());
         self.perform(Command::Cwd(path.as_ref().to_string()))?;
-        self.read_response(Status::RequestedFileActionOk)
+        self.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
             .map(|_| ())
     }
 
