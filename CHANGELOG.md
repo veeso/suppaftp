@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+    - [8.0.4](#804)
     - [8.0.3](#803)
     - [8.0.2](#802)
     - [8.0.1](#801)
@@ -54,6 +55,10 @@
     - [4.0.0](#400)
 
 ---
+
+## 8.0.4
+
+- [Issue 155](https://github.com/veeso/suppaftp/issues/155): Fixed data commands (`retr_as_stream`, `retr_as_buffer`, `put_with_stream`, `append_with_stream`, `custom_data_command`, `list`, `nlst`) leaving the `data_connection_open` flag set when the server rejected the command, which made every subsequent data command wrongly fail with `DataConnectionAlreadyOpen`.
 
 ## 8.0.3
 
