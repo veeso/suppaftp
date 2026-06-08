@@ -5,6 +5,9 @@ on: [ push, pull_request ]
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (${{ matrix.features }})
@@ -28,15 +31,17 @@ jobs:
           ]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Setup rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: stable
           components: rustfmt, clippy
 
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2.81.8
         with:
           tool: cargo-llvm-cov
 
@@ -47,7 +52,7 @@ jobs:
         run: cargo llvm-cov --no-fail-fast --no-default-features --features ${{ matrix.features }} --workspace --lcov --output-path lcov-${{ matrix.features }}.info
 
       - name: Upload to Coveralls
-        uses: coverallsapp/github-action@v2.3.6
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel: true
@@ -59,7 +64,7 @@ jobs:
     needs: test
     steps:
       - name: Wait for coveralls
-        uses: coverallsapp/github-action@v2.3.6
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
