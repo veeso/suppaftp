@@ -31,7 +31,7 @@ lazy-regex = "3"
 log = "0.4"
 thiserror = "2"
 # async
-async-native-tls-crate = { package = "async-native-tls", version = "0.5", default-features = false, optional = true }
+async-native-tls-crate = { package = "async-native-tls", version = "0.6", default-features = false, optional = true }
 async-std = { version = "1", optional = true }
 async-trait = { version = "0.1", optional = true }
 futures-rustls = { version = "0.26", optional = true, default-features = false, features = [
@@ -99,7 +99,7 @@ async-std-rustls-ring = [
 async-std-async-native-tls = [
   "async-std",
   "dep:async-native-tls-crate",
-  "async-native-tls-crate/runtime-async-std",
+  "async-native-tls-crate/runtime-smol",
   "async-native-tls-crate/futures-util",
   "async-secure",
 ]
