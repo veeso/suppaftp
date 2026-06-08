@@ -462,10 +462,11 @@ where
         file_name: S,
     ) -> FtpResult<DataStream<T>> {
         debug!("Retrieving '{}'", file_name.as_ref());
-        let data_stream = self
-            .data_command(Command::Retr(file_name.as_ref().to_string()))
-            .await?;
-        self.read_response_in(&[Status::AboutToSend, Status::AlreadyOpen])
+        let (_, data_stream) = self
+            .data_command_with_response(
+                Command::Retr(file_name.as_ref().to_string()),
+                &[Status::AboutToSend, Status::AlreadyOpen],
+            )
             .await?;
         Ok(data_stream)
     }
@@ -528,10 +529,11 @@ where
         filename: S,
     ) -> FtpResult<DataStream<T>> {
         debug!("Put file {}", filename.as_ref());
-        let stream = self
-            .data_command(Command::Store(filename.as_ref().to_string()))
-            .await?;
-        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])
+        let (_, stream) = self
+            .data_command_with_response(
+                Command::Store(filename.as_ref().to_string()),
+                &[Status::AlreadyOpen, Status::AboutToSend],
+            )
             .await?;
         Ok(stream)
     }
@@ -559,10 +561,11 @@ where
         filename: S,
     ) -> FtpResult<DataStream<T>> {
         debug!("Appending to file {}", filename.as_ref());
-        let stream = self
-            .data_command(Command::Appe(filename.as_ref().to_string()))
-            .await?;
-        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])
+        let (_, stream) = self
+            .data_command_with_response(
+                Command::Appe(filename.as_ref().to_string()),
+                &[Status::AlreadyOpen, Status::AboutToSend],
+            )
             .await?;
         Ok(stream)
     }
@@ -812,8 +815,9 @@ where
     ) -> FtpResult<(Response, DataStream<T>)> {
         let command = command.to_string();
         debug!("Sending custom data command: {}", command);
-        let data_stream = self.data_command(Command::Custom(command)).await?;
-        let response = self.read_response_in(expected_code).await?;
+        let (response, data_stream) = self
+            .data_command_with_response(Command::Custom(command), expected_code)
+            .await?;
         Ok((response, data_stream))
     }
 
@@ -926,6 +930,29 @@ where
             self.data_connection_open = true;
         }
         result
+    }
+
+    /// Open a data connection for `cmd` and read the preliminary response confirming the transfer.
+    ///
+    /// If the server rejects the command (the response is not one of `expected_code`), the data
+    /// connection is dropped and `data_connection_open` is reset to `false`. This guarantees that a
+    /// failed command never leaves the client believing a data connection is still open, which would
+    /// otherwise make every subsequent data command fail with [`FtpError::DataConnectionAlreadyOpen`].
+    async fn data_command_with_response(
+        &mut self,
+        cmd: Command,
+        expected_code: &[Status],
+    ) -> FtpResult<(Response, DataStream<T>)> {
+        let data_stream = self.data_command(cmd).await?;
+        match self.read_response_in(expected_code).await {
+            Ok(response) => Ok((response, data_stream)),
+            Err(err) => {
+                // server rejected the command: drop the data stream and reset the open flag
+                drop(data_stream);
+                self.data_connection_open = false;
+                Err(err)
+            }
+        }
     }
 
     /// Runs the EPSV to enter Extended passive mode.
@@ -1100,9 +1127,10 @@ where
 
     /// Execute a command which returns list of strings in a separate stream
     async fn stream_lines(&mut self, cmd: Command, open_code: Status) -> FtpResult<Vec<String>> {
-        let mut data_stream = BufReader::new(self.data_command(cmd).await?);
-        self.read_response_in(&[open_code, Status::AlreadyOpen])
+        let (_, stream) = self
+            .data_command_with_response(cmd, &[open_code, Status::AlreadyOpen])
             .await?;
+        let mut data_stream = BufReader::new(stream);
         let lines = Self::get_lines_from_stream(&mut data_stream).await;
         self.finalize_retr_stream(data_stream).await?;
         lines
@@ -1489,6 +1517,39 @@ mod test {
             .expect("Failed to get lines from stream");
         // finalize
         assert!(stream.close_data_connection(reader).await.is_ok());
+    }
+
+    #[async_attributes::test]
+    async fn should_reset_data_connection_after_failed_data_command() {
+        use async_std::io::Cursor;
+
+        let (mut stream, _container) = setup_stream().await;
+        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+
+        // A failed data command must leave the data connection free, otherwise the next data
+        // command would wrongly fail with `DataConnectionAlreadyOpen` instead of the real error.
+        for _ in 0..3 {
+            assert!(stream.retr_as_stream("non-existing.txt").await.is_err());
+            assert!(
+                stream
+                    .custom_data_command("RETR non-existing.txt", &[Status::AboutToSend])
+                    .await
+                    .is_err()
+            );
+        }
+
+        // After the failures every kind of data command must still be usable.
+        let mut reader = Cursor::new("test data\n".as_bytes());
+        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+        let mut reader = Cursor::new("test data\n".as_bytes());
+        assert!(stream.append_file("test.txt", &mut reader).await.is_ok());
+        let data_stream = stream.retr_as_stream("test.txt").await.unwrap();
+        assert!(stream.finalize_retr_stream(data_stream).await.is_ok());
+        assert!(stream.list(None).await.is_ok());
+        assert!(stream.nlst(None).await.is_ok());
+
+        assert!(stream.rm("test.txt").await.is_ok());
+        finalize_stream(stream).await;
     }
 
     #[async_attributes::test]

@@ -470,8 +470,10 @@ where
     /// Once file has been read, call [`ImplFtpStream::finalize_retr_stream`]
     pub fn retr_as_stream<S: AsRef<str>>(&mut self, file_name: S) -> FtpResult<DataStream<T>> {
         debug!("Retrieving '{}'", file_name.as_ref());
-        let data_stream = self.data_command(Command::Retr(file_name.as_ref().to_string()))?;
-        self.read_response_in(&[Status::AboutToSend, Status::AlreadyOpen])?;
+        let (_, data_stream) = self.data_command_with_response(
+            Command::Retr(file_name.as_ref().to_string()),
+            &[Status::AboutToSend, Status::AlreadyOpen],
+        )?;
         Ok(data_stream)
     }
 
@@ -521,8 +523,10 @@ where
     /// Once you've finished the write, YOU MUST CALL THIS METHOD: [`ImplFtpStream::finalize_put_stream`]
     pub fn put_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream<T>> {
         debug!("Put file {}", filename.as_ref());
-        let stream = self.data_command(Command::Store(filename.as_ref().to_string()))?;
-        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])?;
+        let (_, stream) = self.data_command_with_response(
+            Command::Store(filename.as_ref().to_string()),
+            &[Status::AlreadyOpen, Status::AboutToSend],
+        )?;
         Ok(stream)
     }
 
@@ -545,8 +549,10 @@ where
     /// Once you've finished the write, YOU MUST CALL THIS METHOD: [`ImplFtpStream::finalize_put_stream`]
     pub fn append_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<DataStream<T>> {
         debug!("Appending to file {}", filename.as_ref());
-        let stream = self.data_command(Command::Appe(filename.as_ref().to_string()))?;
-        self.read_response_in(&[Status::AlreadyOpen, Status::AboutToSend])?;
+        let (_, stream) = self.data_command_with_response(
+            Command::Appe(filename.as_ref().to_string()),
+            &[Status::AlreadyOpen, Status::AboutToSend],
+        )?;
         Ok(stream)
     }
 
@@ -791,8 +797,8 @@ where
     ) -> FtpResult<(Response, DataStream<T>)> {
         let command = command.to_string();
         debug!("Sending custom data command: {}", command);
-        let data_stream = self.data_command(Command::Custom(command))?;
-        let response = self.read_response_in(expected_code)?;
+        let (response, data_stream) =
+            self.data_command_with_response(Command::Custom(command), expected_code)?;
         Ok((response, data_stream))
     }
 
@@ -988,6 +994,29 @@ where
         result
     }
 
+    /// Open a data connection for `cmd` and read the preliminary response confirming the transfer.
+    ///
+    /// If the server rejects the command (the response is not one of `expected_code`), the data
+    /// connection is dropped and `data_connection_open` is reset to `false`. This guarantees that a
+    /// failed command never leaves the client believing a data connection is still open, which would
+    /// otherwise make every subsequent data command fail with [`FtpError::DataConnectionAlreadyOpen`].
+    fn data_command_with_response(
+        &mut self,
+        cmd: Command,
+        expected_code: &[Status],
+    ) -> FtpResult<(Response, DataStream<T>)> {
+        let data_stream = self.data_command(cmd)?;
+        match self.read_response_in(expected_code) {
+            Ok(response) => Ok((response, data_stream)),
+            Err(err) => {
+                // server rejected the command: drop the data stream and reset the open flag
+                drop(data_stream);
+                self.data_connection_open = false;
+                Err(err)
+            }
+        }
+    }
+
     /// Create a new tcp listener and send a PORT command for it
     fn active(&mut self) -> FtpResult<TcpListener> {
         debug!("Starting local tcp listener...");
@@ -1100,8 +1129,9 @@ where
 
     /// Execute a command which returns list of strings in a separate stream
     fn stream_lines(&mut self, cmd: Command, open_code: Status) -> FtpResult<Vec<String>> {
-        let mut data_stream = BufReader::new(self.data_command(cmd)?);
-        self.read_response_in(&[open_code, Status::AlreadyOpen])?;
+        let (_, stream) =
+            self.data_command_with_response(cmd, &[open_code, Status::AlreadyOpen])?;
+        let mut data_stream = BufReader::new(stream);
         let lines = Self::get_lines_from_stream(&mut data_stream);
         self.finalize_retr_stream(data_stream)?;
         lines
@@ -1368,6 +1398,46 @@ mod test {
             assert!(stream.rm("toast.txt").is_ok());
             // List directory again
             assert_eq!(stream.list(None).unwrap().len(), 0);
+        })
+    }
+
+    #[test]
+    fn should_make_subsequent_retr_call_to_non_existing_files() {
+        with_test_ftp_stream(|stream| {
+            // First call to non-existing file should return error
+            let e = stream.retr_as_stream("non-existing.txt").unwrap_err();
+            let e2 = stream.retr_as_stream("non-existing.txt").unwrap_err();
+            // Both errors should be the same and not be affected by each other
+            assert_eq!(e.to_string(), e2.to_string());
+        })
+    }
+
+    #[test]
+    fn should_reset_data_connection_after_failed_data_command() {
+        with_test_ftp_stream(|stream| {
+            assert!(stream.transfer_type(FileType::Binary).is_ok());
+
+            // A failed data command must leave the data connection free, otherwise the next data
+            // command would wrongly fail with `DataConnectionAlreadyOpen` instead of the real error.
+            for _ in 0..3 {
+                assert!(stream.retr_as_stream("non-existing.txt").is_err());
+                assert!(
+                    stream
+                        .custom_data_command("RETR non-existing.txt", &[Status::AboutToSend])
+                        .is_err()
+                );
+            }
+
+            // After the failures every kind of data command must still be usable.
+            let mut reader = Cursor::new("test data\n".as_bytes());
+            assert!(stream.put_file("test.txt", &mut reader).is_ok());
+            let mut reader = Cursor::new("test data\n".as_bytes());
+            assert!(stream.append_file("test.txt", &mut reader).is_ok());
+            assert!(stream.retr_as_buffer("test.txt").is_ok());
+            assert!(stream.list(None).is_ok());
+            assert!(stream.nlst(None).is_ok());
+
+            assert!(stream.rm("test.txt").is_ok());
         })
     }
 
