@@ -36,7 +36,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use chrono::prelude::Utc;
-use chrono::{Datelike, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use lazy_regex::{Lazy, Regex};
 use thiserror::Error;
 
@@ -374,6 +374,17 @@ impl ListParser {
     /// 1. if year is current: %b %d %H:%M (e.g. Nov 5 13:46)
     /// 2. else: %b %d %Y (e.g. Nov 5 2019)
     fn parse_lstime(tm: &str, fmt_year: &str, fmt_hours: &str) -> Result<SystemTime, ParseError> {
+        Self::parse_lstime_with_now(tm, fmt_year, fmt_hours, Utc::now())
+    }
+
+    /// Same as [`Self::parse_lstime`], but with an injectable reference time so the
+    /// year-adjustment logic can be tested deterministically.
+    fn parse_lstime_with_now(
+        tm: &str,
+        fmt_year: &str,
+        fmt_hours: &str,
+        now: DateTime<Utc>,
+    ) -> Result<SystemTime, ParseError> {
         let datetime: NaiveDateTime = match NaiveDate::parse_from_str(tm, fmt_year) {
             Ok(date) => {
                 // Case 2.
@@ -383,7 +394,6 @@ impl ListParser {
             Err(_) => {
                 // Might be case 1.
                 // We need to add Current Year at the end of the string
-                let now = Utc::now();
                 let this_year: i32 = now.year();
                 let date_time_str: String = format!("{tm} {this_year}");
                 // Now parse
@@ -426,8 +436,6 @@ impl ListParser {
 
 #[cfg(test)]
 mod tests {
-    use chrono::DateTime;
-
     use super::*;
 
     #[test]
@@ -763,85 +771,69 @@ mod tests {
 
     #[test]
     fn parse_lstime_should_adjust_year_for_future_dates() {
-        use chrono::Months;
+        use chrono::TimeZone;
 
-        let now = Utc::now();
-        let this_year = now.year();
+        // Reference time fixed so the test is deterministic regardless of when it runs.
+        let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
 
-        // Pick a date 8 months in the future — more than the 6-month threshold
-        let future_date = now.naive_utc().date() + Months::new(8);
-        let month_abbr = future_date.format("%b").to_string();
-        let time_str = format!("{month_abbr} 15 12:00");
-
-        let result = ListParser::parse_lstime(&time_str, "%b %d %Y", "%b %d %H:%M").unwrap();
+        // "Dec 15" stamped with the current year (2024) lands >6 months in the future,
+        // so it must be re-assigned to the previous year.
+        let result =
+            ListParser::parse_lstime_with_now("Dec 15 12:00", "%b %d %Y", "%b %d %H:%M", now)
+                .unwrap();
         let result_dt: DateTime<Utc> = result.into();
 
-        // Should be assigned the previous year since it would be >6 months in the future
-        pretty_assertions::assert_eq!(result_dt.year(), this_year - 1);
-        pretty_assertions::assert_eq!(result_dt.month(), future_date.month());
+        pretty_assertions::assert_eq!(result_dt.year(), 2023);
+        pretty_assertions::assert_eq!(result_dt.month(), 12);
         pretty_assertions::assert_eq!(result_dt.day(), 15);
     }
 
     #[test]
     fn parse_lstime_should_not_adjust_year_for_near_future_dates() {
-        use chrono::Months;
+        use chrono::TimeZone;
 
-        let now = Utc::now();
-        let this_year = now.year();
+        let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
 
-        // Pick a date 2 months in the future — within the 6-month threshold
-        let near_date = now.naive_utc().date() + Months::new(2);
-        let month_abbr = near_date.format("%b").to_string();
-        let time_str = format!("{month_abbr} 15 12:00");
-
-        let result = ListParser::parse_lstime(&time_str, "%b %d %Y", "%b %d %H:%M").unwrap();
+        // "Aug 15" is ~2 months ahead — within the 6-month threshold, keep current year.
+        let result =
+            ListParser::parse_lstime_with_now("Aug 15 12:00", "%b %d %Y", "%b %d %H:%M", now)
+                .unwrap();
         let result_dt: DateTime<Utc> = result.into();
 
-        // Should keep the current year since it's within 6 months
-        pretty_assertions::assert_eq!(result_dt.year(), this_year);
-        pretty_assertions::assert_eq!(result_dt.month(), near_date.month());
+        pretty_assertions::assert_eq!(result_dt.year(), 2024);
+        pretty_assertions::assert_eq!(result_dt.month(), 8);
         pretty_assertions::assert_eq!(result_dt.day(), 15);
     }
 
     #[test]
     fn parse_lstime_should_not_adjust_year_for_recent_past_dates() {
-        use chrono::Months;
+        use chrono::TimeZone;
 
-        let now = Utc::now();
-        let this_year = now.year();
+        let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
 
-        // Pick a date 1 month in the past — recent past should keep the current year
-        let past_date = now.naive_utc().date() - Months::new(1);
-        let month_abbr = past_date.format("%b").to_string();
-        let time_str = format!("{month_abbr} 15 12:00");
-
-        let result = ListParser::parse_lstime(&time_str, "%b %d %Y", "%b %d %H:%M").unwrap();
+        // "May 15" is 1 month in the past — keep the current year.
+        let result =
+            ListParser::parse_lstime_with_now("May 15 12:00", "%b %d %Y", "%b %d %H:%M", now)
+                .unwrap();
         let result_dt: DateTime<Utc> = result.into();
 
-        pretty_assertions::assert_eq!(result_dt.year(), this_year);
-        pretty_assertions::assert_eq!(result_dt.month(), past_date.month());
+        pretty_assertions::assert_eq!(result_dt.year(), 2024);
+        pretty_assertions::assert_eq!(result_dt.month(), 5);
     }
 
     #[test]
-    fn parse_posix_line_should_adjust_year_for_future_dates() {
-        use chrono::Months;
+    fn parse_posix_line_should_route_date_through_lstime() {
+        // parse_posix has to thread the timeless date through parse_lstime, so its result
+        // must match parse_lstime for the same input. Both use the real `Utc::now()` here,
+        // which keeps the test correct regardless of the current date.
+        let line = "-rw-r--r-- 1 user group 1234 Dec 15 10:30 example.txt";
 
-        let now = Utc::now();
-        let this_year = now.year();
-
-        // Construct a POSIX line with a date 8 months in the future (time format, no year)
-        let future_date = now.naive_utc().date() + Months::new(8);
-        let month_abbr = future_date.format("%b").to_string();
-        let line = format!("-rw-r--r-- 1 user group 1234 {month_abbr} 15 10:30 example.txt");
-
-        let file = ListParser::parse_posix(&line).unwrap();
+        let file = ListParser::parse_posix(line).unwrap();
         pretty_assertions::assert_eq!(file.name(), "example.txt");
         pretty_assertions::assert_eq!(file.size, 1234);
 
-        let result_dt: DateTime<Utc> = file.modified.into();
-        // Should be assigned the previous year
-        pretty_assertions::assert_eq!(result_dt.year(), this_year - 1);
-        pretty_assertions::assert_eq!(result_dt.month(), future_date.month());
+        let expected = ListParser::parse_lstime("Dec 15 10:30", "%b %d %Y", "%b %d %H:%M").unwrap();
+        pretty_assertions::assert_eq!(file.modified, expected);
     }
 
     #[test]
