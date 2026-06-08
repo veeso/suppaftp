@@ -59,6 +59,7 @@
 ## 8.0.4
 
 - [Issue 155](https://github.com/veeso/suppaftp/issues/155): Fixed data commands (`retr_as_stream`, `retr_as_buffer`, `put_with_stream`, `append_with_stream`, `custom_data_command`, `list`, `nlst`) leaving the `data_connection_open` flag set when the server rejected the command, which made every subsequent data command wrongly fail with `DataConnectionAlreadyOpen`.
+- Upgraded `async-native-tls` to 0.6. The async-std FTPS backend now uses the `runtime-smol` feature of `async-native-tls` (the crate dropped its `runtime-async-std` feature in 0.6).
 
 ## 8.0.3
 
