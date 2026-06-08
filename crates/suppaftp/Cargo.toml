@@ -31,11 +31,12 @@ lazy-regex = "3"
 log = "0.4"
 thiserror = "2"
 # async
-async-native-tls-crate = { package = "async-native-tls", version = "^0.5", default-features = false, optional = true }
+async-native-tls-crate = { package = "async-native-tls", version = "0.5", default-features = false, optional = true }
 async-std = { version = "1", optional = true }
 async-trait = { version = "0.1", optional = true }
 futures-rustls = { version = "0.26", optional = true, default-features = false, features = [
-  "tls12", "logging"
+  "tls12",
+  "logging",
 ] }
 pin-project = { version = "1", optional = true }
 rustls-pki-types = { version = "1", optional = true, features = ["alloc"] }
@@ -46,7 +47,8 @@ tokio = { version = "1", features = [
   "time",
 ], optional = true }
 tokio-rustls-crate = { package = "tokio-rustls", version = "0.26", optional = true, default-features = false, features = [
-  "logging", "tls12"
+  "logging",
+  "tls12",
 ] }
 # secure
 native-tls-crate = { package = "native-tls", version = "0.2", optional = true }
@@ -61,8 +63,8 @@ futures-lite = "2"
 async-attributes = "1"
 env_logger = "^0.11"
 pretty_assertions = "1"
-rand = "^0.9"
-testcontainers = { version = "0.26", features = ["blocking"] }
+rand = "0.10"
+testcontainers = { version = "0.27", features = ["blocking"] }
 webpki-roots = "1"
 
 [features]

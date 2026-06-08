@@ -1165,7 +1165,7 @@ mod test {
     #[cfg(feature = "secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
-    use rand::{Rng, rng};
+    use rand::{RngExt, rng};
 
     use super::*;
     use crate::FtpStream;
