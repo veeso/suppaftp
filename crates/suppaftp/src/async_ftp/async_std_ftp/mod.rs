@@ -1168,7 +1168,7 @@ mod test {
     #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
-    use rand::{Rng, rng};
+    use rand::{RngExt, rng};
 
     use super::super::async_std::AsyncFtpStream;
     use super::*;
