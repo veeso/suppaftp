@@ -369,7 +369,9 @@ where
     pub fn mkdir<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<()> {
         debug!("Creating directory at {}", pathname.as_ref());
         self.perform(Command::Mkd(pathname.as_ref().to_string()))?;
-        self.read_response(Status::PathCreated).map(|_| ())
+        // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 257.
+        self.read_response_in(&[Status::PathCreated, Status::CommandOk])
+            .map(|_| ())
     }
 
     /// Sets the type of file to be transferred. That is the implementation
@@ -398,7 +400,8 @@ where
         self.read_response(Status::RequestFilePending)
             .and_then(|_| {
                 self.perform(Command::RenameTo(to_name.as_ref().to_string()))?;
-                self.read_response(Status::RequestedFileActionOk)
+                // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
+                self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
                     .map(|_| ())
             })
     }
@@ -494,7 +497,8 @@ where
     pub fn rmdir<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<()> {
         debug!("Removing directory {}", pathname.as_ref());
         self.perform(Command::Rmd(pathname.as_ref().to_string()))?;
-        self.read_response(Status::RequestedFileActionOk)
+        // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
+        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .map(|_| ())
     }
 
@@ -502,7 +506,8 @@ where
     pub fn rm<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<()> {
         debug!("Removing file {}", filename.as_ref());
         self.perform(Command::Dele(filename.as_ref().to_string()))?;
-        self.read_response(Status::RequestedFileActionOk)
+        // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
+        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .map(|_| ())
     }
 
@@ -1919,5 +1924,54 @@ mod test {
             });
 
         is_sync::<FtpStream>(ftp_stream);
+    }
+
+    #[test]
+    fn should_accept_200_for_file_operations() {
+        use std::io::{BufRead, BufReader as IoBufReader, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        crate::log_init();
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind");
+        let port = listener.local_addr().unwrap().port();
+
+        // Fake FTP server that replies with 200 instead of the spec-mandated
+        // 250/257 to file operations, mimicking non-compliant servers such as bftpd.
+        let handle = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("no incoming connection");
+            let mut writer = stream.try_clone().expect("failed to clone stream");
+            let mut reader = IoBufReader::new(stream);
+
+            writer.write_all(b"220 Welcome\r\n").unwrap();
+
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 0 {
+                let reply: &[u8] = match line.split_whitespace().next() {
+                    // RNFR must be acknowledged with 350 before RNTO is sent.
+                    Some("RNFR") => b"350 ready for destination name\r\n",
+                    Some("QUIT") => b"221 goodbye\r\n",
+                    // Everything else is answered with the non-compliant 200.
+                    _ => b"200 ok\r\n",
+                };
+                writer.write_all(reply).unwrap();
+                if line.starts_with("QUIT") {
+                    break;
+                }
+                line.clear();
+            }
+        });
+
+        let tcp = TcpStream::connect(("127.0.0.1", port)).expect("failed to connect");
+        let mut stream = FtpStream::connect_with_stream(tcp).expect("failed handshake");
+
+        assert!(stream.mkdir("dir").is_ok());
+        assert!(stream.rename("a", "b").is_ok());
+        assert!(stream.rmdir("dir").is_ok());
+        assert!(stream.rm("file").is_ok());
+
+        assert!(stream.quit().is_ok());
+        handle.join().expect("server thread panicked");
     }
 }
