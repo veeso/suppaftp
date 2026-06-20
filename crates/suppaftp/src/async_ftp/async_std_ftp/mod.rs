@@ -389,7 +389,10 @@ where
         debug!("Creating directory at {}", pathname.as_ref());
         self.perform(Command::Mkd(pathname.as_ref().to_string()))
             .await?;
-        self.read_response(Status::PathCreated).await.map(|_| ())
+        // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 257.
+        self.read_response_in(&[Status::PathCreated, Status::CommandOk])
+            .await
+            .map(|_| ())
     }
 
     /// Sets the type of file to be transferred. That is the implementation
@@ -419,7 +422,8 @@ where
         self.read_response(Status::RequestFilePending).await?;
         self.perform(Command::RenameTo(to_name.as_ref().to_string()))
             .await?;
-        self.read_response(Status::RequestedFileActionOk)
+        // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
+        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .await
             .map(|_| ())
     }
@@ -489,7 +493,8 @@ where
         debug!("Removing directory {}", pathname.as_ref());
         self.perform(Command::Rmd(pathname.as_ref().to_string()))
             .await?;
-        self.read_response(Status::RequestedFileActionOk)
+        // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
+        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .await
             .map(|_| ())
     }
@@ -499,7 +504,8 @@ where
         debug!("Removing file {}", filename.as_ref());
         self.perform(Command::Dele(filename.as_ref().to_string()))
             .await?;
-        self.read_response(Status::RequestedFileActionOk)
+        // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
+        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .await
             .map(|_| ())
     }
@@ -1903,5 +1909,62 @@ mod test {
             .take(5)
             .collect();
         format!("temp_{}", name)
+    }
+
+    #[async_attributes::test]
+    async fn should_accept_200_for_file_operations() {
+        use async_std::io::BufReader as AsyncBufReader;
+        // Use UFCS below to disambiguate from the in-scope `futures_lite` extension traits.
+        use async_std::io::prelude::{BufReadExt, WriteExt};
+
+        crate::log_init();
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind");
+        let port = listener.local_addr().unwrap().port();
+
+        // Fake FTP server that replies with 200 instead of the spec-mandated
+        // 250/257 to file operations, mimicking non-compliant servers such as bftpd.
+        let handle = async_std::task::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("no incoming connection");
+            let mut writer = stream.clone();
+            let mut reader = AsyncBufReader::new(stream);
+
+            WriteExt::write_all(&mut writer, b"220 Welcome\r\n")
+                .await
+                .unwrap();
+
+            let mut line = String::new();
+            while BufReadExt::read_line(&mut reader, &mut line).await.unwrap() > 0 {
+                let reply: &[u8] = match line.split_whitespace().next() {
+                    // RNFR must be acknowledged with 350 before RNTO is sent.
+                    Some("RNFR") => b"350 ready for destination name\r\n",
+                    Some("QUIT") => b"221 goodbye\r\n",
+                    // Everything else is answered with the non-compliant 200.
+                    _ => b"200 ok\r\n",
+                };
+                WriteExt::write_all(&mut writer, reply).await.unwrap();
+                if line.starts_with("QUIT") {
+                    break;
+                }
+                line.clear();
+            }
+        });
+
+        let tcp = TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("failed to connect");
+        let mut stream = AsyncFtpStream::connect_with_stream(tcp)
+            .await
+            .expect("failed handshake");
+
+        assert!(stream.mkdir("dir").await.is_ok());
+        assert!(stream.rename("a", "b").await.is_ok());
+        assert!(stream.rmdir("dir").await.is_ok());
+        assert!(stream.rm("file").await.is_ok());
+
+        assert!(stream.quit().await.is_ok());
+        handle.await;
     }
 }
