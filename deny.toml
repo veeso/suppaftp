@@ -1,0 +1,81 @@
+# cargo-deny configuration for the suppaftp workspace.
+#
+# Run locally with `just deny` (see just/code_check.just). The same command
+# runs in CI. Four checks are enforced: advisories, licenses, bans, sources.
+#
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Check every target the workspace can build for.
+all-features = true
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# Security advisories (RustSec) and yanked crates.
+# ---------------------------------------------------------------------------
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Fail on crates pulled from a version that has been yanked from the registry.
+yanked = "deny"
+# Fail on dependencies flagged as unmaintained anywhere in the tree.
+unmaintained = "all"
+ignore = [
+  # async-std has been discontinued upstream, but suppaftp exposes it as a
+  # first-class async backend (the `async-std*` features) that downstream users
+  # still depend on. It is feature-complete; we keep supporting it until the
+  # feature is removed in a future major release.
+  { id = "RUSTSEC-2025-0052", reason = "async-std is a supported backend feature; no replacement until a breaking release" },
+]
+
+# ---------------------------------------------------------------------------
+# License policy.
+#
+# Only permissive licenses compatible with redistributing this MIT / Apache-2.0
+# workspace are allowed. Strong/weak copyleft (GPL/AGPL/LGPL) is NOT allowed.
+# ---------------------------------------------------------------------------
+[licenses]
+allow = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+# Workspace crates carry MIT / Apache-2.0, both allowed, so still check them.
+ignore = false
+
+# ---------------------------------------------------------------------------
+# Bans: duplicate versions, wildcard requirements, banned crates.
+# ---------------------------------------------------------------------------
+[bans]
+# Duplicate versions are reported but do not fail CI (large trees always have a
+# few). Tighten to "deny" with `skip`/`skip-tree` entries if desired.
+multiple-versions = "warn"
+# A `version = "*"` requirement is forbidden; pin to a real range.
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Sources: only crates.io is allowed; git dependencies are rejected.
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

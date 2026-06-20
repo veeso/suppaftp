@@ -1,17 +1,23 @@
 [package]
+name = "suppaftp-cli"
 version = { workspace = true }
 authors = { workspace = true }
-edition = { workspace = true }
-rust-version = { workspace = true }
-license = { workspace = true }
-keywords = { workspace = true }
 categories = { workspace = true }
-repository = { workspace = true }
-description = "FTP command line client, based on suppaftp"
+edition = { workspace = true }
 homepage = "https://github.com/veeso/suppaftp"
-include = ["src/**/*", "../../LICENSE-MIT", "../../LICENSE-APACHE", "../../README.md", "../../CHANGELOG.md"]
-name = "suppaftp-cli"
+include = [
+  "src/**/*",
+  "../../LICENSE-MIT",
+  "../../LICENSE-APACHE",
+  "../../README.md",
+  "../../CHANGELOG.md",
+]
+keywords = { workspace = true }
+license = { workspace = true }
 readme = "../../README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+description = "FTP command line client, based on suppaftp"
 
 [[bin]]
 name = "suppaftp"

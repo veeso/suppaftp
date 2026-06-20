@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# suppaftp pre-commit hook.
+#
+# Runs three gates before a commit is recorded:
+#   1. trufflehog  -- scan staged files for verified/unknown secrets
+#   2. dprint      -- check formatting (Markdown, TOML, YAML, Rust via nightly rustfmt)
+#   3. cargo-deny  -- advisories, licenses, bans and sources
+#
+# Install with `just setup_githooks` (sets core.hooksPath to .githooks).
+# Bypass in an emergency with `git commit --no-verify`.
+
+set -euo pipefail
+
+fail() {
+    echo "pre-commit: $1" >&2
+    exit 1
+}
+
+command -v just >/dev/null 2>&1 || fail "just not found; install it to run the pre-commit checks"
+
+# 1. Secret scan over the staged (added/copied/modified) files only.
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+if [ -n "$staged" ]; then
+    command -v trufflehog >/dev/null 2>&1 || fail "trufflehog not found; install it or commit with --no-verify"
+    echo "pre-commit: scanning staged files for secrets"
+    # shellcheck disable=SC2086
+    just scan_secrets $staged
+fi
+
+# 2. Formatting check (no writes).
+echo "pre-commit: checking formatting"
+just fmt_check
+
+# 3. Dependency policy.
+echo "pre-commit: checking dependencies"
+just deny
+
+echo "pre-commit: all checks passed"

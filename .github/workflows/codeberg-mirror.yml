@@ -10,13 +10,13 @@ jobs:
     if: github.repository_owner == 'veeso'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: "Mirror to Codeberg"
         uses: yesolutions/mirror-action@1708f16cdb28634fd3ba10c5c79abc91f5578a14 # v0.7.0
         with:
-          REMOTE: 'ssh://git@codeberg.org/veeso/suppaftp.git'
+          REMOTE: "ssh://git@codeberg.org/veeso/suppaftp.git"
           GIT_SSH_PRIVATE_KEY: ${{ secrets.GIT_SSH_PRIVATE_KEY }}
           GIT_SSH_NO_VERIFY_HOST: "true"
