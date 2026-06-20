@@ -21,13 +21,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 # Fail on dependencies flagged as unmaintained anywhere in the tree.
 unmaintained = "all"
-ignore = [
-  # async-std has been discontinued upstream, but suppaftp exposes it as a
-  # first-class async backend (the `async-std*` features) that downstream users
-  # still depend on. It is feature-complete; we keep supporting it until the
-  # feature is removed in a future major release.
-  { id = "RUSTSEC-2025-0052", reason = "async-std is a supported backend feature; no replacement until a breaking release" },
-]
+ignore = []
 
 # ---------------------------------------------------------------------------
 # License policy.

@@ -4,37 +4,31 @@
 
 use std::fmt::Debug;
 
-use async_std::io::{Read, Write};
-use async_std::net::TcpStream;
+use smol::io::{AsyncRead as Read, AsyncWrite as Write};
+use smol::net::TcpStream;
 
-#[cfg(feature = "async-std-async-native-tls")]
+#[cfg(feature = "smol-async-native-tls")]
 mod native_tls;
-#[cfg(feature = "async-std-async-native-tls")]
+#[cfg(feature = "smol-async-native-tls")]
 pub use self::native_tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 
-#[cfg(any(
-    feature = "async-std-rustls-aws-lc-rs",
-    feature = "async-std-rustls-ring"
-))]
+#[cfg(any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring"))]
 mod rustls;
-#[cfg(any(
-    feature = "async-std-rustls-aws-lc-rs",
-    feature = "async-std-rustls-ring"
-))]
+#[cfg(any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring"))]
 pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 
 #[cfg(feature = "async-secure")]
 #[async_trait::async_trait]
 pub trait AsyncTlsConnector: Debug {
-    type Stream: AsyncStdTlsStream;
+    type Stream: SmolTlsStream;
 
     async fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 
-/// A trait for a Async-std based TLS stream.
+/// A trait for a smol based TLS stream.
 ///
 /// This kind of stream is returned when using a data connection in FTP.
-pub trait AsyncStdTlsStream: Debug + Read + Write + Unpin {
+pub trait SmolTlsStream: Debug + Read + Write + Unpin {
     type InnerStream: Read + Write;
 
     /// Get underlying tcp stream
@@ -84,7 +78,7 @@ impl Write for AsyncNoTlsStream {
     }
 }
 
-impl AsyncStdTlsStream for AsyncNoTlsStream {
+impl SmolTlsStream for AsyncNoTlsStream {
     type InnerStream = TcpStream;
 
     fn tcp_stream(self) -> TcpStream {

@@ -1,6 +1,6 @@
 //! # Async
 //!
-//! This module contains the definition for async-std async implementation of suppaftp
+//! This module contains the definition for smol async implementation of suppaftp
 
 mod data_stream;
 mod tls;
@@ -13,22 +13,20 @@ use std::pin::Pin;
 use std::string::String;
 use std::time::Duration;
 
-use async_std::io::prelude::BufReadExt;
-use async_std::io::{BufReader, Read, Write, copy};
-use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use data_stream::DataStream;
-use futures_lite::AsyncWriteExt;
+use smol::future::FutureExt;
+use smol::io::{
+    AsyncBufReadExt, AsyncRead as Read, AsyncWrite as Write, AsyncWriteExt, BufReader, copy,
+};
+use smol::net::{AsyncToSocketAddrs as ToSocketAddrs, TcpListener, TcpStream};
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
-#[cfg(feature = "async-std-async-native-tls")]
+#[cfg(feature = "smol-async-native-tls")]
 pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
-pub use tls::{AsyncNoTlsStream, AsyncStdTlsStream};
-#[cfg(any(
-    feature = "async-std-rustls-aws-lc-rs",
-    feature = "async-std-rustls-ring"
-))]
+pub use tls::{AsyncNoTlsStream, SmolTlsStream};
+#[cfg(any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring"))]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
 
 use super::super::Status;
@@ -43,21 +41,21 @@ use crate::types::Features;
 /// A function that creates a new stream for the data connection in passive mode.
 ///
 /// It takes a [`SocketAddr`] and returns a [`TcpStream`].
-pub type AsyncStdPassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send + Sync>>
+pub type SmolPassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send + Sync>>
     + Send
     + Sync;
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
 pub struct ImplAsyncFtpStream<T>
 where
-    T: AsyncStdTlsStream + Send,
+    T: SmolTlsStream + Send,
 {
     reader: BufReader<DataStream<T>>,
     mode: Mode,
     nat_workaround: bool,
     welcome_msg: Option<String>,
     active_timeout: Duration,
-    passive_stream_builder: Box<AsyncStdPassiveStreamBuilder>,
+    passive_stream_builder: Box<SmolPassiveStreamBuilder>,
     /// flags whether a data connection is currently open
     ///
     /// Since it isn't possible to have multiple data connections at the same time,
@@ -73,7 +71,7 @@ where
 
 impl<T> ImplAsyncFtpStream<T>
 where
-    T: AsyncStdTlsStream + Send,
+    T: SmolTlsStream + Send,
 {
     pub async fn connect<A: ToSocketAddrs>(addr: A) -> FtpResult<Self> {
         debug!("Connecting to server");
@@ -87,7 +85,16 @@ where
     /// Try to connect to the remote server but with the specified timeout
     pub async fn connect_timeout(addr: SocketAddr, timeout: Duration) -> FtpResult<Self> {
         debug!("Connecting to server {addr}");
-        let stream = async_std::io::timeout(timeout, async move { TcpStream::connect(addr).await })
+        let connect = async move { TcpStream::connect(addr).await };
+        let deadline = async move {
+            smol::Timer::after(timeout).await;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "connection timed out",
+            ))
+        };
+        let stream = connect
+            .or(deadline)
             .await
             .map_err(FtpError::ConnectionError)?;
 
@@ -264,7 +271,7 @@ where
         self
     }
 
-    /// Set a custom [`AsyncStdPassiveStreamBuilder`] for passive mode.
+    /// Set a custom [`SmolPassiveStreamBuilder`] for passive mode.
     ///
     /// The stream builder is a function that takes a `SocketAddr` and returns a `TcpStream` and it's used
     /// to create the [`TcpStream`] for the data connection in passive mode.
@@ -893,16 +900,21 @@ where
                 let listener = self.active().await?;
                 self.perform(cmd).await?;
 
-                match async_std::future::timeout(self.active_timeout, listener.accept()).await {
+                let accept = async { Ok(listener.accept().await) };
+                let deadline = async {
+                    smol::Timer::after(self.active_timeout).await;
+                    Err(())
+                };
+                match accept.or(deadline).await {
                     Ok(Ok((stream, addr))) => {
                         debug!("Connection received from {}", addr);
                         stream
                     }
                     Ok(Err(e)) => return Err(FtpError::ConnectionError(e)), // Handle error
-                    Err(e) => {
+                    Err(()) => {
                         return Err(FtpError::ConnectionError(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
-                            e,
+                            "timed out waiting for active mode data connection",
                         )));
                     }
                 }
@@ -1142,11 +1154,16 @@ where
         lines
     }
 
-    fn default_passive_stream_builder() -> Box<AsyncStdPassiveStreamBuilder> {
+    fn default_passive_stream_builder() -> Box<SmolPassiveStreamBuilder> {
         Box::new(|address| {
             Box::pin(async move {
-                TcpStream::connect(address)
+                // Connect through `smol::Async` with the concrete `SocketAddr` instead of
+                // `TcpStream::connect`: the latter resolves addresses through
+                // `AsyncToSocketAddrs`, whose future is `!Sync`, which would violate the
+                // `Send + Sync` bound required by `SmolPassiveStreamBuilder`.
+                smol::Async::<std::net::TcpStream>::connect(address)
                     .await
+                    .map(TcpStream::from)
                     .map_err(FtpError::ConnectionError)
             })
         })
@@ -1170,691 +1187,773 @@ mod test {
     use std::str::FromStr as _;
     use std::sync::Arc;
 
-    use async_std::io::ReadExt;
     #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
     use rand::{RngExt, rng};
+    use smol::io::AsyncReadExt;
 
-    use super::super::async_std::AsyncFtpStream;
+    use super::super::smol::AsyncFtpStream;
     use super::*;
     use crate::test_container::SyncPureFtpRunner;
     use crate::types::FormatControl;
     use crate::{FtpError, Status};
 
-    #[async_attributes::test]
-    async fn connect() {
-        crate::log_init();
-        let (stream, _container) = setup_stream().await;
-        finalize_stream(stream).await;
+    #[test]
+    fn connect() {
+        smol::block_on(async {
+            crate::log_init();
+            let (stream, _container) = setup_stream().await;
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn should_change_mode() {
-        crate::log_init();
-        let (mut stream, _container) = setup_stream().await;
+    #[test]
+    fn should_change_mode() {
+        smol::block_on(async {
+            crate::log_init();
+            let (mut stream, _container) = setup_stream().await;
 
-        assert_eq!(stream.mode, Mode::Passive);
-        stream.set_mode(Mode::Active);
-        assert_eq!(stream.mode, Mode::Active);
+            assert_eq!(stream.mode, Mode::Passive);
+            stream.set_mode(Mode::Active);
+            assert_eq!(stream.mode, Mode::Active);
+        })
     }
 
-    #[async_attributes::test]
-    async fn should_connect_with_timeout() {
-        crate::log_init();
-        let container = SyncPureFtpRunner::start();
-        let port = container.get_ftp_port();
-        let url = format!("127.0.0.1:{port}");
-        let addr: SocketAddr = url.parse().expect("invalid hostname");
+    #[test]
+    fn should_connect_with_timeout() {
+        smol::block_on(async {
+            crate::log_init();
+            let container = SyncPureFtpRunner::start();
+            let port = container.get_ftp_port();
+            let url = format!("127.0.0.1:{port}");
+            let addr: SocketAddr = url.parse().expect("invalid hostname");
 
-        let mut stream = AsyncFtpStream::connect_timeout(addr, Duration::from_secs(15))
-            .await
-            .unwrap();
-        assert!(stream.login("test", "test").await.is_ok());
-        assert!(stream.get_welcome_msg().unwrap().contains("220 "));
+            let mut stream = AsyncFtpStream::connect_timeout(addr, Duration::from_secs(15))
+                .await
+                .unwrap();
+            assert!(stream.login("test", "test").await.is_ok());
+            assert!(stream.get_welcome_msg().unwrap().contains("220 "));
+        })
     }
 
-    #[async_attributes::test]
-    async fn welcome_message() {
-        crate::log_init();
-        let (stream, _container) = setup_stream().await;
-        assert!(stream.get_welcome_msg().unwrap().contains("220 "));
-        finalize_stream(stream).await;
+    #[test]
+    fn welcome_message() {
+        smol::block_on(async {
+            crate::log_init();
+            let (stream, _container) = setup_stream().await;
+            assert!(stream.get_welcome_msg().unwrap().contains("220 "));
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn should_set_passive_nat_workaround() {
-        crate::log_init();
-        let (mut stream, _container) = setup_stream().await;
-        stream.set_passive_nat_workaround(true);
-        assert!(stream.nat_workaround);
-        finalize_stream(stream).await;
+    #[test]
+    fn should_set_passive_nat_workaround() {
+        smol::block_on(async {
+            crate::log_init();
+            let (mut stream, _container) = setup_stream().await;
+            stream.set_passive_nat_workaround(true);
+            assert!(stream.nat_workaround);
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn get_ref() {
-        let (stream, _container) = setup_stream().await;
-        assert!(stream.get_ref().set_ttl(255).is_ok());
-        finalize_stream(stream).await;
+    #[test]
+    fn get_ref() {
+        smol::block_on(async {
+            let (stream, _container) = setup_stream().await;
+            assert!(stream.get_ref().set_ttl(255).is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn change_wrkdir() {
-        let (mut stream, _container) = setup_stream().await;
-        let wrkdir: String = stream.pwd().await.unwrap();
-        assert!(stream.cwd("/").await.is_ok());
-        assert_eq!(stream.pwd().await.unwrap().as_str(), "/");
-        assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
-        finalize_stream(stream).await;
+    #[test]
+    fn change_wrkdir() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let wrkdir: String = stream.pwd().await.unwrap();
+            assert!(stream.cwd("/").await.is_ok());
+            assert_eq!(stream.pwd().await.unwrap().as_str(), "/");
+            assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn cd_up() {
-        let (mut stream, _container) = setup_stream().await;
-        let wrkdir: String = stream.pwd().await.unwrap();
-        assert!(stream.cdup().await.is_ok());
-        assert_eq!(stream.pwd().await.unwrap().as_str(), "/home/test");
-        assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
-        finalize_stream(stream).await;
+    #[test]
+    fn cd_up() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let wrkdir: String = stream.pwd().await.unwrap();
+            assert!(stream.cdup().await.is_ok());
+            assert_eq!(stream.pwd().await.unwrap().as_str(), "/home/test");
+            assert!(stream.cwd(wrkdir.as_str()).await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn noop() {
-        let (mut stream, _container) = setup_stream().await;
-        assert!(stream.noop().await.is_ok());
-        finalize_stream(stream).await;
+    #[test]
+    fn noop() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.noop().await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn make_and_remove_dir() {
-        let (mut stream, _container) = setup_stream().await;
-        // Make directory
-        assert!(stream.mkdir("omar").await.is_ok());
-        // It shouldn't allow me to re-create the directory; should return error code 550
-        match stream.mkdir("omar").await.err().unwrap() {
-            FtpError::UnexpectedResponse(Response { status, body: _ }) => {
-                assert_eq!(status, Status::FileUnavailable)
+    #[test]
+    fn make_and_remove_dir() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            // Make directory
+            assert!(stream.mkdir("omar").await.is_ok());
+            // It shouldn't allow me to re-create the directory; should return error code 550
+            match stream.mkdir("omar").await.err().unwrap() {
+                FtpError::UnexpectedResponse(Response { status, body: _ }) => {
+                    assert_eq!(status, Status::FileUnavailable)
+                }
+                err => panic!("Expected UnexpectedResponse, got {}", err),
             }
-            err => panic!("Expected UnexpectedResponse, got {}", err),
-        }
-        // Remove directory
-        assert!(stream.rmdir("omar").await.is_ok());
-        finalize_stream(stream).await;
+            // Remove directory
+            assert!(stream.rmdir("omar").await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn should_get_feat_and_set_opts() {
-        let (mut stream, _container) = setup_stream().await;
-        let features = stream.feat().await.expect("failed to get features");
-        assert!(features.contains_key("UTF8"));
-        assert!(stream.opts("UTF8", Some("ON")).await.is_ok());
+    #[test]
+    fn should_get_feat_and_set_opts() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let features = stream.feat().await.expect("failed to get features");
+            assert!(features.contains_key("UTF8"));
+            assert!(stream.opts("UTF8", Some("ON")).await.is_ok());
 
-        finalize_stream(stream).await;
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn set_transfer_type() {
-        let (mut stream, _container) = setup_stream().await;
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        assert!(
-            stream
-                .transfer_type(FileType::Ascii(FormatControl::Default))
-                .await
-                .is_ok()
-        );
-        finalize_stream(stream).await;
-    }
-
-    #[async_attributes::test]
-    async fn test_should_use_retr() {
-        use async_std::io::Cursor;
-
-        let (mut stream, _container) = setup_stream().await;
-        // Set transfer type to Binary
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        // Write file
-        let file_data = "test data\n";
-        let mut reader = Cursor::new(file_data.as_bytes());
-        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
-        // Read file
-        let reader = stream
-            .retr("test.txt", |mut reader| {
-                Box::pin(async move {
-                    let mut buf = Vec::new();
-                    reader.read_to_end(&mut buf).await.expect("failed to read");
-                    Ok((buf, reader))
-                })
-            })
-            .await
-            .unwrap();
-        assert_eq!(reader, "test data\n".as_bytes());
-    }
-
-    #[async_attributes::test]
-    async fn transfer_file() {
-        use async_std::io::Cursor;
-
-        let (mut stream, _container) = setup_stream().await;
-        // Set transfer type to Binary
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        // Write file
-        let file_data = "test data\n";
-        let mut reader = Cursor::new(file_data.as_bytes());
-        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
-        // Append file
-        let mut reader = Cursor::new(file_data.as_bytes());
-        assert!(stream.append_file("test.txt", &mut reader).await.is_ok());
-        // Read file
-        let mut reader = stream.retr_as_stream("test.txt").await.unwrap();
-        let mut buffer = Vec::new();
-        assert!(
-            async_std::io::ReadExt::read_to_end(&mut reader, &mut buffer)
-                .await
-                .is_ok()
-        );
-        // Verify file matches
-        assert_eq!(buffer.as_slice(), "test data\ntest data\n".as_bytes());
-        // Finalize
-        assert!(stream.finalize_retr_stream(reader).await.is_ok());
-        // Get size
-        assert_eq!(stream.size("test.txt").await.unwrap(), 20);
-        // Size of non-existing file
-        assert!(stream.size("omarone.txt").await.is_err());
-        // List directory
-        assert_eq!(stream.list(None).await.unwrap().len(), 1);
-        // list names
-        assert_eq!(stream.nlst(None).await.unwrap().as_slice(), &["test.txt"]);
-        // modification time
-        assert!(stream.mdtm("test.txt").await.is_ok());
-        // Remove file
-        assert!(stream.rm("test.txt").await.is_ok());
-        assert!(stream.mdtm("test.txt").await.is_err());
-        // Write file, rename and get
-        let file_data = "test data\n";
-        let mut reader = Cursor::new(file_data.as_bytes());
-        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
-        assert!(stream.rename("test.txt", "toast.txt").await.is_ok());
-        assert!(stream.rm("toast.txt").await.is_ok());
-        // List directory again
-        assert_eq!(stream.list(None).await.unwrap().len(), 0);
-        finalize_stream(stream).await;
-    }
-
-    #[async_attributes::test]
-    async fn should_resume_transfer() {
-        let (mut stream, container) = setup_stream().await;
-        // Set transfer type to Binary
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        // get dir
-        let wrkdir = stream.pwd().await.unwrap();
-        // put as stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
-        assert_eq!(
-            transfer_stream
-                .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
-                .await
-                .unwrap(),
-            5
-        );
-        // Drop stream on purpose to simulate a failed connection
-        drop(stream);
-        drop(transfer_stream);
-        // Re-connect to server
-        let port = container.get_ftp_port();
-        let url = format!("localhost:{port}");
-
-        let mut stream = AsyncFtpStream::connect(url).await.unwrap();
-        assert!(stream.login("test", "test").await.is_ok());
-        // Create wrkdir
-        let tempdir: String = generate_tempdir();
-        assert!(stream.mkdir(tempdir.as_str()).await.is_ok());
-        // Change directory
-        assert!(stream.cwd(tempdir.as_str()).await.is_ok());
-
-        let container_t = container.clone();
-
-        let mut stream = stream.passive_stream_builder(move |addr| {
-            let container_t = container_t.clone();
-            Box::pin(async move {
-                let mut addr = addr.clone();
-                let port = addr.port();
-                let mapped = container_t.get_mapped_port(port);
-
-                addr.set_port(mapped);
-
-                info!("mapped port {port} to {mapped} for PASV");
-
-                // open stream to this address instead
-                TcpStream::connect(addr)
-                    .await
-                    .map_err(FtpError::ConnectionError)
-            })
-        });
-        // Go back to previous dir
-        assert!(stream.cwd(wrkdir).await.is_ok());
-        // Set transfer type to Binary
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        // Resume transfer
-        assert!(stream.resume_transfer(5).await.is_ok());
-        // Reopen stream
-        let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
-        assert_eq!(
-            transfer_stream
-                .write(&[0x05, 0x06, 0x07, 0x08, 0x09, 0x0a])
-                .await
-                .unwrap(),
-            6
-        );
-        // Finalize
-        assert!(stream.finalize_put_stream(transfer_stream).await.is_ok());
-        // Get size
-        //assert_eq!(stream.size("test.bin").await.unwrap(), 11);
-        // Remove file
-        assert!(stream.rm("test.bin").await.is_ok());
-        // Drop stream
-        finalize_stream(stream).await;
-    }
-
-    #[async_attributes::test]
-    async fn test_should_transfer_file_with_extended_passive_mode() {
-        crate::log_init();
-        use async_std::io::Cursor;
-
-        let (mut stream, _container) = setup_stream().await;
-        // Set transfer type to Binary
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        stream.set_mode(Mode::ExtendedPassive);
-        // Write file
-        let file_data = "test data\n";
-        let mut reader = Cursor::new(file_data.as_bytes());
-        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
-        // Remove file
-        assert!(stream.rm("test.txt").await.is_ok());
-        finalize_stream(stream).await;
-    }
-
-    #[async_attributes::test]
-    async fn test_should_list_files_with_non_utf8_names() {
-        let (mut stream, container) = setup_stream().await;
-        let files = stream
-            .nlst(Some("/home/test/invalid-utf8/"))
-            .await
-            .expect("Failed to list files");
-        assert_eq!(files.len(), 1);
-
-        // list file and parse
-        let files = stream
-            .list(Some("/home/test/invalid-utf8/"))
-            .await
-            .expect("Failed to list files");
-        assert_eq!(files.len(), 1);
-        // parse
-        crate::list::File::from_str(files[0].as_str()).expect("Failed to parse file");
-
-        finalize_stream(stream).await;
-        drop(container);
-    }
-
-    #[async_attributes::test]
-    async fn test_should_perform_custom_command() {
-        let (mut stream, _container) = setup_stream().await;
-
-        let command = "PWD";
-        assert!(
-            stream
-                .custom_command(command, &[Status::PathCreated])
-                .await
-                .is_ok()
-        );
-    }
-
-    #[async_attributes::test]
-    async fn test_should_perform_custom_data_command() {
-        let (mut stream, _container) = setup_stream().await;
-        let command = "LIST";
-        let (response, data_stream) = stream
-            .custom_data_command(command, &[Status::AboutToSend])
-            .await
-            .expect("Failed to perform custom data command");
-        assert_eq!(response.status, Status::AboutToSend);
-        let mut reader = async_std::io::BufReader::new(data_stream);
-        AsyncFtpStream::get_lines_from_stream(&mut reader)
-            .await
-            .expect("Failed to get lines from stream");
-        // finalize
-        assert!(stream.close_data_connection(reader).await.is_ok());
-    }
-
-    #[async_attributes::test]
-    async fn should_reset_data_connection_after_failed_data_command() {
-        use async_std::io::Cursor;
-
-        let (mut stream, _container) = setup_stream().await;
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-
-        // A failed data command must leave the data connection free, otherwise the next data
-        // command would wrongly fail with `DataConnectionAlreadyOpen` instead of the real error.
-        for _ in 0..3 {
-            assert!(stream.retr_as_stream("non-existing.txt").await.is_err());
+    #[test]
+    fn set_transfer_type() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
             assert!(
                 stream
-                    .custom_data_command("RETR non-existing.txt", &[Status::AboutToSend])
+                    .transfer_type(FileType::Ascii(FormatControl::Default))
                     .await
-                    .is_err()
+                    .is_ok()
             );
-        }
-
-        // After the failures every kind of data command must still be usable.
-        let mut reader = Cursor::new("test data\n".as_bytes());
-        assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
-        let mut reader = Cursor::new("test data\n".as_bytes());
-        assert!(stream.append_file("test.txt", &mut reader).await.is_ok());
-        let data_stream = stream.retr_as_stream("test.txt").await.unwrap();
-        assert!(stream.finalize_retr_stream(data_stream).await.is_ok());
-        assert!(stream.list(None).await.is_ok());
-        assert!(stream.nlst(None).await.is_ok());
-
-        assert!(stream.rm("test.txt").await.is_ok());
-        finalize_stream(stream).await;
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_should_prevent_multiple_data_connections() {
-        let (mut stream, _container) = setup_stream().await;
-        let command = "LIST";
+    #[test]
+    fn test_should_use_retr() {
+        smol::block_on(async {
+            use smol::io::Cursor;
 
-        let _data_stream = stream
-            .custom_data_command(command, &[Status::AboutToSend])
-            .await
-            .expect("Failed to perform custom data command");
-        // Try to open another data connection without closing the previous one
-        match stream
-            .custom_data_command(command, &[Status::AboutToSend])
-            .await
-        {
-            Err(FtpError::DataConnectionAlreadyOpen) => {}
-            _ => panic!("Expected DataConnectionAlreadyOpen error"),
-        }
-
-        // try with all other data commands
-        match stream.retr_as_stream("somefile.txt").await {
-            Err(FtpError::DataConnectionAlreadyOpen) => {}
-            _ => panic!("Expected DataConnectionAlreadyOpen error"),
-        }
-
-        match stream.put_with_stream("somefile.txt").await {
-            Err(FtpError::DataConnectionAlreadyOpen) => {}
-            _ => panic!("Expected DataConnectionAlreadyOpen error"),
-        }
-
-        match stream.append_with_stream("somefile.txt").await {
-            Err(FtpError::DataConnectionAlreadyOpen) => {}
-            _ => panic!("Expected DataConnectionAlreadyOpen error"),
-        }
-    }
-
-    #[async_attributes::test]
-    async fn test_should_free_data_connection_after_close() {
-        let (mut stream, _container) = setup_stream().await;
-        let command = "LIST";
-
-        let (response, data_stream) = stream
-            .custom_data_command(command, &[Status::AboutToSend])
-            .await
-            .expect("Failed to perform custom data command");
-        assert_eq!(response.status, Status::AboutToSend);
-        let mut reader = async_std::io::BufReader::new(data_stream);
-        AsyncFtpStream::get_lines_from_stream(&mut reader)
-            .await
-            .expect("Failed to get lines from stream");
-        // finalize
-        assert!(stream.close_data_connection(reader).await.is_ok());
-
-        // Now it should be possible to open another data connection
-        let (response, data_stream) = stream
-            .custom_data_command(command, &[Status::AboutToSend])
-            .await
-            .expect("Failed to perform custom data command");
-        assert_eq!(response.status, Status::AboutToSend);
-        let mut reader = async_std::io::BufReader::new(data_stream);
-        AsyncFtpStream::get_lines_from_stream(&mut reader)
-            .await
-            .expect("Failed to get lines from stream");
-        // finalize
-        assert!(stream.close_data_connection(reader).await.is_ok());
-    }
-
-    #[async_attributes::test]
-    async fn test_abort_transfer() {
-        crate::log_init();
-        let (mut stream, _container) = setup_stream().await;
-
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        let file_data = "test data for abort\n";
-        let mut reader = async_std::io::Cursor::new(file_data.as_bytes());
-        assert!(stream.put_file("abort_test.txt", &mut reader).await.is_ok());
-        // Open a retr stream
-        let data_stream = stream.retr_as_stream("abort_test.txt").await.unwrap();
-        // Abort the transfer
-        assert!(stream.abort(data_stream).await.is_ok());
-        // NOTE: after abort, the server may leave extra responses in the buffer,
-        // so we drop the stream without quit.
-        drop(stream);
-    }
-
-    #[async_attributes::test]
-    async fn test_append_with_stream() {
-        let (mut stream, _container) = setup_stream().await;
-        assert!(stream.transfer_type(FileType::Binary).await.is_ok());
-        // Create file
-        let mut reader = async_std::io::Cursor::new("part1".as_bytes());
-        assert!(
-            stream
-                .put_file("append_stream.txt", &mut reader)
+            let (mut stream, _container) = setup_stream().await;
+            // Set transfer type to Binary
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            // Write file
+            let file_data = "test data\n";
+            let mut reader = Cursor::new(file_data.as_bytes());
+            assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+            // Read file
+            let reader = stream
+                .retr("test.txt", |mut reader| {
+                    Box::pin(async move {
+                        let mut buf = Vec::new();
+                        reader.read_to_end(&mut buf).await.expect("failed to read");
+                        Ok((buf, reader))
+                    })
+                })
                 .await
-                .is_ok()
-        );
-        // Append via stream
-        let mut data_stream = stream
-            .append_with_stream("append_stream.txt")
-            .await
-            .unwrap();
-        async_std::io::WriteExt::write_all(&mut data_stream, b"part2")
-            .await
-            .unwrap();
-        stream.finalize_put_stream(data_stream).await.unwrap();
-        // Verify content
-        let mut reader = stream.retr_as_stream("append_stream.txt").await.unwrap();
-        let mut buffer = Vec::new();
-        async_std::io::ReadExt::read_to_end(&mut reader, &mut buffer)
-            .await
-            .unwrap();
-        stream.finalize_retr_stream(reader).await.unwrap();
-        assert_eq!(buffer, b"part1part2");
-        assert!(stream.rm("append_stream.txt").await.is_ok());
-        finalize_stream(stream).await;
+                .unwrap();
+            assert_eq!(reader, "test data\n".as_bytes());
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_active_mode_builder() {
-        crate::log_init();
-        let stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
-        let stream = stream.active_mode(Duration::from_secs(30));
-        assert_eq!(stream.mode, Mode::Active);
-        assert_eq!(stream.active_timeout, Duration::from_secs(30));
-    }
+    #[test]
+    fn transfer_file() {
+        smol::block_on(async {
+            use smol::io::Cursor;
 
-    #[async_attributes::test]
-    async fn test_passive_stream_builder() {
-        crate::log_init();
-        let stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
-        let stream = stream.passive_stream_builder(|addr| {
-            Box::pin(async move {
-                TcpStream::connect(addr)
+            let (mut stream, _container) = setup_stream().await;
+            // Set transfer type to Binary
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            // Write file
+            let file_data = "test data\n";
+            let mut reader = Cursor::new(file_data.as_bytes());
+            assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+            // Append file
+            let mut reader = Cursor::new(file_data.as_bytes());
+            assert!(stream.append_file("test.txt", &mut reader).await.is_ok());
+            // Read file
+            let mut reader = stream.retr_as_stream("test.txt").await.unwrap();
+            let mut buffer = Vec::new();
+            assert!(
+                smol::io::AsyncReadExt::read_to_end(&mut reader, &mut buffer)
                     .await
-                    .map_err(FtpError::ConnectionError)
-            })
-        });
-        assert_eq!(stream.mode, Mode::Passive);
+                    .is_ok()
+            );
+            // Verify file matches
+            assert_eq!(buffer.as_slice(), "test data\ntest data\n".as_bytes());
+            // Finalize
+            assert!(stream.finalize_retr_stream(reader).await.is_ok());
+            // Get size
+            assert_eq!(stream.size("test.txt").await.unwrap(), 20);
+            // Size of non-existing file
+            assert!(stream.size("omarone.txt").await.is_err());
+            // List directory
+            assert_eq!(stream.list(None).await.unwrap().len(), 1);
+            // list names
+            assert_eq!(stream.nlst(None).await.unwrap().as_slice(), &["test.txt"]);
+            // modification time
+            assert!(stream.mdtm("test.txt").await.is_ok());
+            // Remove file
+            assert!(stream.rm("test.txt").await.is_ok());
+            assert!(stream.mdtm("test.txt").await.is_err());
+            // Write file, rename and get
+            let file_data = "test data\n";
+            let mut reader = Cursor::new(file_data.as_bytes());
+            assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+            assert!(stream.rename("test.txt", "toast.txt").await.is_ok());
+            assert!(stream.rm("toast.txt").await.is_ok());
+            // List directory again
+            assert_eq!(stream.list(None).await.unwrap().len(), 0);
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_site_command() {
-        let (mut stream, _container) = setup_stream().await;
-        let result = stream.site("HELP").await;
-        match result {
-            Ok(response) => {
-                assert_eq!(response.status, Status::CommandOk);
-            }
-            Err(FtpError::UnexpectedResponse(_)) => {}
-            Err(err) => panic!("Unexpected error: {}", err),
-        }
-        finalize_stream(stream).await;
+    #[test]
+    fn should_resume_transfer() {
+        smol::block_on(async {
+            let (mut stream, container) = setup_stream().await;
+            // Set transfer type to Binary
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            // get dir
+            let wrkdir = stream.pwd().await.unwrap();
+            // put as stream
+            let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
+            assert_eq!(
+                transfer_stream
+                    .write(&[0x00, 0x01, 0x02, 0x03, 0x04])
+                    .await
+                    .unwrap(),
+                5
+            );
+            // Drop stream on purpose to simulate a failed connection
+            drop(stream);
+            drop(transfer_stream);
+            // Re-connect to server
+            let port = container.get_ftp_port();
+            let url = format!("localhost:{port}");
+
+            let mut stream = AsyncFtpStream::connect(url).await.unwrap();
+            assert!(stream.login("test", "test").await.is_ok());
+            // Create wrkdir
+            let tempdir: String = generate_tempdir();
+            assert!(stream.mkdir(tempdir.as_str()).await.is_ok());
+            // Change directory
+            assert!(stream.cwd(tempdir.as_str()).await.is_ok());
+
+            let container_t = container.clone();
+
+            let mut stream = stream.passive_stream_builder(move |addr| {
+                let container_t = container_t.clone();
+                Box::pin(async move {
+                    let mut addr = addr.clone();
+                    let port = addr.port();
+                    let mapped = container_t.get_mapped_port(port);
+
+                    addr.set_port(mapped);
+
+                    info!("mapped port {port} to {mapped} for PASV");
+
+                    // open stream to this address instead
+                    smol::Async::<std::net::TcpStream>::connect(addr)
+                        .await
+                        .map(TcpStream::from)
+                        .map_err(FtpError::ConnectionError)
+                })
+            });
+            // Go back to previous dir
+            assert!(stream.cwd(wrkdir).await.is_ok());
+            // Set transfer type to Binary
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            // Resume transfer
+            assert!(stream.resume_transfer(5).await.is_ok());
+            // Reopen stream
+            let mut transfer_stream = stream.put_with_stream("test.bin").await.unwrap();
+            assert_eq!(
+                transfer_stream
+                    .write(&[0x05, 0x06, 0x07, 0x08, 0x09, 0x0a])
+                    .await
+                    .unwrap(),
+                6
+            );
+            // Finalize
+            assert!(stream.finalize_put_stream(transfer_stream).await.is_ok());
+            // Get size
+            //assert_eq!(stream.size("test.bin").await.unwrap(), 11);
+            // Remove file
+            assert!(stream.rm("test.bin").await.is_ok());
+            // Drop stream
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_eprt_command() {
-        let (mut stream, _container) = setup_stream().await;
-        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
-        let _ = stream.eprt(addr).await;
+    #[test]
+    fn test_should_transfer_file_with_extended_passive_mode() {
+        smol::block_on(async {
+            crate::log_init();
+            use smol::io::Cursor;
+
+            let (mut stream, _container) = setup_stream().await;
+            // Set transfer type to Binary
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            stream.set_mode(Mode::ExtendedPassive);
+            // Write file
+            let file_data = "test data\n";
+            let mut reader = Cursor::new(file_data.as_bytes());
+            assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+            // Remove file
+            assert!(stream.rm("test.txt").await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_transfer_type_variants() {
-        let (mut stream, _container) = setup_stream().await;
-        assert!(
-            stream
-                .transfer_type(FileType::Ascii(FormatControl::NonPrint))
+    #[test]
+    fn test_should_list_files_with_non_utf8_names() {
+        smol::block_on(async {
+            let (mut stream, container) = setup_stream().await;
+            let files = stream
+                .nlst(Some("/home/test/invalid-utf8/"))
                 .await
-                .is_ok()
-        );
-        assert!(stream.transfer_type(FileType::Image).await.is_ok());
-        let _ = stream.transfer_type(FileType::Local(8)).await;
-        finalize_stream(stream).await;
+                .expect("Failed to list files");
+            assert_eq!(files.len(), 1);
+
+            // list file and parse
+            let files = stream
+                .list(Some("/home/test/invalid-utf8/"))
+                .await
+                .expect("Failed to list files");
+            assert_eq!(files.len(), 1);
+            // parse
+            crate::list::File::from_str(files[0].as_str()).expect("Failed to parse file");
+
+            finalize_stream(stream).await;
+            drop(container);
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_cwd_error() {
-        let (mut stream, _container) = setup_stream().await;
-        match stream.cwd("/nonexistent/directory/path").await {
-            Err(FtpError::UnexpectedResponse(response)) => {
-                assert_eq!(response.status, Status::FileUnavailable);
+    #[test]
+    fn test_should_perform_custom_command() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+
+            let command = "PWD";
+            assert!(
+                stream
+                    .custom_command(command, &[Status::PathCreated])
+                    .await
+                    .is_ok()
+            );
+        })
+    }
+
+    #[test]
+    fn test_should_perform_custom_data_command() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let command = "LIST";
+            let (response, data_stream) = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .await
+                .expect("Failed to perform custom data command");
+            assert_eq!(response.status, Status::AboutToSend);
+            let mut reader = smol::io::BufReader::new(data_stream);
+            AsyncFtpStream::get_lines_from_stream(&mut reader)
+                .await
+                .expect("Failed to get lines from stream");
+            // finalize
+            assert!(stream.close_data_connection(reader).await.is_ok());
+        })
+    }
+
+    #[test]
+    fn should_reset_data_connection_after_failed_data_command() {
+        smol::block_on(async {
+            use smol::io::Cursor;
+
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+
+            // A failed data command must leave the data connection free, otherwise the next data
+            // command would wrongly fail with `DataConnectionAlreadyOpen` instead of the real error.
+            for _ in 0..3 {
+                assert!(stream.retr_as_stream("non-existing.txt").await.is_err());
+                assert!(
+                    stream
+                        .custom_data_command("RETR non-existing.txt", &[Status::AboutToSend])
+                        .await
+                        .is_err()
+                );
             }
-            _ => panic!("Expected UnexpectedResponse for nonexistent directory"),
-        }
-        finalize_stream(stream).await;
+
+            // After the failures every kind of data command must still be usable.
+            let mut reader = Cursor::new("test data\n".as_bytes());
+            assert!(stream.put_file("test.txt", &mut reader).await.is_ok());
+            let mut reader = Cursor::new("test data\n".as_bytes());
+            assert!(stream.append_file("test.txt", &mut reader).await.is_ok());
+            let data_stream = stream.retr_as_stream("test.txt").await.unwrap();
+            assert!(stream.finalize_retr_stream(data_stream).await.is_ok());
+            assert!(stream.list(None).await.is_ok());
+            assert!(stream.nlst(None).await.is_ok());
+
+            assert!(stream.rm("test.txt").await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_rm_nonexistent_file() {
-        let (mut stream, _container) = setup_stream().await;
-        match stream.rm("nonexistent_file.txt").await {
-            Err(FtpError::UnexpectedResponse(_)) => {}
-            _ => panic!("Expected error when removing nonexistent file"),
-        }
-        finalize_stream(stream).await;
+    #[test]
+    fn test_should_prevent_multiple_data_connections() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let command = "LIST";
+
+            let _data_stream = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .await
+                .expect("Failed to perform custom data command");
+            // Try to open another data connection without closing the previous one
+            match stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .await
+            {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+
+            // try with all other data commands
+            match stream.retr_as_stream("somefile.txt").await {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+
+            match stream.put_with_stream("somefile.txt").await {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+
+            match stream.append_with_stream("somefile.txt").await {
+                Err(FtpError::DataConnectionAlreadyOpen) => {}
+                _ => panic!("Expected DataConnectionAlreadyOpen error"),
+            }
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_rmdir_nonexistent() {
-        let (mut stream, _container) = setup_stream().await;
-        match stream.rmdir("nonexistent_dir").await {
-            Err(FtpError::UnexpectedResponse(_)) => {}
-            _ => panic!("Expected error when removing nonexistent directory"),
-        }
-        finalize_stream(stream).await;
+    #[test]
+    fn test_should_free_data_connection_after_close() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let command = "LIST";
+
+            let (response, data_stream) = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .await
+                .expect("Failed to perform custom data command");
+            assert_eq!(response.status, Status::AboutToSend);
+            let mut reader = smol::io::BufReader::new(data_stream);
+            AsyncFtpStream::get_lines_from_stream(&mut reader)
+                .await
+                .expect("Failed to get lines from stream");
+            // finalize
+            assert!(stream.close_data_connection(reader).await.is_ok());
+
+            // Now it should be possible to open another data connection
+            let (response, data_stream) = stream
+                .custom_data_command(command, &[Status::AboutToSend])
+                .await
+                .expect("Failed to perform custom data command");
+            assert_eq!(response.status, Status::AboutToSend);
+            let mut reader = smol::io::BufReader::new(data_stream);
+            AsyncFtpStream::get_lines_from_stream(&mut reader)
+                .await
+                .expect("Failed to get lines from stream");
+            // finalize
+            assert!(stream.close_data_connection(reader).await.is_ok());
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_rename_nonexistent() {
-        let (mut stream, _container) = setup_stream().await;
-        match stream.rename("nonexistent.txt", "new_name.txt").await {
-            Err(FtpError::UnexpectedResponse(_)) => {}
-            _ => panic!("Expected error when renaming nonexistent file"),
-        }
-        finalize_stream(stream).await;
+    #[test]
+    fn test_abort_transfer() {
+        smol::block_on(async {
+            crate::log_init();
+            let (mut stream, _container) = setup_stream().await;
+
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let file_data = "test data for abort\n";
+            let mut reader = smol::io::Cursor::new(file_data.as_bytes());
+            assert!(stream.put_file("abort_test.txt", &mut reader).await.is_ok());
+            // Open a retr stream
+            let data_stream = stream.retr_as_stream("abort_test.txt").await.unwrap();
+            // Abort the transfer
+            assert!(stream.abort(data_stream).await.is_ok());
+            // NOTE: after abort, the server may leave extra responses in the buffer,
+            // so we drop the stream without quit.
+            drop(stream);
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_retr_nonexistent_file() {
-        let (mut stream, _container) = setup_stream().await;
-        match stream.retr_as_stream("nonexistent_file.txt").await {
-            Err(FtpError::UnexpectedResponse(_)) => {}
-            _ => panic!("Expected error when retrieving nonexistent file"),
-        }
-        finalize_stream(stream).await;
+    #[test]
+    fn test_append_with_stream() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            // Create file
+            let mut reader = smol::io::Cursor::new("part1".as_bytes());
+            assert!(
+                stream
+                    .put_file("append_stream.txt", &mut reader)
+                    .await
+                    .is_ok()
+            );
+            // Append via stream
+            let mut data_stream = stream
+                .append_with_stream("append_stream.txt")
+                .await
+                .unwrap();
+            smol::io::AsyncWriteExt::write_all(&mut data_stream, b"part2")
+                .await
+                .unwrap();
+            stream.finalize_put_stream(data_stream).await.unwrap();
+            // Verify content
+            let mut reader = stream.retr_as_stream("append_stream.txt").await.unwrap();
+            let mut buffer = Vec::new();
+            smol::io::AsyncReadExt::read_to_end(&mut reader, &mut buffer)
+                .await
+                .unwrap();
+            stream.finalize_retr_stream(reader).await.unwrap();
+            assert_eq!(buffer, b"part1part2");
+            assert!(stream.rm("append_stream.txt").await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_list_nonexistent_path() {
-        let (mut stream, _container) = setup_stream().await;
-        let _ = stream.list(Some("/nonexistent/path")).await;
+    #[test]
+    fn test_active_mode_builder() {
+        smol::block_on(async {
+            crate::log_init();
+            let stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
+            let stream = stream.active_mode(Duration::from_secs(30));
+            assert_eq!(stream.mode, Mode::Active);
+            assert_eq!(stream.active_timeout, Duration::from_secs(30));
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_nlst_with_path() {
-        let (mut stream, _container) = setup_stream().await;
-        let mut reader = async_std::io::Cursor::new("data".as_bytes());
-        assert!(stream.put_file("nlst_test.txt", &mut reader).await.is_ok());
-        let files = stream.nlst(None).await.unwrap();
-        assert!(files.contains(&"nlst_test.txt".to_string()));
-        assert!(stream.rm("nlst_test.txt").await.is_ok());
-        finalize_stream(stream).await;
+    #[test]
+    fn test_passive_stream_builder() {
+        smol::block_on(async {
+            crate::log_init();
+            let stream = AsyncFtpStream::connect("test.rebex.net:21").await.unwrap();
+            let stream = stream.passive_stream_builder(|addr| {
+                Box::pin(async move {
+                    smol::Async::<std::net::TcpStream>::connect(addr)
+                        .await
+                        .map(TcpStream::from)
+                        .map_err(FtpError::ConnectionError)
+                })
+            });
+            assert_eq!(stream.mode, Mode::Passive);
+        })
     }
 
-    #[async_attributes::test]
-    async fn test_list_with_explicit_current_dir() {
-        let (mut stream, _container) = setup_stream().await;
-        let mut reader = async_std::io::Cursor::new("data".as_bytes());
-        assert!(stream.put_file("list_test.txt", &mut reader).await.is_ok());
-        let files = stream.list(Some(".")).await.unwrap();
-        assert!(!files.is_empty());
-        assert!(stream.rm("list_test.txt").await.is_ok());
-        finalize_stream(stream).await;
+    #[test]
+    fn test_site_command() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let result = stream.site("HELP").await;
+            match result {
+                Ok(response) => {
+                    assert_eq!(response.status, Status::CommandOk);
+                }
+                Err(FtpError::UnexpectedResponse(_)) => {}
+                Err(err) => panic!("Unexpected error: {}", err),
+            }
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_eprt_command() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+            let _ = stream.eprt(addr).await;
+        })
+    }
+
+    #[test]
+    fn test_transfer_type_variants() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(
+                stream
+                    .transfer_type(FileType::Ascii(FormatControl::NonPrint))
+                    .await
+                    .is_ok()
+            );
+            assert!(stream.transfer_type(FileType::Image).await.is_ok());
+            let _ = stream.transfer_type(FileType::Local(8)).await;
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_cwd_error() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            match stream.cwd("/nonexistent/directory/path").await {
+                Err(FtpError::UnexpectedResponse(response)) => {
+                    assert_eq!(response.status, Status::FileUnavailable);
+                }
+                _ => panic!("Expected UnexpectedResponse for nonexistent directory"),
+            }
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_rm_nonexistent_file() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            match stream.rm("nonexistent_file.txt").await {
+                Err(FtpError::UnexpectedResponse(_)) => {}
+                _ => panic!("Expected error when removing nonexistent file"),
+            }
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_rmdir_nonexistent() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            match stream.rmdir("nonexistent_dir").await {
+                Err(FtpError::UnexpectedResponse(_)) => {}
+                _ => panic!("Expected error when removing nonexistent directory"),
+            }
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_rename_nonexistent() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            match stream.rename("nonexistent.txt", "new_name.txt").await {
+                Err(FtpError::UnexpectedResponse(_)) => {}
+                _ => panic!("Expected error when renaming nonexistent file"),
+            }
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_retr_nonexistent_file() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            match stream.retr_as_stream("nonexistent_file.txt").await {
+                Err(FtpError::UnexpectedResponse(_)) => {}
+                _ => panic!("Expected error when retrieving nonexistent file"),
+            }
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_list_nonexistent_path() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let _ = stream.list(Some("/nonexistent/path")).await;
+        })
+    }
+
+    #[test]
+    fn test_nlst_with_path() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let mut reader = smol::io::Cursor::new("data".as_bytes());
+            assert!(stream.put_file("nlst_test.txt", &mut reader).await.is_ok());
+            let files = stream.nlst(None).await.unwrap();
+            assert!(files.contains(&"nlst_test.txt".to_string()));
+            assert!(stream.rm("nlst_test.txt").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn test_list_with_explicit_current_dir() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            let mut reader = smol::io::Cursor::new("data".as_bytes());
+            assert!(stream.put_file("list_test.txt", &mut reader).await.is_ok());
+            let files = stream.list(Some(".")).await.unwrap();
+            assert!(!files.is_empty());
+            assert!(stream.rm("list_test.txt").await.is_ok());
+            finalize_stream(stream).await;
+        })
     }
 
     /// Test if the stream is Send
     fn is_send<T: Send>(_send: T) {}
 
-    #[async_attributes::test]
+    #[test]
     #[ignore = "just needs to compile"]
-    async fn test_ftp_stream_should_be_send() {
-        crate::log_init();
-        let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
-            .await
-            .unwrap()
-            .passive_stream_builder(|addr| {
-                Box::pin(async move {
-                    println!("Connecting to {}", addr);
-                    TcpStream::connect(addr)
-                        .await
-                        .map_err(FtpError::ConnectionError)
-                })
-            });
+    fn test_ftp_stream_should_be_send() {
+        smol::block_on(async {
+            crate::log_init();
+            let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
+                .await
+                .unwrap()
+                .passive_stream_builder(|addr| {
+                    Box::pin(async move {
+                        println!("Connecting to {}", addr);
+                        smol::Async::<std::net::TcpStream>::connect(addr)
+                            .await
+                            .map(TcpStream::from)
+                            .map_err(FtpError::ConnectionError)
+                    })
+                });
 
-        is_send::<AsyncFtpStream>(ftp_stream);
+            is_send::<AsyncFtpStream>(ftp_stream);
+        })
     }
 
     /// Test if the stream is Sync
     fn is_sync<T: Sync>(_send: T) {}
 
-    #[async_attributes::test]
+    #[test]
     #[ignore = "just needs to compile"]
-    async fn test_ftp_stream_should_be_sync() {
-        crate::log_init();
-        let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
-            .await
-            .unwrap()
-            .passive_stream_builder(|addr| {
-                Box::pin(async move {
-                    println!("Connecting to {}", addr);
-                    TcpStream::connect(addr)
-                        .await
-                        .map_err(FtpError::ConnectionError)
-                })
-            });
+    fn test_ftp_stream_should_be_sync() {
+        smol::block_on(async {
+            crate::log_init();
+            let ftp_stream = AsyncFtpStream::connect("test.rebex.net:21")
+                .await
+                .unwrap()
+                .passive_stream_builder(|addr| {
+                    Box::pin(async move {
+                        println!("Connecting to {}", addr);
+                        smol::Async::<std::net::TcpStream>::connect(addr)
+                            .await
+                            .map(TcpStream::from)
+                            .map_err(FtpError::ConnectionError)
+                    })
+                });
 
-        is_sync::<AsyncFtpStream>(ftp_stream);
+            is_sync::<AsyncFtpStream>(ftp_stream);
+        })
     }
 
     // -- test utils
@@ -1888,8 +1987,9 @@ mod test {
                 info!("mapped port {port} to {mapped} for PASV");
 
                 // open stream to this address instead
-                TcpStream::connect(addr)
+                smol::Async::<std::net::TcpStream>::connect(addr)
                     .await
+                    .map(TcpStream::from)
                     .map_err(FtpError::ConnectionError)
             })
         });
@@ -1911,60 +2011,66 @@ mod test {
         format!("temp_{}", name)
     }
 
-    #[async_attributes::test]
-    async fn should_accept_200_for_file_operations() {
-        use async_std::io::BufReader as AsyncBufReader;
-        // Use UFCS below to disambiguate from the in-scope `futures_lite` extension traits.
-        use async_std::io::prelude::{BufReadExt, WriteExt};
+    #[test]
+    fn should_accept_200_for_file_operations() {
+        smol::block_on(async {
+            use smol::io::BufReader as AsyncBufReader;
+            // Use UFCS below to disambiguate from the in-scope `smol` extension traits.
+            use smol::io::{AsyncBufReadExt, AsyncWriteExt};
 
-        crate::log_init();
+            crate::log_init();
 
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("failed to bind");
-        let port = listener.local_addr().unwrap().port();
-
-        // Fake FTP server that replies with 200 instead of the spec-mandated
-        // 250/257 to file operations, mimicking non-compliant servers such as bftpd.
-        let handle = async_std::task::spawn(async move {
-            let (stream, _) = listener.accept().await.expect("no incoming connection");
-            let mut writer = stream.clone();
-            let mut reader = AsyncBufReader::new(stream);
-
-            WriteExt::write_all(&mut writer, b"220 Welcome\r\n")
+            let listener = TcpListener::bind("127.0.0.1:0")
                 .await
-                .unwrap();
+                .expect("failed to bind");
+            let port = listener.local_addr().unwrap().port();
 
-            let mut line = String::new();
-            while BufReadExt::read_line(&mut reader, &mut line).await.unwrap() > 0 {
-                let reply: &[u8] = match line.split_whitespace().next() {
-                    // RNFR must be acknowledged with 350 before RNTO is sent.
-                    Some("RNFR") => b"350 ready for destination name\r\n",
-                    Some("QUIT") => b"221 goodbye\r\n",
-                    // Everything else is answered with the non-compliant 200.
-                    _ => b"200 ok\r\n",
-                };
-                WriteExt::write_all(&mut writer, reply).await.unwrap();
-                if line.starts_with("QUIT") {
-                    break;
+            // Fake FTP server that replies with 200 instead of the spec-mandated
+            // 250/257 to file operations, mimicking non-compliant servers such as bftpd.
+            let handle = smol::spawn(async move {
+                let (stream, _) = listener.accept().await.expect("no incoming connection");
+                let mut writer = stream.clone();
+                let mut reader = AsyncBufReader::new(stream);
+
+                AsyncWriteExt::write_all(&mut writer, b"220 Welcome\r\n")
+                    .await
+                    .unwrap();
+
+                let mut line = String::new();
+                while AsyncBufReadExt::read_line(&mut reader, &mut line)
+                    .await
+                    .unwrap()
+                    > 0
+                {
+                    let reply: &[u8] = match line.split_whitespace().next() {
+                        // RNFR must be acknowledged with 350 before RNTO is sent.
+                        Some("RNFR") => b"350 ready for destination name\r\n",
+                        Some("QUIT") => b"221 goodbye\r\n",
+                        // Everything else is answered with the non-compliant 200.
+                        _ => b"200 ok\r\n",
+                    };
+                    AsyncWriteExt::write_all(&mut writer, reply).await.unwrap();
+                    if line.starts_with("QUIT") {
+                        break;
+                    }
+                    line.clear();
                 }
-                line.clear();
-            }
-        });
+            });
 
-        let tcp = TcpStream::connect(("127.0.0.1", port))
-            .await
-            .expect("failed to connect");
-        let mut stream = AsyncFtpStream::connect_with_stream(tcp)
-            .await
-            .expect("failed handshake");
+            let tcp = TcpStream::connect(("127.0.0.1", port))
+                .await
+                .expect("failed to connect");
+            let mut stream = AsyncFtpStream::connect_with_stream(tcp)
+                .await
+                .expect("failed handshake");
 
-        assert!(stream.mkdir("dir").await.is_ok());
-        assert!(stream.rename("a", "b").await.is_ok());
-        assert!(stream.rmdir("dir").await.is_ok());
-        assert!(stream.rm("file").await.is_ok());
+            assert!(stream.mkdir("dir").await.is_ok());
+            assert!(stream.rename("a", "b").await.is_ok());
+            assert!(stream.rmdir("dir").await.is_ok());
+            assert!(stream.rm("file").await.is_ok());
 
-        assert!(stream.quit().await.is_ok());
-        handle.await;
+            assert!(stream.quit().await.is_ok());
+            handle.await;
+        })
     }
 }
