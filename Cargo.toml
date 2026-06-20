@@ -4,10 +4,10 @@ resolver = "2"
 
 [workspace.package]
 version = "8.0.4"
-edition = "2024"
-rust-version = "1.85.1"
 authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
-repository = "https://github.com/veeso/suppaftp"
-license = "MIT OR Apache-2.0"
-keywords = ["ftp", "ftps", "network-protocol", "async", "ftp-client"]
 categories = ["asynchronous", "network-programming"]
+edition = "2024"
+keywords = ["ftp", "ftps", "network-protocol", "async", "ftp-client"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/veeso/suppaftp"
+rust-version = "1.85.1"
