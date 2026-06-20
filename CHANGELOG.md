@@ -1,6 +1,9 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [9.0.0](#900)
+    - [⚠ Breaking Changes](#-breaking-changes)
+    - [Added](#added)
   - [8.0.5](#805)
     - [Fixed](#fixed)
   - [8.0.4](#804)
@@ -59,6 +62,50 @@
   - [4.0.0](#400)
 
 ---
+
+## 9.0.0
+
+Released on 2026-06-20
+
+### ⚠ Breaking Changes
+
+- replace async-std runtime with smol (#162)
+
+### Added
+
+- 💥 replace async-std runtime with smol (#162)
+  > async-std is unmaintained upstream (RUSTSEC-2025-0052). Drop it as an async
+  > backend and replace it with smol, an equivalent lightweight runtime.
+  >
+  > The TLS backends are unchanged: futures-rustls and async-native-tls are
+  > runtime-agnostic, so only the runtime glue (TcpStream/TcpListener, timers,
+  > spawn, task) moved from async-std to smol. async-native-tls already ran on its
+  > runtime-smol backend. The direct futures-lite dependency is gone too: smol
+  > re-exports it and nothing else used it, so it is no longer compiled for
+  > sync/tokio builds.
+  >
+  > This commit also centralizes dependencies into [workspace.dependencies], applies
+  > Cargo.toml conventions across all manifests, and renames mod.rs files to the
+  > module_name.rs style.
+  >
+  > Migrating from async-std:
+  >
+  > - Cargo features: rename every async-std feature to its smol counterpart.
+  >   - async-std                            -> smol
+  >   - async-std-async-native-tls           -> smol-async-native-tls
+  >   - async-std-async-native-tls-vendored  -> smol-async-native-tls-vendored
+  >   - async-std-rustls-aws-lc-rs           -> smol-rustls-aws-lc-rs
+  >   - async-std-rustls-ring                -> smol-rustls-ring
+  >
+  > - Module path: the async module is now suppaftp::smol instead of
+  >   suppaftp::async_std. The stream type aliases are unchanged: AsyncFtpStream,
+  >   AsyncNativeTlsFtpStream, AsyncRustlsFtpStream.
+  >
+  > - Helper types: AsyncStdTlsStream is now SmolTlsStream, and
+  >   AsyncStdPassiveStreamBuilder is now SmolPassiveStreamBuilder.
+  >
+  > - Runtime: drive the client on a smol executor (e.g. smol::block_on) instead of
+  >   async_std::task::block_on or #[async_std::main].
 
 ## 8.0.5
 
