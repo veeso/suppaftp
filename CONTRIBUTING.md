@@ -3,6 +3,8 @@
 Before contributing to this repository, please first discuss the change you wish to make via issue of this repository before making a change.
 Please note we have a [code of conduct](CODE_OF_CONDUCT.md), please follow it in all your interactions with the project.
 
+If you contribute using AI tools, you **must** read and follow the [AI Policy](AI_POLICY.md) and disclose your AI usage through the pull request template.
+
 - [Contributing](#contributing)
   - [Project mission](#project-mission)
   - [Open an issue](#open-an-issue)
@@ -88,10 +90,10 @@ Let's make it simple and clear:
 1. Open a PR with an **appropriate label** (e.g. bug, enhancement, ...).
 2. Write a **properly documentation** for your software compliant with **rustdoc** standard.
 3. Write tests for your code.
-4. Lint your code with `cargo clippy`.
+4. Run all code checks locally with `just check_code` (formatting via `dprint`, `clippy`, docs and `cargo-deny`). You can install the git pre-commit hook with `just setup_githooks`.
 5. Check if the CI for your commits reports all green.
 6. Report changes to the PR you opened, writing a report of what you changed and what you have introduced.
-7. Update the `CHANGELOG.md` file with details of changes to the application. In changelog report changes under a chapter called `PR{PULL_REQUEST_NUMBER}` (e.g. PR12).
+7. Write your commits in [Conventional Commits](https://www.conventionalcommits.org) format. The `CHANGELOG.md` is generated from them at release time by the maintainer with `just changelog X.Y.Z` (powered by [git-cliff](https://git-cliff.org)), so you do not need to edit it by hand.
 8. Assign a maintainer to the reviewers.
 9. Wait for a maintainer to fullfil the acceptance tests
 10. Wait for a maintainer to complete the acceptance tests
@@ -110,5 +112,5 @@ In addition to the process described for the PRs, I've also decided to introduce
 
 ---
 
-Thank you for any contribution!  
+Thank you for any contribution!\
 Christian Visintin

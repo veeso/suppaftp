@@ -17,32 +17,49 @@ It supports multiple TLS backends (native-tls, rustls) and async runtimes (tokio
 
 ## Build & Development Commands
 
+This repo uses [`just`](https://github.com/casey/just) as its command runner. Run `just` (or `just --list`) to see all
+recipes. Formatting is handled by [`dprint`](https://dprint.dev/) (Markdown/TOML/YAML + Rust via nightly rustfmt) and
+dependency policy by [`cargo-deny`](https://github.com/EmbarkStudios/cargo-deny). The `CHANGELOG.md` is generated from
+conventional commits with [`git-cliff`](https://git-cliff.org) (config in `cliff.toml`).
+
 ```bash
-# Build with a specific feature (you must pick at least one TLS/async feature)
-cargo build -p suppaftp --features native-tls,tokio-rustls-aws-lc-rs,async-std-rustls-aws-lc-rs
+# Build the library for a single feature set
+just build native-tls
 
-# Lint (alias defined in .cargo/config.toml — runs clippy with all major features)
-cargo lint
+# Build across every supported feature combination
+just build_all
 
-# Lint a single feature
-cargo clippy -p suppaftp --features native-tls -- -Dwarnings
+# Lint a single feature set
+just clippy native-tls "-- -D warnings"
 
-# Format check
-cargo +nightly fmt --all -- --check
+# Lint across every supported feature combination (denies warnings)
+just clippy_all
 
-# Run tests for a specific feature
-cargo test -p suppaftp --features native-tls
+# Format all sources (write) / check only
+just fmt
+just fmt_check
 
-# Run a single test
-cargo test -p suppaftp --features native-tls test_name
+# Run tests for a specific feature set (optionally a single test)
+just test native-tls [TEST_NAME]
 
-# Build/lint/test across all feature combinations
-./scripts/cargo.sh build
-./scripts/cargo.sh lint
-./scripts/cargo.sh test [TEST_NAME]
+# Run tests across every supported feature combination
+just test_all [TEST_NAME]
 
-# Generate docs
-cargo doc
+# Check dependencies (advisories, licenses, bans, sources)
+just deny
+
+# Generate docs (denies warnings)
+just doc
+
+# Run all code checks at once (fmt_check, clippy, doc, deny)
+just check_code
+
+# Add a new CHANGELOG.md entry from conventional commits (git-cliff), e.g. for a release
+just changelog 8.1.0
+just changelog_preview 8.1.0  # preview to stdout only
+
+# Install the git pre-commit hook (trufflehog + dprint + cargo-deny)
+just setup_githooks
 ```
 
 ## Feature Flags
