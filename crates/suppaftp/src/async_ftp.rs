@@ -1,102 +1,81 @@
 //! # Async
 //!
 //! This module contains the definition for all async implementation of suppaftp
-#[cfg(feature = "async-std")]
-mod async_std_ftp;
+#[cfg(feature = "smol")]
+mod smol_ftp;
 #[cfg(feature = "tokio")]
 mod tokio_ftp;
 
-#[cfg(feature = "async-std")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
-pub mod async_std {
-    #[cfg(feature = "async-std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
-    use crate::async_ftp::async_std_ftp::AsyncNoTlsStream;
-    pub use crate::async_ftp::async_std_ftp::AsyncStdPassiveStreamBuilder;
-    #[cfg(feature = "async-std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
-    pub use crate::async_ftp::async_std_ftp::{AsyncStdTlsStream, ImplAsyncFtpStream};
+#[cfg(feature = "smol")]
+#[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
+pub mod smol {
+    #[cfg(feature = "smol")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
+    use crate::async_ftp::smol_ftp::AsyncNoTlsStream;
+    pub use crate::async_ftp::smol_ftp::SmolPassiveStreamBuilder;
+    #[cfg(feature = "smol")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
+    pub use crate::async_ftp::smol_ftp::{ImplAsyncFtpStream, SmolTlsStream};
 
-    #[cfg(feature = "async-std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
+    #[cfg(feature = "smol")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
     pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
 
     // -- export async secure (native-tls)
-    #[cfg(all(feature = "async-std", feature = "async-std-async-native-tls"))]
+    #[cfg(all(feature = "smol", feature = "smol-async-native-tls"))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(all(feature = "async-std", feature = "async-std-async-native-tls")))
+        doc(cfg(all(feature = "smol", feature = "smol-async-native-tls")))
     )]
-    pub use crate::async_ftp::async_std_ftp::AsyncNativeTlsConnector;
-    #[cfg(all(feature = "async-std", feature = "async-std-async-native-tls"))]
+    pub use crate::async_ftp::smol_ftp::AsyncNativeTlsConnector;
+    #[cfg(all(feature = "smol", feature = "smol-async-native-tls"))]
     #[cfg_attr(
         docsrs,
-        doc(cfg(all(feature = "async-std", feature = "async-std-async-native-tls")))
+        doc(cfg(all(feature = "smol", feature = "smol-async-native-tls")))
     )]
-    use crate::async_ftp::async_std_ftp::AsyncNativeTlsStream;
-    #[cfg(feature = "async-std")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "async-std")))]
-    pub use crate::async_ftp::async_std_ftp::DataStream as AsyncDataStream;
+    use crate::async_ftp::smol_ftp::AsyncNativeTlsStream;
+    #[cfg(feature = "smol")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
+    pub use crate::async_ftp::smol_ftp::DataStream as AsyncDataStream;
 
-    #[cfg(feature = "async-std-async-native-tls")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "async-std-async-native-tls")))]
+    #[cfg(feature = "smol-async-native-tls")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "smol-async-native-tls")))]
     pub type AsyncNativeTlsFtpStream = ImplAsyncFtpStream<AsyncNativeTlsStream>;
-    // -- export async secure (rustls)async-std-rustls
+    // -- export async secure (rustls) smol-rustls
     #[cfg(all(
-        feature = "async-std",
-        any(
-            feature = "async-std-rustls-aws-lc-rs",
-            feature = "async-std-rustls-ring"
-        )
+        feature = "smol",
+        any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring")
     ))]
     #[cfg_attr(
         docsrs,
         doc(cfg(all(
-            any(
-                feature = "async-std-rustls-aws-lc-rs",
-                feature = "async-std-rustls-ring"
-            ),
-            any(
-                feature = "async-std-rustls-aws-lc-rs",
-                feature = "async-std-rustls-ring"
-            )
+            any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring"),
+            any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring")
         )))
     )]
-    pub use crate::async_ftp::async_std_ftp::AsyncRustlsConnector;
+    pub use crate::async_ftp::smol_ftp::AsyncRustlsConnector;
     #[cfg(all(
-        feature = "async-std",
-        any(
-            feature = "async-std-rustls-aws-lc-rs",
-            feature = "async-std-rustls-ring"
-        )
+        feature = "smol",
+        any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring")
     ))]
     #[cfg_attr(
         docsrs,
         doc(cfg(all(
-            feature = "async-std",
-            any(
-                feature = "async-std-rustls-aws-lc-rs",
-                feature = "async-std-rustls-ring"
-            )
+            feature = "smol",
+            any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring")
         )))
     )]
-    use crate::async_ftp::async_std_ftp::AsyncRustlsStream;
+    use crate::async_ftp::smol_ftp::AsyncRustlsStream;
 
     #[cfg(all(
-        feature = "async-std",
-        any(
-            feature = "async-std-rustls-aws-lc-rs",
-            feature = "async-std-rustls-ring"
-        )
+        feature = "smol",
+        any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring")
     ))]
     #[cfg_attr(
         docsrs,
         doc(cfg(all(
-            feature = "async-std",
-            any(
-                feature = "async-std-rustls-aws-lc-rs",
-                feature = "async-std-rustls-ring"
-            )
+            feature = "smol",
+            any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring")
         )))
     )]
     pub type AsyncRustlsFtpStream = ImplAsyncFtpStream<AsyncRustlsStream>;

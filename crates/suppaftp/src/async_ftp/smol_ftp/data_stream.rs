@@ -2,21 +2,22 @@
 //!
 //! This module exposes the async data stream implementation where bytes must be written to/read from
 
+use std::io::Result;
 use std::pin::Pin;
 
-#[cfg(any(feature = "async-std", feature = "async-secure"))]
-use async_std::io::{Read, Result, Write};
-#[cfg(any(feature = "async-std", feature = "async-secure"))]
-use async_std::net::TcpStream;
 use pin_project::pin_project;
+#[cfg(any(feature = "smol", feature = "async-secure"))]
+use smol::io::{AsyncRead as Read, AsyncWrite as Write};
+#[cfg(any(feature = "smol", feature = "async-secure"))]
+use smol::net::TcpStream;
 
-use super::AsyncStdTlsStream;
+use super::SmolTlsStream;
 
 /// Data Stream used for communications. It can be both of type Tcp in case of plain communication or Ssl in case of FTPS
 #[pin_project(project = DataStreamProj)]
 pub enum DataStream<T>
 where
-    T: AsyncStdTlsStream + Send,
+    T: SmolTlsStream + Send,
 {
     Tcp(#[pin] TcpStream),
     Ssl(#[pin] Box<T>),
@@ -25,7 +26,7 @@ where
 #[cfg(feature = "async-secure")]
 impl<T> DataStream<T>
 where
-    T: AsyncStdTlsStream + Send,
+    T: SmolTlsStream + Send,
 {
     /// Unwrap the stream into TcpStream. This method is only used in secure connection.
     pub fn into_tcp_stream(self) -> TcpStream {
@@ -38,7 +39,7 @@ where
 
 impl<T> DataStream<T>
 where
-    T: AsyncStdTlsStream + Send,
+    T: SmolTlsStream + Send,
 {
     /// Returns a reference to the underlying TcpStream.
     pub fn get_ref(&self) -> &TcpStream {
@@ -53,7 +54,7 @@ where
 
 impl<T> Read for DataStream<T>
 where
-    T: AsyncStdTlsStream + Send,
+    T: SmolTlsStream + Send,
 {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -69,7 +70,7 @@ where
 
 impl<T> Write for DataStream<T>
 where
-    T: AsyncStdTlsStream + Send,
+    T: SmolTlsStream + Send,
 {
     fn poll_write(
         self: Pin<&mut Self>,

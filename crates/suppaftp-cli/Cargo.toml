@@ -24,8 +24,8 @@ name = "suppaftp"
 path = "src/main.rs"
 
 [dependencies]
-argh = "^0.1"
-env_logger = "^0.11"
-log = "^0.4"
-rpassword = "^7.2"
-suppaftp = { path = "../suppaftp", version = "8", features = ["native-tls"] }
+argh = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+rpassword = { workspace = true }
+suppaftp = { workspace = true, features = ["native-tls"] }

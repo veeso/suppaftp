@@ -94,7 +94,7 @@ programming. It aims to be a complete, reliable and well-tested implementation o
 - 🔒 **FTPS** support with your choice of TLS backend: [native-tls](https://crates.io/crates/native-tls) or
   [rustls](https://crates.io/crates/rustls)
 - 🕙 First-class **sync and async** APIs, with [tokio](https://crates.io/crates/tokio) and
-  [async-std](https://crates.io/crates/async-std) as async backends
+  [smol](https://crates.io/crates/smol) as async backends
 - ⬇️ **Stream-based** transfers (e.g. `put_with_stream`, `retr`) for fine-grained control over data connections
 - ↔️ Both **passive and active** transfer modes
 - 🌟 Wide command coverage, including `ABOR`, `APPE`, `REST`, `EPSV` and `EPRT`
@@ -126,15 +126,15 @@ These are all the possible features, by family
     backend.
   - `rustls-ring`: enable FTPS support using [rustls](https://crates.io/crates/rustls) with ring as TLS backend.
 - **Async FTP**:
-  - **Async-std**:
-    - `async-std`: enable async client using [async-std](https://crates.io/crates/async-std) as async backend
-    - `async-std-async-native-tls`: enable FTPS support
+  - **Smol**:
+    - `smol`: enable async client using [smol](https://crates.io/crates/smol) as async backend
+    - `smol-async-native-tls`: enable FTPS support
       using [async-native-tls](https://crates.io/crates/async-native-tls)
-    - `async-std-async-native-tls-vendored`: enable vendored FTPS support
+    - `smol-async-native-tls-vendored`: enable vendored FTPS support
       using [async-native-tls](https://crates.io/crates/async-native-tls)
-    - `async-std-rustls-aws-lc-rs`: enable FTPS support
+    - `smol-rustls-aws-lc-rs`: enable FTPS support
       using [rustls](https://crates.io/crates/rustls) with aws-lc-rs as TLS backend.
-    - `async-std-rustls-ring`: enable FTPS support using [rustls](https://crates.io/crates/rustls)
+    - `smol-rustls-ring`: enable FTPS support using [rustls](https://crates.io/crates/rustls)
       with ring as TLS backend.
   - **Tokio**:
     - `tokio`: enable async client using [tokio](https://crates.io/crates/tokio) as async backend
@@ -169,8 +169,8 @@ suppaftp = { version = "^8", features = ["rustls-aws-lc-rs"] }
 
 #### Async support
 
-If you want to enable **async** support, you must enable either `async-std` feature, to
-use [async-std](https://crates.io/crates/async-std) or `tokio` feature, to use [tokio](https://crates.io/crates/tokio)
+If you want to enable **async** support, you must enable either `smol` feature, to
+use [smol](https://crates.io/crates/smol) or `tokio` feature, to use [tokio](https://crates.io/crates/tokio)
 as backend, in your cargo dependencies.
 
 ```toml
@@ -178,11 +178,11 @@ suppaftp = { version = "^8", features = ["tokio"] }
 ```
 
 > [!CAUTION]
-> ⚠️ To enable both **native-tls** and **async-std**, use the **async-std-async-native-tls** feature ⚠️\
+> ⚠️ To enable both **native-tls** and **smol**, use the **smol-async-native-tls** feature ⚠️\
 > ⚠️ To enable both **native-tls** and **tokio**, use the **tokio-async-native-tls** feature ⚠️\
-> ⚠️ To enable both **rustls** and **async-std**, use the **async-std-rustls-aws-lc-rs** (or `-ring`) feature ⚠️\
+> ⚠️ To enable both **rustls** and **smol**, use the **smol-rustls-aws-lc-rs** (or `-ring`) feature ⚠️\
 > ⚠️ To enable both **rustls** and **tokio**, use the **tokio-rustls-aws-lc-rs** (or `-ring`) feature ⚠️\
-> ❗ To link libssl statically with `async-std`, enable feature `async-std-async-native-tls-vendored`\
+> ❗ To link libssl statically with `smol`, enable feature `smol-async-native-tls-vendored`\
 > ❗ To link libssl statically with `tokio`, enable feature `tokio-async-native-tls-vendored`
 
 #### Deprecated methods

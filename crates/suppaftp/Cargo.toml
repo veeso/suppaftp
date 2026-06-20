@@ -25,31 +25,27 @@ name = "suppaftp"
 path = "src/lib.rs"
 
 [dependencies]
-# async
-async-native-tls-crate = { package = "async-native-tls", version = "0.6", default-features = false, optional = true }
-async-std = { version = "1", optional = true }
-async-trait = { version = "0.1", optional = true }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-futures-lite = "2"
-futures-rustls = { version = "0.26", optional = true, default-features = false, features = ["tls12", "logging"] }
-lazy-regex = "3"
-log = "0.4"
-# secure
-native-tls-crate = { package = "native-tls", version = "0.2", optional = true }
-pin-project = { version = "1", optional = true }
-rustls-crate = { package = "rustls", version = "0.23", default-features = false, features = ["logging", "std", "tls12"], optional = true }
-rustls-pki-types = { version = "1", optional = true, features = ["alloc"] }
-thiserror = "2"
-tokio = { version = "1", features = ["io-util", "net", "rt", "time"], optional = true }
-tokio-rustls-crate = { package = "tokio-rustls", version = "0.26", optional = true, default-features = false, features = ["logging", "tls12"] }
+async-native-tls-crate = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+chrono = { workspace = true, features = ["clock"] }
+futures-rustls = { workspace = true, features = ["tls12", "logging"], optional = true }
+lazy-regex = { workspace = true }
+log = { workspace = true }
+native-tls-crate = { workspace = true, optional = true }
+pin-project = { workspace = true, optional = true }
+rustls-crate = { workspace = true, features = ["logging", "std", "tls12"], optional = true }
+rustls-pki-types = { workspace = true, features = ["alloc"], optional = true }
+smol = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "net", "rt", "time"], optional = true }
+tokio-rustls-crate = { workspace = true, features = ["logging", "tls12"], optional = true }
 
 [dev-dependencies]
-async-attributes = "1"
-env_logger = "^0.11"
-pretty_assertions = "1"
-rand = "0.10"
-testcontainers = { version = "0.27", features = ["blocking"] }
-webpki-roots = "1"
+env_logger = { workspace = true }
+pretty_assertions = { workspace = true }
+rand = { workspace = true }
+testcontainers = { workspace = true, features = ["blocking"] }
+webpki-roots = { workspace = true }
 
 [features]
 default = []
@@ -64,32 +60,32 @@ secure = []
 # Async features
 async-secure = []
 
-# Async-std features
-async-std = ["dep:async-std", "dep:async-trait", "dep:pin-project"]
-async-std-rustls-aws-lc-rs = [
-  "dep:futures-rustls",
-  "futures-rustls/aws-lc-rs",
-  "dep:rustls-pki-types",
-  "async-secure",
-  "async-std",
-]
-async-std-rustls-ring = [
-  "dep:futures-rustls",
-  "futures-rustls/ring",
-  "dep:rustls-pki-types",
-  "async-secure",
-  "async-std",
-]
-async-std-async-native-tls = [
-  "async-std",
-  "dep:async-native-tls-crate",
-  "async-native-tls-crate/runtime-smol",
+# Smol features
+smol = ["dep:async-trait", "dep:pin-project", "dep:smol"]
+smol-async-native-tls = [
   "async-native-tls-crate/futures-util",
+  "async-native-tls-crate/runtime-smol",
   "async-secure",
+  "dep:async-native-tls-crate",
+  "smol",
 ]
-async-std-async-native-tls-vendored = [
-  "async-std-async-native-tls",
+smol-async-native-tls-vendored = [
   "async-native-tls-crate/vendored",
+  "smol-async-native-tls",
+]
+smol-rustls-aws-lc-rs = [
+  "async-secure",
+  "dep:futures-rustls",
+  "dep:rustls-pki-types",
+  "futures-rustls/aws-lc-rs",
+  "smol",
+]
+smol-rustls-ring = [
+  "async-secure",
+  "dep:futures-rustls",
+  "dep:rustls-pki-types",
+  "futures-rustls/ring",
+  "smol",
 ]
 
 # Tokio
@@ -130,10 +126,10 @@ no-log = ["log/max_level_off"]
 features = [
   "native-tls",
   "rustls-aws-lc-rs",
-  "async-std",
+  "smol",
   "tokio",
   "tokio-async-native-tls",
-  "async-std-rustls-aws-lc-rs",
+  "smol-rustls-aws-lc-rs",
   "tokio-rustls-aws-lc-rs",
 ]
 rustdoc-args = ["--cfg", "docsrs"]

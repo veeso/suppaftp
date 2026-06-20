@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SuppaFTP is a sync/async FTP/FTPS client library for Rust (crate: `suppaftp`), with an optional CLI binary (
 `suppaftp-cli`).
-It supports multiple TLS backends (native-tls, rustls) and async runtimes (tokio, async-std).
+It supports multiple TLS backends (native-tls, rustls) and async runtimes (tokio, smol).
 
 ## Repository Layout
 
@@ -74,12 +74,12 @@ exclusive** (enforced via `compile_error!`).
 
 **Async runtimes** (pick one or none):
 
-- `async-std` — plain async-std (no TLS)
+- `smol` — plain smol (no TLS)
 - `tokio` — plain tokio (no TLS)
 
 **Async + TLS** (combined features, pick one):
 
-- `async-std-async-native-tls`, `async-std-rustls-aws-lc-rs`, `async-std-rustls-ring`
+- `smol-async-native-tls`, `smol-rustls-aws-lc-rs`, `smol-rustls-ring`
 - `tokio-async-native-tls`, `tokio-rustls-aws-lc-rs`, `tokio-rustls-ring`
 
 **Misc**: `deprecated` (enables implicit FTPS), `no-log` (disables logging)
@@ -104,7 +104,7 @@ TLS pluggability is via two traits in `sync_ftp/tls.rs`:
 The sync implementation lives in `src/sync_ftp/mod.rs`. Async implementations mirror the same API with `async`/`await`:
 
 - `src/async_ftp/tokio_ftp/` — tokio-based
-- `src/async_ftp/async_std_ftp/` — async-std-based
+- `src/async_ftp/smol_ftp/` — smol-based
 
 ### Key Modules
 

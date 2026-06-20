@@ -41,18 +41,18 @@
 //!
 //! #### Async support
 //!
-//! If you want to enable **async** support, you must enable either `async-std` feature,
-//! to use [async-std](https://crates.io/crates/async-std)
+//! If you want to enable **async** support, you must enable either `smol` feature,
+//! to use [smol](https://crates.io/crates/smol)
 //! or `tokio` feature, to use [tokio](https://crates.io/crates/tokio) as backend, in your cargo dependencies.
 //!
 //! ```toml
 //! suppaftp = { version = "8", features = ["tokio"] }
 //! ```
 //!
-//! > ⚠️ If you want to enable both **native-tls** and **async-std** you must use the **async-std-async-native-tls** feature ⚠️  
+//! > ⚠️ If you want to enable both **native-tls** and **smol** you must use the **smol-async-native-tls** feature ⚠️
 //! > ⚠️ If you want to enable both **native-tls** and **tokio** you must use the **tokio-async-native-tls** feature ⚠️
-//! > ⚠️ If you want to enable both **rustls** and **async** you must use the **async-std-rustls** feature ⚠️  
-//! > ❗ If you want to link libssl statically with `async-std`, enable feature `async-std-async-native-tls-vendored`
+//! > ⚠️ If you want to enable both **rustls** and **smol** you must use the **smol-rustls-aws-lc-rs** (or `-ring`) feature ⚠️
+//! > ❗ If you want to link libssl statically with `smol`, enable feature `smol-async-native-tls-vendored`
 //! > ❗ If you want to link libssl statically with `tokio`, enable feature `tokio-async-native-tls-vendored`
 //!
 //! #### Deprecated methods
@@ -132,15 +132,15 @@
 //       backend.
 //     - `rustls-ring`: enable FTPS support using [rustls](https://crates.io/crates/rustls) with ring as TLS backend.
 // - **Async FTP**:
-//     - **Async-std**:
-//         - `async-std`: enable async client using [async-std](https://crates.io/crates/async-std) as async backend
-//         - `async-std-async-native-tls`: enable FTPS support
+//     - **Smol**:
+//         - `smol`: enable async client using [smol](https://crates.io/crates/smol) as async backend
+//         - `smol-async-native-tls`: enable FTPS support
 //           using [async-native-tls](https://crates.io/crates/async-native-tls)
-//         - `async-std-async-native-tls-vendored`: enable vendored FTPS support
+//         - `smol-async-native-tls-vendored`: enable vendored FTPS support
 //           using [async-native-tls](https://crates.io/crates/async-native-tls)
-//         - `async-std-async-rustls-aws-lc-rs`: enable FTPS support
-//           using [async-rustls](https://crates.io/crates/async-rustls) with aws-lc-rs as TLS backend.
-//         - `async-std-async-rustls-ring`: enable FTPS support using [async-rustls](https://crates.io/crates/async-rustls)
+//         - `smol-rustls-aws-lc-rs`: enable FTPS support
+//           using [futures-rustls](https://crates.io/crates/futures-rustls) with aws-lc-rs as TLS backend.
+//         - `smol-rustls-ring`: enable FTPS support using [futures-rustls](https://crates.io/crates/futures-rustls)
 //           with ring as TLS backend.
 //     - **Tokio**:
 //         - `tokio`: enable async client using [tokio](https://crates.io/crates/tokio) as async backend
@@ -166,12 +166,9 @@
     html_logo_url = "https://raw.githubusercontent.com/veeso/suppaftp/main/assets/images/cargo/suppaftp-512.png"
 )]
 
-// Give compile error if both `async-std-async-native-tls` and `tokio-async-native-tls` are enabled
-#[cfg(all(
-    feature = "async-std-async-native-tls",
-    feature = "tokio-async-native-tls"
-))]
-compile_error!("async-std-async-native-tls and tokio-async-native-tls are mutually exclusive");
+// Give compile error if both `smol-async-native-tls` and `tokio-async-native-tls` are enabled
+#[cfg(all(feature = "smol-async-native-tls", feature = "tokio-async-native-tls"))]
+compile_error!("smol-async-native-tls and tokio-async-native-tls are mutually exclusive");
 
 // -- common deps
 #[macro_use]
@@ -180,7 +177,7 @@ extern crate lazy_regex;
 extern crate log;
 
 // -- private
-#[cfg(any(feature = "async-std", feature = "tokio"))]
+#[cfg(any(feature = "smol", feature = "tokio"))]
 mod async_ftp;
 
 pub(crate) mod command;
@@ -206,16 +203,10 @@ pub extern crate native_tls_crate as native_tls;
 )]
 pub extern crate rustls_crate as rustls;
 // -- async deps
-#[cfg(any(
-    feature = "tokio-async-native-tls",
-    feature = "async-std-async-native-tls"
-))]
+#[cfg(any(feature = "tokio-async-native-tls", feature = "smol-async-native-tls"))]
 #[cfg_attr(
     docsrs,
-    doc(cfg(any(
-        feature = "tokio-async-native-tls",
-        feature = "async-std-async-native-tls"
-    )))
+    doc(cfg(any(feature = "tokio-async-native-tls", feature = "smol-async-native-tls")))
 )]
 pub extern crate async_native_tls_crate as async_native_tls;
 #[cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring"))]
@@ -263,7 +254,7 @@ use sync_ftp::RustlsStream;
 )]
 pub type RustlsFtpStream = ImplFtpStream<RustlsStream>;
 
-#[cfg(any(feature = "tokio", feature = "async-std"))]
+#[cfg(any(feature = "tokio", feature = "smol"))]
 pub use crate::async_ftp::*;
 
 // -- test logging
