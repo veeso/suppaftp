@@ -97,14 +97,14 @@ impl TokioTlsStream for AsyncNativeTlsStream {
     }
 
     fn tcp_stream(self) -> TcpStream {
-        use std::os::fd::AsFd;
-        let owned_fd = self
-            .stream
-            .get_ref()
-            .as_fd()
-            .try_clone_to_owned()
-            .expect("failed to clone tcp stream fd");
-        let std_stream = std::net::TcpStream::from(owned_fd);
+        let inner = self.stream.get_ref();
+        // OwnedFd / OwnedSocket differ per platform but both convert into TcpStream.
+        #[cfg(not(windows))]
+        let owned = std::os::fd::AsFd::as_fd(inner).try_clone_to_owned();
+        #[cfg(windows)]
+        let owned = std::os::windows::io::AsSocket::as_socket(inner).try_clone_to_owned();
+        let std_stream =
+            std::net::TcpStream::from(owned.expect("failed to clone tcp stream handle"));
         std_stream
             .set_nonblocking(true)
             .expect("set_nonblocking failed");
