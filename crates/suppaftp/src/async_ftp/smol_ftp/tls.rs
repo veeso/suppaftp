@@ -31,8 +31,10 @@ pub trait AsyncTlsConnector: Debug {
 pub trait SmolTlsStream: Debug + Read + Write + Unpin {
     type InnerStream: Read + Write;
 
-    /// Get underlying tcp stream
-    fn tcp_stream(self) -> TcpStream;
+    /// Get underlying tcp stream.
+    ///
+    /// Returns an error if the underlying socket cannot be turned into an owned [`TcpStream`].
+    fn tcp_stream(self) -> crate::FtpResult<TcpStream>;
 
     /// Get ref to underlying tcp stream
     fn get_ref(&self) -> &TcpStream;
@@ -41,8 +43,22 @@ pub trait SmolTlsStream: Debug + Read + Write + Unpin {
     fn mut_ref(&mut self) -> &mut Self::InnerStream;
 }
 
+/// A placeholder TLS stream used for plain (non-secure) async FTP connections.
+///
+/// It is only ever used as the `T` type parameter of a plain async FTP stream; a plain FTP data
+/// connection is always a TCP stream, so the I/O and accessor methods below are never reached. The
+/// I/O methods return an [`std::io::ErrorKind::Unsupported`] error instead of panicking, while the
+/// infallible accessors panic, as reaching them indicates a logic error in the library.
 #[derive(Debug)]
 pub struct AsyncNoTlsStream;
+
+/// Error returned by the I/O methods of [`AsyncNoTlsStream`].
+fn no_tls_stream_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "AsyncNoTlsStream is a placeholder for plain FTP and cannot perform TLS I/O",
+    )
+}
 
 impl Read for AsyncNoTlsStream {
     fn poll_read(
@@ -50,7 +66,7 @@ impl Read for AsyncNoTlsStream {
         _cx: &mut std::task::Context<'_>,
         _buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        panic!()
+        std::task::Poll::Ready(Err(no_tls_stream_error()))
     }
 }
 
@@ -60,36 +76,42 @@ impl Write for AsyncNoTlsStream {
         _cx: &mut std::task::Context<'_>,
         _buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        panic!()
+        std::task::Poll::Ready(Err(no_tls_stream_error()))
     }
 
     fn poll_flush(
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        panic!()
+        std::task::Poll::Ready(Err(no_tls_stream_error()))
     }
 
     fn poll_close(
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        panic!()
+        std::task::Poll::Ready(Err(no_tls_stream_error()))
     }
 }
 
 impl SmolTlsStream for AsyncNoTlsStream {
     type InnerStream = TcpStream;
 
-    fn tcp_stream(self) -> TcpStream {
-        panic!()
+    fn tcp_stream(self) -> crate::FtpResult<TcpStream> {
+        unreachable!(
+            "AsyncNoTlsStream is a placeholder for plain FTP and has no underlying TcpStream"
+        )
     }
 
     fn get_ref(&self) -> &TcpStream {
-        panic!()
+        unreachable!(
+            "AsyncNoTlsStream is a placeholder for plain FTP and has no underlying TcpStream"
+        )
     }
 
     fn mut_ref(&mut self) -> &mut Self::InnerStream {
-        panic!()
+        unreachable!(
+            "AsyncNoTlsStream is a placeholder for plain FTP and has no underlying TcpStream"
+        )
     }
 }

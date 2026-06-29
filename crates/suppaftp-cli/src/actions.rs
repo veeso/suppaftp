@@ -59,8 +59,9 @@ pub fn connect(remote: &str, secure: bool) -> Option<FtpStream> {
                 return None;
             }
         };
-        // Get address without port
-        let address: &str = remote.split(':').next().unwrap();
+        // Get address without port; `split` always yields at least one element, so the whole
+        // remote is used as a fallback.
+        let address: &str = remote.split(':').next().unwrap_or(remote);
         stream = match stream.into_secure(NativeTlsConnector::from(ctx), address) {
             Ok(s) => s,
             Err(err) => {

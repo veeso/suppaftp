@@ -168,7 +168,7 @@ where
         self.read_response(Status::AuthOk)?;
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
-            .connect(domain, self.reader.into_inner().into_tcp_stream())
+            .connect(domain, self.reader.into_inner().into_tcp_stream()?)
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut secured_ftp_tream = Self {
@@ -235,7 +235,7 @@ where
         debug!("Established connection with server");
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
-            .connect(domain, stream.reader.into_inner().into_tcp_stream())
+            .connect(domain, stream.reader.into_inner().into_tcp_stream()?)
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut stream = Self {
@@ -311,7 +311,7 @@ where
         self.perform(Command::ClearCommandChannel)?;
         self.read_response(Status::CommandOk)?;
         trace!("CCC OK");
-        self.reader = BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream()));
+        self.reader = BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream()?));
         Ok(self)
     }
 
@@ -985,12 +985,16 @@ where
         let result = Ok(DataStream::Tcp(stream));
 
         #[cfg(feature = "secure")]
-        let result = match self.tls_ctx {
-            Some(ref tls_ctx) => tls_ctx
-                .connect(self.domain.as_ref().unwrap(), stream)
+        let result = match (self.tls_ctx.as_ref(), self.domain.as_ref()) {
+            (Some(tls_ctx), Some(domain)) => tls_ctx
+                .connect(domain, stream)
                 .map(|x| DataStream::Ssl(Box::new(x)))
                 .map_err(|e| FtpError::SecureError(format!("{e}"))),
-            None => Ok(DataStream::Tcp(stream)),
+            (Some(_), None) => Err(FtpError::SecureError(
+                "TLS context is set but no domain is available for the secure connection"
+                    .to_string(),
+            )),
+            (None, _) => Ok(DataStream::Tcp(stream)),
         };
 
         if result.is_ok() {
@@ -1114,17 +1118,20 @@ where
         let caps = PASV_PORT_RE
             .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
-        // If the regex matches we can be sure groups contains numbers
+        // The regex only guarantees the groups are digits; a malicious or buggy
+        // server may still send an octet that overflows a `u8`, so parsing is fallible.
+        let parse_octet = |index: usize| -> FtpResult<u8> {
+            caps[index]
+                .parse::<u8>()
+                .map_err(|_| FtpError::UnexpectedResponse(response.clone()))
+        };
         let (oct1, oct2, oct3, oct4) = (
-            caps[1].parse::<u8>().unwrap(),
-            caps[2].parse::<u8>().unwrap(),
-            caps[3].parse::<u8>().unwrap(),
-            caps[4].parse::<u8>().unwrap(),
+            parse_octet(1)?,
+            parse_octet(2)?,
+            parse_octet(3)?,
+            parse_octet(4)?,
         );
-        let (msb, lsb) = (
-            caps[5].parse::<u8>().unwrap(),
-            caps[6].parse::<u8>().unwrap(),
-        );
+        let (msb, lsb) = (parse_octet(5)?, parse_octet(6)?);
         let ip = Ipv4Addr::new(oct1, oct2, oct3, oct4);
         let port = (u16::from(msb) << 8) | u16::from(lsb);
         let addr = SocketAddr::new(ip.into(), port);
@@ -1646,6 +1653,15 @@ mod test {
         let response = Response::new(
             Status::PassiveMode,
             "227 No passive mode info here".as_bytes().to_vec(),
+        );
+        assert!(FtpStream::parse_passive_address_from_response(response).is_err());
+
+        // Octet out of range for a u8 must error instead of panicking
+        let response = Response::new(
+            Status::PassiveMode,
+            "227 Entering Passive Mode (213,229,112,999,216,4)"
+                .as_bytes()
+                .to_vec(),
         );
         assert!(FtpStream::parse_passive_address_from_response(response).is_err());
     }

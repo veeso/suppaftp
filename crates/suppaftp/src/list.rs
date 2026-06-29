@@ -181,7 +181,11 @@ impl ListParser {
         }
 
         // get name
-        f.name = tokens.last().unwrap().trim_start().to_string();
+        f.name = tokens
+            .last()
+            .ok_or(ParseError::SyntaxError)?
+            .trim_start()
+            .to_string();
 
         Ok(f)
     }
@@ -208,16 +212,18 @@ impl ListParser {
                 }
                 // Collect metadata
                 // Get if is directory and if is symlink
-                let file_type: FileType = match metadata.get(1).unwrap().as_str() {
-                    "-" => FileType::File,
-                    "d" => FileType::Directory,
-                    "l" => FileType::Symlink(PathBuf::default()),
-                    _ => return Err(ParseError::SyntaxError), // This case is actually already covered by the regex
-                };
+                let file_type: FileType =
+                    match metadata.get(1).ok_or(ParseError::SyntaxError)?.as_str() {
+                        "-" => FileType::File,
+                        "d" => FileType::Directory,
+                        "l" => FileType::Symlink(PathBuf::default()),
+                        _ => return Err(ParseError::SyntaxError), // This case is actually already covered by the regex
+                    };
 
+                let permissions = metadata.get(2).ok_or(ParseError::SyntaxError)?.as_str();
                 let pex = |range: Range<usize>| {
                     let mut count: u8 = 0;
-                    for (i, c) in metadata.get(2).unwrap().as_str()[range].chars().enumerate() {
+                    for (i, c) in permissions[range].chars().enumerate() {
                         match c {
                             '-' | 'S' | 'T' => {}
                             _ => {
@@ -242,25 +248,42 @@ impl ListParser {
 
                 // Parse mtime and convert to SystemTime
                 let modified: SystemTime = Self::parse_lstime(
-                    metadata.get(7).unwrap().as_str().trim(),
+                    metadata
+                        .get(7)
+                        .ok_or(ParseError::SyntaxError)?
+                        .as_str()
+                        .trim(),
                     "%b %d %Y",
                     "%b %d %H:%M",
                 )?;
                 // Get gid
-                let gid: Option<u32> = metadata.get(5).unwrap().as_str().trim().parse::<u32>().ok();
+                let gid: Option<u32> = metadata
+                    .get(5)
+                    .ok_or(ParseError::SyntaxError)?
+                    .as_str()
+                    .trim()
+                    .parse::<u32>()
+                    .ok();
                 // Get uid
-                let uid: Option<u32> = metadata.get(4).unwrap().as_str().trim().parse::<u32>().ok();
+                let uid: Option<u32> = metadata
+                    .get(4)
+                    .ok_or(ParseError::SyntaxError)?
+                    .as_str()
+                    .trim()
+                    .parse::<u32>()
+                    .ok();
                 // Get filesize
                 let size: usize = metadata
                     .get(6)
-                    .unwrap()
+                    .ok_or(ParseError::SyntaxError)?
                     .as_str()
                     .parse::<usize>()
                     .map_err(|_| ParseError::BadSize)?;
                 // Split filename if required
+                let filename = metadata.get(8).ok_or(ParseError::SyntaxError)?.as_str();
                 let (name, symlink_path): (String, Option<PathBuf>) = match file_type.is_symlink() {
-                    true => Self::get_name_and_link(metadata.get(8).unwrap().as_str()),
-                    false => (String::from(metadata.get(8).unwrap().as_str()), None),
+                    true => Self::get_name_and_link(filename),
+                    false => (String::from(filename), None),
                 };
                 // If symlink path is Some, assign symlink path to file_type
                 let file_type: FileType = match symlink_path {
@@ -306,7 +329,8 @@ impl ListParser {
                     return Err(ParseError::SyntaxError);
                 }
                 // Parse date time
-                let modified: SystemTime = Self::parse_dostime(metadata.get(1).unwrap().as_str())?;
+                let modified: SystemTime =
+                    Self::parse_dostime(metadata.get(1).ok_or(ParseError::SyntaxError)?.as_str())?;
                 // Get if is a directory
                 let file_type: FileType = match metadata.get(2).is_some() {
                     true => FileType::Directory,
@@ -326,7 +350,8 @@ impl ListParser {
                     },
                 };
                 // Get file name
-                let name: String = String::from(metadata.get(4).unwrap().as_str());
+                let name: String =
+                    String::from(metadata.get(4).ok_or(ParseError::SyntaxError)?.as_str());
                 trace!(
                     "Found file with name {}, type: {:?}, size: {}",
                     name, file_type, size,
@@ -353,7 +378,9 @@ impl ListParser {
     /// Returns from a `ls -l` command output file name token, the name of the file and the symbolic link (if there is any)
     fn get_name_and_link(token: &str) -> (String, Option<PathBuf>) {
         let tokens: Vec<&str> = token.split(" -> ").collect();
-        let filename: String = String::from(*tokens.first().unwrap());
+        // `split` always yields at least one element, so the filename defaults to the
+        // whole token when no link separator is present.
+        let filename: String = tokens.first().copied().unwrap_or_default().to_string();
         let symlink: Option<PathBuf> = tokens.get(1).map(PathBuf::from);
         (filename, symlink)
     }
@@ -389,7 +416,7 @@ impl ListParser {
             Ok(date) => {
                 // Case 2.
                 // Return NaiveDateTime from NaiveDate with time 00:00:00
-                date.and_hms_opt(0, 0, 0).unwrap()
+                date.and_hms_opt(0, 0, 0).ok_or(ParseError::InvalidDate)?
             }
             Err(_) => {
                 // Might be case 1.

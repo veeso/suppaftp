@@ -58,9 +58,15 @@ pub struct RustlsStream {
 impl TlsStream for RustlsStream {
     type InnerStream = StreamOwned<ClientConnection, TcpStream>;
 
-    /// Get underlying tcp stream
-    fn tcp_stream(mut self) -> TcpStream {
-        let mut stream = self.get_ref().try_clone().unwrap();
+    /// Get underlying tcp stream.
+    ///
+    /// Returns a [`crate::FtpError::ConnectionError`] if the underlying socket handle cannot be
+    /// cloned (e.g. on OS resource exhaustion).
+    fn tcp_stream(mut self) -> crate::FtpResult<TcpStream> {
+        let mut stream = self
+            .get_ref()
+            .try_clone()
+            .map_err(crate::FtpError::ConnectionError)?;
         // Don't perform shutdown later
         self.ssl_shutdown = false;
         // flush stream (otherwise can cause bad chars on channel)
@@ -68,7 +74,7 @@ impl TlsStream for RustlsStream {
             error!("Error in flushing tcp stream: {}", err);
         }
         trace!("TLS stream terminated");
-        stream
+        Ok(stream)
     }
 
     /// Get ref to underlying tcp stream

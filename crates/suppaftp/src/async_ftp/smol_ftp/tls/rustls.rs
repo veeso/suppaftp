@@ -108,7 +108,7 @@ impl SmolTlsStream for AsyncRustlsStream {
         &mut self.stream
     }
 
-    fn tcp_stream(self) -> TcpStream {
-        self.stream.get_ref().0.clone()
+    fn tcp_stream(self) -> crate::FtpResult<TcpStream> {
+        Ok(self.stream.get_ref().0.clone())
     }
 }

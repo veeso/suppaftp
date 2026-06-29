@@ -96,7 +96,11 @@ impl TokioTlsStream for AsyncNativeTlsStream {
         &mut self.stream
     }
 
-    fn tcp_stream(self) -> TcpStream {
+    /// Get underlying tcp stream.
+    ///
+    /// Returns a [`crate::FtpError::ConnectionError`] if the underlying socket handle cannot be
+    /// cloned or converted into a tokio [`TcpStream`] (e.g. on OS resource exhaustion).
+    fn tcp_stream(self) -> crate::FtpResult<TcpStream> {
         let inner = self.stream.get_ref();
         // OwnedFd / OwnedSocket differ per platform but both convert into TcpStream.
         #[cfg(not(windows))]
@@ -104,10 +108,10 @@ impl TokioTlsStream for AsyncNativeTlsStream {
         #[cfg(windows)]
         let owned = std::os::windows::io::AsSocket::as_socket(inner).try_clone_to_owned();
         let std_stream =
-            std::net::TcpStream::from(owned.expect("failed to clone tcp stream handle"));
+            std::net::TcpStream::from(owned.map_err(crate::FtpError::ConnectionError)?);
         std_stream
             .set_nonblocking(true)
-            .expect("set_nonblocking failed");
-        TcpStream::from_std(std_stream).expect("failed to convert to tokio TcpStream")
+            .map_err(crate::FtpError::ConnectionError)?;
+        TcpStream::from_std(std_stream).map_err(crate::FtpError::ConnectionError)
     }
 }
