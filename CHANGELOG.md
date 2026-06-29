@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+  - [10.0.0](#1000)
   - [9.0.0](#900)
     - [⚠ Breaking Changes](#-breaking-changes)
     - [Added](#added)
@@ -62,6 +63,40 @@
   - [4.0.0](#400)
 
 ---
+
+## 10.0.0
+
+Released on 2026-06-29
+
+### ⚠ Breaking Changes
+- replace panics with errors across library and CLI (#166)
+  > the `tcp_stream` method of the `TlsStream`, `TokioTlsStream` and
+`SmolTlsStream` traits now returns `FtpResult<TcpStream>` instead of `TcpStream`,
+and `DataStream::into_tcp_stream` now returns `FtpResult<TcpStream>`.
+
+### CI
+
+- build all feature sets on windows and macos (#165)
+  > Extend the build job with an os matrix (ubuntu, windows, macos) so every feature combination is compiled on all three platforms, catching platform-specific build breaks. Coverage/tests stay linux-only as they require Docker.
+
+### Changed
+
+- 💥 replace panics with errors across library and CLI (#166)
+  > Convert unwrap/expect/panic patterns in production code paths to proper
+  > FtpError/ParseError results, so malformed server responses (e.g. an out-of-range
+  > PASV octet or unparsable LIST/MLSx line) and socket-clone failures no longer abort
+  > the program. Placeholder no-TLS streams now return io errors or unreachable! for
+  > truly unreachable accessors.
+
+### Fixed
+
+- bump `time` to 0.3.47 to fix RUSTSEC-2026-0009 (#167)
+  > `time` 0.3.45 (a dev-only dependency via testcontainers) is affected by a
+  > denial-of-service via stack exhaustion when parsing RFC 2822 input. Bumping to
+  > 0.3.47 raises the workspace MSRV to 1.88.0.
+- `tcp_stream()` Windows compatibility with tokio + native-tls (#164)
+  > Add a branch on windows that uses `as_socket` instead of `as_fd` to get
+  > a reference to the underlying system socket before cloning.
 
 ## 9.0.0
 
