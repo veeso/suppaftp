@@ -1,16 +1,16 @@
 [workspace]
 members = ["crates/suppaftp", "crates/suppaftp-cli"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
-version = "9.0.0"
+version = "10.0.0"
 authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
 categories = ["asynchronous", "network-programming"]
 edition = "2024"
 keywords = ["ftp", "ftps", "network-protocol", "async", "ftp-client"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/veeso/suppaftp"
-rust-version = "1.85.1"
+rust-version = "1.88.0"
 
 [workspace.dependencies]
 argh = "0.1"
@@ -29,7 +29,7 @@ rpassword = "7.2"
 rustls-crate = { package = "rustls", version = "0.23", default-features = false }
 rustls-pki-types = "1"
 smol = "2"
-suppaftp = { path = "crates/suppaftp", version = "9" }
+suppaftp = { path = "crates/suppaftp", version = "10" }
 testcontainers = "0.27"
 thiserror = "2"
 tokio = "1"

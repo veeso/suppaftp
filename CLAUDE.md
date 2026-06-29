@@ -13,7 +13,7 @@ It supports multiple TLS backends (native-tls, rustls) and async runtimes (tokio
 - **Workspace root**: `Cargo.toml` — two members under `crates/`
 - **`crates/suppaftp/`**: Main library crate
 - **`crates/suppaftp-cli/`**: CLI binary crate
-- **Edition**: 2024, **MSRV**: 1.85.1
+- **Edition**: 2024, **MSRV**: 1.88.0
 
 ## Build & Development Commands
 
