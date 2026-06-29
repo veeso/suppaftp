@@ -61,9 +61,10 @@ fn input() -> Command {
         print!(">> ");
         let _ = io::stdout().flush();
         let mut input: String = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read stdin");
+        if let Err(err) = io::stdin().read_line(&mut input) {
+            eprintln!("Failed to read stdin: {err}");
+            return Command::Quit;
+        }
         // Try to create command
         if let Ok(cmd) = Command::from_str(input.as_str()) {
             return cmd;
@@ -158,7 +159,8 @@ fn perform_connected(ftp: &mut FtpStream, command: Command) {
         Command::Rmdir(file) => rmdir(ftp, file.as_str()),
         Command::Size(file) => size(ftp, file.as_str()),
         Command::Help | Command::Quit => {
-            panic!("Something unexpected happened")
+            // `Help` and `Quit` are already handled by the main loop before reaching this point.
+            eprintln!("Unexpected command in connected state");
         }
     }
 }

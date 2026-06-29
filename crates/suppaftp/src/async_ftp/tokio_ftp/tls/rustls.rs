@@ -107,7 +107,7 @@ impl TokioTlsStream for AsyncRustlsStream {
         &mut self.stream
     }
 
-    fn tcp_stream(self) -> TcpStream {
-        self.stream.into_inner().0
+    fn tcp_stream(self) -> crate::FtpResult<TcpStream> {
+        Ok(self.stream.into_inner().0)
     }
 }

@@ -150,7 +150,7 @@ where
         self.read_response(Status::AuthOk).await?;
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
-            .connect(domain, self.reader.into_inner().into_tcp_stream())
+            .connect(domain, self.reader.into_inner().into_tcp_stream()?)
             .await
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         let mut secured_ftp_tream = ImplAsyncFtpStream {
@@ -223,7 +223,7 @@ where
         debug!("Established connection with server");
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
-            .connect(domain, stream.reader.into_inner().into_tcp_stream())
+            .connect(domain, stream.reader.into_inner().into_tcp_stream()?)
             .await
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
@@ -323,7 +323,7 @@ where
         self.perform(Command::ClearCommandChannel).await?;
         self.read_response(Status::CommandOk).await?;
         trace!("CCC OK");
-        self.reader = BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream()));
+        self.reader = BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream()?));
         Ok(self)
     }
 
@@ -920,13 +920,17 @@ where
         let result = Ok(DataStream::Tcp(stream));
 
         #[cfg(feature = "async-secure")]
-        let result = match self.tls_ctx {
-            Some(ref tls_ctx) => tls_ctx
-                .connect(self.domain.as_ref().unwrap(), stream)
+        let result = match (self.tls_ctx.as_ref(), self.domain.as_ref()) {
+            (Some(tls_ctx), Some(domain)) => tls_ctx
+                .connect(domain, stream)
                 .await
                 .map(|x| DataStream::Ssl(Box::new(x)))
                 .map_err(|e| FtpError::SecureError(format!("{e}"))),
-            None => Ok(DataStream::Tcp(stream)),
+            (Some(_), None) => Err(FtpError::SecureError(
+                "TLS context is set but no domain is available for the secure connection"
+                    .to_string(),
+            )),
+            (None, _) => Ok(DataStream::Tcp(stream)),
         };
 
         if result.is_ok() {

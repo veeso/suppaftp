@@ -29,8 +29,10 @@ pub trait TlsConnector: Debug {
 pub trait TlsStream: Debug {
     type InnerStream: Read + Write;
 
-    /// Get underlying tcp stream
-    fn tcp_stream(self) -> TcpStream;
+    /// Get underlying tcp stream.
+    ///
+    /// Returns an error if the underlying socket cannot be turned into an owned [`TcpStream`].
+    fn tcp_stream(self) -> crate::FtpResult<TcpStream>;
 
     /// Get ref to underlying tcp stream
     fn get_ref(&self) -> &TcpStream;
@@ -39,21 +41,26 @@ pub trait TlsStream: Debug {
     fn mut_ref(&mut self) -> &mut Self::InnerStream;
 }
 
+/// A placeholder TLS stream used for plain (non-secure) FTP connections.
+///
+/// It is only ever used as the `T` type parameter of a plain [`crate::FtpStream`]; the data
+/// connection of a plain FTP session is always a TCP stream, so the TLS methods below are never
+/// reached. Calling any of them indicates a logic error in the library and therefore panics.
 #[derive(Debug)]
 pub struct NoTlsStream;
 
 impl TlsStream for NoTlsStream {
     type InnerStream = TcpStream;
 
-    fn tcp_stream(self) -> TcpStream {
-        unimplemented!("NoTlsStream has no underlying TcpStream")
+    fn tcp_stream(self) -> crate::FtpResult<TcpStream> {
+        unreachable!("NoTlsStream is a placeholder for plain FTP and has no underlying TcpStream")
     }
 
     fn get_ref(&self) -> &TcpStream {
-        unimplemented!("NoTlsStream has no underlying TcpStream")
+        unreachable!("NoTlsStream is a placeholder for plain FTP and has no underlying TcpStream")
     }
 
     fn mut_ref(&mut self) -> &mut Self::InnerStream {
-        unimplemented!("NoTlsStream has no underlying TcpStream")
+        unreachable!("NoTlsStream is a placeholder for plain FTP and has no underlying TcpStream")
     }
 }

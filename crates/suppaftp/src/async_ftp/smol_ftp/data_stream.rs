@@ -29,10 +29,12 @@ where
     T: SmolTlsStream + Send,
 {
     /// Unwrap the stream into TcpStream. This method is only used in secure connection.
-    pub fn into_tcp_stream(self) -> TcpStream {
+    ///
+    /// Returns an error if the underlying secure stream cannot be turned into a [`TcpStream`].
+    pub fn into_tcp_stream(self) -> crate::FtpResult<TcpStream> {
         match self {
-            DataStream::Tcp(stream) => stream,
-            DataStream::Ssl(stream) => stream.get_ref().clone(),
+            DataStream::Tcp(stream) => Ok(stream),
+            DataStream::Ssl(stream) => stream.tcp_stream(),
         }
     }
 }
