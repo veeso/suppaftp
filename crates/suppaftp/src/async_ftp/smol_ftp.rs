@@ -1090,20 +1090,30 @@ where
         }
 
         let code_word: u32 = self.code_from_buffer(&line, 3)?;
-        let code = Status::from(code_word);
+        let mut code = Status::from(code_word);
 
         trace!("Code parsed from response: {} ({})", code, code_word);
 
-        // multiple line reply
-        // loop while the line does not begin with the code and a space (or dash)
-        let expected = [line[0], line[1], line[2], 0x20];
-        let alt_expected = if expected_code.contains(&Status::System) {
-            [line[0], line[1], line[2], b'-']
-        } else {
-            expected
+        // Multi-line reply handling. RFC 959 opens a multi-line reply with
+        // "DDD-" and terminates it with the SAME "DDD <text>". Some non-RFC
+        // servers (notably glftpd) instead prefix the operative reply with
+        // informational lines under a DIFFERENT code, e.g.
+        //   553-
+        //   553- Directory excluded (precheck).
+        //   150 Opening BINARY mode data connection ...
+        // Waiting for the opener's code to reappear would hang forever, so
+        // terminate on ANY line that is three ASCII digits followed by a space,
+        // and adopt THAT line's code as the operative reply (matching how
+        // FlashFXP / lftp read the same servers). A single-line reply is already
+        // in terminal form, so the loop is skipped.
+        let is_terminal = |l: &[u8]| {
+            l.len() >= 4
+                && l[3] == b' '
+                && l[0].is_ascii_digit()
+                && l[1].is_ascii_digit()
+                && l[2].is_ascii_digit()
         };
-        trace!("CC IN: {:?}", line);
-        while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
+        while !is_terminal(&line) {
             line.clear();
             let bytes_read = self.read_line(&mut line).await?;
             if bytes_read == 0 {
@@ -1115,6 +1125,10 @@ where
             body.extend(line.iter());
             trace!("CC IN: {:?}", line);
         }
+
+        // Adopt the terminal line's code — on a non-RFC server it can differ from
+        // the multiline opener (e.g. `553-` info lines, then a `150 ` terminal).
+        code = Status::from(self.code_from_buffer(&line, 3)?);
 
         let response: Response = Response::new(code, body);
         // Return Ok or error with response
