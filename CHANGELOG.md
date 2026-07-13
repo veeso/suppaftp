@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+    - [10.0.1](#1001)
   - [10.0.0](#1000)
   - [9.0.0](#900)
     - [⚠ Breaking Changes](#-breaking-changes)
@@ -63,6 +64,15 @@
   - [4.0.0](#400)
 
 ---
+
+## 10.0.1
+
+Released on 2026-07-13
+
+### Fixed
+
+- **parser:** accept mismatched terminal codes (#169)
+  > Accept non-standard multiline replies that finish with a different status code while preserving FEAT continuation handling.
 
 ## 10.0.0
 
