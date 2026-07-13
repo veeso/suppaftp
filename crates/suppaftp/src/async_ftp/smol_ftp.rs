@@ -1094,20 +1094,26 @@ where
         }
 
         let code_word: u32 = self.code_from_buffer(&line, 3)?;
-        let code = Status::from(code_word);
+        let mut code = Status::from(code_word);
 
         trace!("Code parsed from response: {} ({})", code, code_word);
 
-        // multiple line reply
-        // loop while the line does not begin with the code and a space (or dash)
+        // RFC 959 requires the terminal line to repeat the opening code, but some servers,
+        // including glFTPd, use a different operative code. FEAT remains special because
+        // `feat` reads its continuation lines after `read_response` returns the `211-` opener.
+        // M-DOCUMENTED-MAGIC: FTP replies start with a three-digit code and one separator.
         let expected = [line[0], line[1], line[2], 0x20];
-        let alt_expected = if expected_code.contains(&Status::System) {
-            [line[0], line[1], line[2], b'-']
-        } else {
-            expected
+        let feat_opener = [line[0], line[1], line[2], b'-'];
+        let is_terminal = |reply: &[u8]| {
+            reply.len() >= 4
+                && reply[0].is_ascii_digit()
+                && reply[1].is_ascii_digit()
+                && reply[2].is_ascii_digit()
+                && (reply[3] == b' '
+                    || (expected_code.contains(&Status::System) && reply[0..4] == feat_opener))
         };
         trace!("CC IN: {:?}", line);
-        while line.len() < 5 || (line[0..4] != expected && line[0..4] != alt_expected) {
+        while !is_terminal(&line) {
             line.clear();
             let bytes_read = self.read_line(&mut line).await?;
             if bytes_read == 0 {
@@ -1118,6 +1124,11 @@ where
             }
             body.extend(line.iter());
             trace!("CC IN: {:?}", line);
+        }
+
+        if line[0..4] != expected {
+            code = Status::from(self.code_from_buffer(&line, 3)?);
+            trace!("Code updated from terminal response: {}", code);
         }
 
         let response: Response = Response::new(code, body);
@@ -2013,6 +2024,77 @@ mod test {
             .take(5)
             .collect();
         format!("temp_{}", name)
+    }
+
+    // M-MOCKABLE-SYSCALLS: use a local server for deterministic control-response tests.
+    async fn connect_with_control_response(
+        expected_command: &'static str,
+        response: &'static [u8],
+    ) -> (AsyncFtpStream, smol::Task<()>) {
+        use smol::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind");
+        let port = listener.local_addr().expect("missing local address").port();
+        let handle = smol::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("no incoming connection");
+            let mut writer = stream.clone();
+            let mut reader = AsyncBufReader::new(stream);
+
+            AsyncWriteExt::write_all(&mut writer, b"220 Welcome\r\n")
+                .await
+                .unwrap();
+
+            let mut line = String::new();
+            AsyncBufReadExt::read_line(&mut reader, &mut line)
+                .await
+                .unwrap();
+            assert_eq!(line, format!("{expected_command}\r\n"));
+            AsyncWriteExt::write_all(&mut writer, response)
+                .await
+                .unwrap();
+        });
+
+        let tcp = TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("failed to connect");
+        let stream = AsyncFtpStream::connect_with_stream(tcp)
+            .await
+            .expect("failed handshake");
+        (stream, handle)
+    }
+
+    #[test]
+    fn should_accept_mismatched_multiline_terminal_code() {
+        smol::block_on(async {
+            let response = b"553-\r\n\
+553- Directory excluded (precheck).\r\n\
+150 Opening BINARY mode data connection.\r\n";
+            let (mut stream, handle) =
+                connect_with_control_response("STOR upload.bin", response).await;
+
+            let response = stream
+                .custom_command("STOR upload.bin", &[Status::AboutToSend])
+                .await
+                .expect("mismatched terminal code should be accepted");
+
+            assert_eq!(response.status, Status::AboutToSend);
+            handle.await;
+        })
+    }
+
+    #[test]
+    fn should_preserve_feat_multiline_handling() {
+        smol::block_on(async {
+            let response = b"211-Features:\r\n UTF8\r\n211 END\r\n";
+            let (mut stream, handle) = connect_with_control_response("FEAT", response).await;
+
+            let features = stream.feat().await.expect("FEAT response should be parsed");
+
+            assert!(features.contains_key("UTF8"));
+            handle.await;
+        })
     }
 
     #[test]
