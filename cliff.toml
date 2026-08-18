@@ -38,7 +38,7 @@ commit_parsers = [
   { message = "^perf", group = "Performance" },
   { message = "^doc", group = "Documentation" },
   { message = "^test", group = "Testing" },
-  { message = "^ci", group = "CI" },
+  { message = "^ci", skip = true },
   { message = "^chore", skip = true },
 ]
 filter_commits = false

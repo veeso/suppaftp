@@ -1,14 +1,20 @@
 # Changelog
 
 - [Changelog](#changelog)
-    - [10.0.2](#1002)
-    - [10.0.1](#1001)
+  - [10.0.2](#1002)
+    - [Fixed](#fixed)
+  - [10.0.1](#1001)
+    - [Fixed](#fixed-1)
   - [10.0.0](#1000)
-  - [9.0.0](#900)
     - [⚠ Breaking Changes](#-breaking-changes)
+    - [CI](#ci)
+    - [Changed](#changed)
+    - [Fixed](#fixed-2)
+  - [9.0.0](#900)
+    - [⚠ Breaking Changes](#-breaking-changes-1)
     - [Added](#added)
   - [8.0.5](#805)
-    - [Fixed](#fixed)
+    - [Fixed](#fixed-3)
   - [8.0.4](#804)
   - [8.0.3](#803)
   - [8.0.2](#802)
@@ -69,10 +75,6 @@
 ## 10.0.2
 
 Released on 2026-08-18
-
-### CI
-
-- remove codeberg mirror workflow. I do not support Codeberg anymore.
 
 ### Fixed
 
