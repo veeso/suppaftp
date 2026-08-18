@@ -1,6 +1,7 @@
 # Changelog
 
 - [Changelog](#changelog)
+    - [10.0.2](#1002)
     - [10.0.1](#1001)
   - [10.0.0](#1000)
   - [9.0.0](#900)
@@ -64,6 +65,26 @@
   - [4.0.0](#400)
 
 ---
+
+## 10.0.2
+
+Released on 2026-08-18
+
+### CI
+
+- remove codeberg mirror workflow. I do not support Codeberg anymore.
+
+### Fixed
+
+- reject FTP commands carrying CR or LF to prevent command injection
+  > An argument containing CR or LF ended the intended command line and let a
+  > second command be smuggled onto the control channel. Every rendered command
+  > is now validated before it is written to the wire, in the sync, tokio and
+  > smol implementations alike, and rejected with an InvalidInput connection
+  > error.
+  > 
+  > As a consequence custom_command no longer accepts several commands joined by
+  > CRLF in a single call.
 
 ## 10.0.1
 
