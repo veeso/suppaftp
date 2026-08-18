@@ -1,6 +1,7 @@
 # Publish all crates in dependency order (library first, then the CLI)
 [group('publish')]
-publish_all: publish_lib publish_cli
+publish_all:
+    cargo publish
 
 # Publish the library crate
 [group('publish')]

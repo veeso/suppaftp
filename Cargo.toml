@@ -3,7 +3,7 @@ members = ["crates/suppaftp", "crates/suppaftp-cli"]
 resolver = "3"
 
 [workspace.package]
-version = "10.0.1"
+version = "10.0.2"
 authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
 categories = ["asynchronous", "network-programming"]
 edition = "2024"

@@ -800,7 +800,16 @@ where
         self.read_response(Status::CommandOk).await
     }
 
-    /// Perform custom command
+    /// Perform custom command.
+    ///
+    /// The command is sent as a single control-channel line, so it must not
+    /// contain CR or LF: embedding a line break would let a second command be
+    /// smuggled to the server.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::ConnectionError`] with [`std::io::ErrorKind::InvalidInput`]
+    /// if `command` contains CR or LF.
     pub async fn custom_command(
         &mut self,
         command: impl ToString,
@@ -1066,6 +1075,7 @@ where
     /// Write data to stream
     async fn perform(&mut self, command: Command) -> FtpResult<()> {
         let command = command.to_string();
+        crate::command::validate_command_line(&command)?;
         trace!("CC OUT: {}", command.trim_end_matches("\r\n"));
 
         let stream = self.reader.get_mut();
@@ -2157,6 +2167,83 @@ mod test {
 
             assert!(stream.quit().await.is_ok());
             handle.await;
+        })
+    }
+
+    #[test]
+    fn should_reject_command_with_crlf_injection() {
+        smol::block_on(async {
+            use smol::io::BufReader as AsyncBufReader;
+            // Use UFCS below to disambiguate from the in-scope `smol` extension traits.
+            use smol::io::{AsyncBufReadExt, AsyncWriteExt};
+
+            crate::log_init();
+
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("failed to bind");
+            let port = listener.local_addr().unwrap().port();
+
+            // Fake FTP server that records every control-channel line it receives.
+            let handle = smol::spawn(async move {
+                let (stream, _) = listener.accept().await.expect("no incoming connection");
+                let mut writer = stream.clone();
+                let mut reader = AsyncBufReader::new(stream);
+
+                AsyncWriteExt::write_all(&mut writer, b"220 Welcome\r\n")
+                    .await
+                    .unwrap();
+
+                let mut seen = Vec::new();
+                let mut line = String::new();
+                while AsyncBufReadExt::read_line(&mut reader, &mut line)
+                    .await
+                    .unwrap()
+                    > 0
+                {
+                    let is_quit = line.starts_with("QUIT");
+                    seen.push(line.trim_end_matches(['\r', '\n']).to_string());
+                    let reply: &[u8] = if is_quit {
+                        b"221 goodbye\r\n"
+                    } else {
+                        b"200 ok\r\n"
+                    };
+                    AsyncWriteExt::write_all(&mut writer, reply).await.unwrap();
+                    if is_quit {
+                        break;
+                    }
+                    line.clear();
+                }
+                seen
+            });
+
+            let tcp = TcpStream::connect(("127.0.0.1", port))
+                .await
+                .expect("failed to connect");
+            let mut stream = AsyncFtpStream::connect_with_stream(tcp)
+                .await
+                .expect("failed handshake");
+
+            let err = stream
+                .cwd("dir\r\nDELE secret.txt")
+                .await
+                .expect_err("command with CRLF must be rejected");
+            assert!(
+                matches!(err, FtpError::ConnectionError(ref e) if e.kind() == std::io::ErrorKind::InvalidInput),
+                "unexpected error: {err:?}"
+            );
+            assert!(stream.cwd("dir\nDELE secret.txt").await.is_err());
+            assert!(stream.login("anon\r\nDELE secret.txt", "pw").await.is_err());
+            assert!(
+                stream
+                    .custom_command("NOOP\r\nDELE secret.txt", &[Status::CommandOk])
+                    .await
+                    .is_err()
+            );
+
+            assert!(stream.quit().await.is_ok());
+            let seen = handle.await;
+            assert_eq!(seen, vec!["QUIT".to_string()]);
         })
     }
 }

@@ -774,7 +774,16 @@ where
         self.read_response(Status::CommandOk)
     }
 
-    /// Perform custom command
+    /// Perform custom command.
+    ///
+    /// The command is sent as a single control-channel line, so it must not
+    /// contain CR or LF: embedding a line break would let a second command be
+    /// smuggled to the server.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::ConnectionError`] with [`std::io::ErrorKind::InvalidInput`]
+    /// if `command` contains CR or LF.
     pub fn custom_command(
         &mut self,
         command: impl ToString,
@@ -948,6 +957,7 @@ where
     /// Write data to stream with command to perform
     fn perform(&mut self, command: Command) -> FtpResult<()> {
         let command = command.to_string();
+        crate::command::validate_command_line(&command)?;
         trace!("CC OUT: {}", command.trim_end_matches("\r\n"));
 
         let stream = self.reader.get_mut();
@@ -2053,5 +2063,65 @@ mod test {
 
         assert!(stream.quit().is_ok());
         handle.join().expect("server thread panicked");
+    }
+
+    #[test]
+    fn should_reject_command_with_crlf_injection() {
+        use std::io::{BufRead, BufReader as IoBufReader, Write};
+        use std::thread;
+
+        crate::log_init();
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind");
+        let port = listener.local_addr().unwrap().port();
+
+        // Fake FTP server that records every control-channel line it receives.
+        let handle = thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("no incoming connection");
+            let mut writer = stream.try_clone().expect("failed to clone stream");
+            let mut reader = IoBufReader::new(stream);
+
+            writer.write_all(b"220 Welcome\r\n").unwrap();
+
+            let mut seen = Vec::new();
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 0 {
+                let is_quit = line.starts_with("QUIT");
+                seen.push(line.trim_end_matches(['\r', '\n']).to_string());
+                let reply: &[u8] = if is_quit {
+                    b"221 goodbye\r\n"
+                } else {
+                    b"200 ok\r\n"
+                };
+                writer.write_all(reply).unwrap();
+                if is_quit {
+                    break;
+                }
+                line.clear();
+            }
+            seen
+        });
+
+        let tcp = TcpStream::connect(("127.0.0.1", port)).expect("failed to connect");
+        let mut stream = FtpStream::connect_with_stream(tcp).expect("failed handshake");
+
+        let err = stream
+            .cwd("dir\r\nDELE secret.txt")
+            .expect_err("command with CRLF must be rejected");
+        assert!(
+            matches!(err, FtpError::ConnectionError(ref e) if e.kind() == std::io::ErrorKind::InvalidInput),
+            "unexpected error: {err:?}"
+        );
+        assert!(stream.cwd("dir\nDELE secret.txt").is_err());
+        assert!(stream.login("anon\r\nDELE secret.txt", "pw").is_err());
+        assert!(
+            stream
+                .custom_command("NOOP\r\nDELE secret.txt", &[Status::CommandOk])
+                .is_err()
+        );
+
+        assert!(stream.quit().is_ok());
+        let seen = handle.join().expect("server thread panicked");
+        assert_eq!(seen, vec!["QUIT".to_string()]);
     }
 }
