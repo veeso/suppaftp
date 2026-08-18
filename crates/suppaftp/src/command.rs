@@ -9,6 +9,29 @@ use std::net::SocketAddr;
 use std::string::ToString;
 
 use crate::types::FileType;
+use crate::{FtpError, FtpResult};
+
+/// Rejects a rendered command line carrying CR or LF before its terminator.
+///
+/// The FTP control channel is line-oriented: a CR or LF embedded in a command
+/// argument would end the intended command and smuggle a second one to the
+/// server. Every command line must be checked before it is written to the wire.
+///
+/// # Errors
+///
+/// Returns [`FtpError::ConnectionError`] with [`std::io::ErrorKind::InvalidInput`]
+/// if `line` contains CR or LF anywhere but in the trailing `\r\n` terminator.
+pub(crate) fn validate_command_line(line: &str) -> FtpResult<()> {
+    let body = line.strip_suffix("\r\n").unwrap_or(line);
+    if body.contains(['\r', '\n']) {
+        return Err(FtpError::ConnectionError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "FTP command must not contain CR or LF",
+        )));
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Ftp commands with their arguments
@@ -203,6 +226,38 @@ mod test {
     use pretty_assertions::assert_eq;
 
     use super::*;
+
+    #[test]
+    fn should_accept_command_line_without_embedded_line_breaks() {
+        assert!(validate_command_line("USER omar\r\n").is_ok());
+        assert!(validate_command_line(&Command::User(String::from("omar")).to_string()).is_ok());
+        assert!(
+            validate_command_line(&Command::Custom(String::from("SITE HELP")).to_string()).is_ok()
+        );
+    }
+
+    #[test]
+    fn should_reject_command_line_with_embedded_line_breaks() {
+        assert!(validate_command_line("USER omar\r\nDELE a.txt\r\n").is_err());
+        assert!(validate_command_line("USER omar\nDELE a.txt\r\n").is_err());
+        assert!(validate_command_line("USER omar\rDELE a.txt\r\n").is_err());
+        assert!(
+            validate_command_line(&Command::User(String::from("omar\r\nDELE a.txt")).to_string())
+                .is_err()
+        );
+        assert!(
+            validate_command_line(&Command::Pass(String::from("pw\r\nDELE a.txt")).to_string())
+                .is_err()
+        );
+        assert!(
+            validate_command_line(&Command::Cwd(String::from("dir\nDELE a.txt")).to_string())
+                .is_err()
+        );
+        assert!(
+            validate_command_line(&Command::Custom(String::from("NOOP\r\nDELE a.txt")).to_string())
+                .is_err()
+        );
+    }
 
     #[test]
     fn should_stringify_command() {
