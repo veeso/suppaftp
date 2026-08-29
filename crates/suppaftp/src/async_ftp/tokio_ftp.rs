@@ -470,8 +470,19 @@ where
     }
 
     /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
-    pub async fn finalize_retr_stream(&mut self, stream: impl AsyncRead) -> FtpResult<()> {
+    pub async fn finalize_retr_stream(
+        &mut self,
+        mut stream: impl AsyncRead + AsyncWriteExt + Unpin,
+    ) -> FtpResult<()> {
         debug!("Finalizing retr stream");
+        // Send a graceful TLS close_notify before dropping the stream, mirroring
+        // finalize_put_stream() below. Without it, TLS 1.3 servers that enforce a
+        // clean data-channel shutdown (e.g. test.rebex.net) reply 426 "unable to
+        // close data connection gracefully" even though the transfer already
+        // completed — TLS 1.2's session resumption tolerated the abrupt close, but
+        // 1.3 does not. Errors here are ignored: the data has already been fully
+        // read, so a failed shutdown must not fail an otherwise-successful transfer.
+        let _ = stream.shutdown().await;
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
         self.data_connection_open = false;
