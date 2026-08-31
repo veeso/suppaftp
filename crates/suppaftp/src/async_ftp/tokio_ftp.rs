@@ -23,7 +23,7 @@ pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 pub use tls::{AsyncNoTlsStream, TokioTlsStream};
 #[cfg(any(feature = "tokio-rustls-aws-lc-rs", feature = "tokio-rustls-ring"))]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader, copy};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, copy};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 
 use super::super::Status;
@@ -469,19 +469,17 @@ where
         Ok(data_stream)
     }
 
-    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
+    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read.
+    ///
+    /// Write-side shutdown errors are ignored after the payload has been read. The final FTP
+    /// control response determines whether the transfer succeeded.
     pub async fn finalize_retr_stream(
         &mut self,
-        mut stream: impl AsyncRead + AsyncWriteExt + Unpin,
+        mut stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> FtpResult<()> {
         debug!("Finalizing retr stream");
-        // Send a graceful TLS close_notify before dropping the stream, mirroring
-        // finalize_put_stream() below. Without it, TLS 1.3 servers that enforce a
-        // clean data-channel shutdown (e.g. test.rebex.net) reply 426 "unable to
-        // close data connection gracefully" even though the transfer already
-        // completed — TLS 1.2's session resumption tolerated the abrupt close, but
-        // 1.3 does not. Errors here are ignored: the data has already been fully
-        // read, so a failed shutdown must not fail an otherwise-successful transfer.
+        // Close the write side so TLS streams send close_notify before being dropped. The server's
+        // completion response remains authoritative if closing an already-read stream fails.
         let _ = stream.shutdown().await;
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
@@ -1201,8 +1199,11 @@ where
 #[cfg(test)]
 mod test {
     use std::io::Cursor;
+    use std::pin::Pin;
     use std::str::FromStr as _;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
 
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
@@ -1214,11 +1215,100 @@ mod test {
     use crate::test_container::AsyncPureFtpRunner;
     use crate::types::FormatControl;
 
+    #[derive(Debug)]
+    struct ShutdownTrackingStream {
+        shutdown_attempted: Arc<AtomicBool>,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl tokio::io::AsyncRead for ShutdownTrackingStream {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl tokio::io::AsyncWrite for ShutdownTrackingStream {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            self.shutdown_attempted.store(true, Ordering::SeqCst);
+            Poll::Ready(Err(std::io::Error::other("shutdown failed")))
+        }
+    }
+
+    impl Drop for ShutdownTrackingStream {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
     #[tokio::test]
     async fn connect() {
         crate::log_init();
         let (stream, _container) = setup_stream().await;
         finalize_stream(stream).await;
+    }
+
+    #[tokio::test]
+    async fn finalize_retr_stream_attempts_shutdown_before_reading_response() {
+        use tokio::io::AsyncWriteExt as _;
+
+        let shutdown_attempted = Arc::new(AtomicBool::new(false));
+        let dropped = Arc::new(AtomicBool::new(false));
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("failed to bind");
+        let port = listener.local_addr().expect("missing local address").port();
+        let server_shutdown_attempted = Arc::clone(&shutdown_attempted);
+        let server_dropped = Arc::clone(&dropped);
+        let server = tokio::spawn(async move {
+            let (mut control, _) = listener.accept().await.expect("no incoming connection");
+            control.write_all(b"220 Welcome\r\n").await.unwrap();
+
+            let deadline = std::time::Instant::now() + Duration::from_secs(1);
+            while !server_dropped.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                tokio::task::yield_now().await;
+            }
+
+            let response: &[u8] = if server_shutdown_attempted.load(Ordering::SeqCst)
+                && server_dropped.load(Ordering::SeqCst)
+            {
+                b"226 Transfer complete\r\n"
+            } else {
+                b"426 Data connection was not closed gracefully\r\n"
+            };
+            control.write_all(response).await.unwrap();
+        });
+
+        let control = TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("failed to connect");
+        let mut ftp = AsyncFtpStream::connect_with_stream(control)
+            .await
+            .expect("failed handshake");
+        let data = ShutdownTrackingStream {
+            shutdown_attempted: Arc::clone(&shutdown_attempted),
+            dropped: Arc::clone(&dropped),
+        };
+
+        ftp.finalize_retr_stream(data)
+            .await
+            .expect("FTP completion should override the local shutdown error");
+        server.await.expect("server task panicked");
     }
 
     #[tokio::test]
