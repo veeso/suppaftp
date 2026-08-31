@@ -1,20 +1,23 @@
 # Changelog
 
 - [Changelog](#changelog)
-  - [10.0.2](#1002)
-    - [Fixed](#fixed)
-  - [10.0.1](#1001)
-    - [Fixed](#fixed-1)
-  - [10.0.0](#1000)
+  - [11.0.0](#1100)
     - [⚠ Breaking Changes](#-breaking-changes)
+    - [Fixed](#fixed)
+  - [10.0.2](#1002)
+    - [Fixed](#fixed-1)
+  - [10.0.1](#1001)
+    - [Fixed](#fixed-2)
+  - [10.0.0](#1000)
+    - [⚠ Breaking Changes](#-breaking-changes-1)
     - [CI](#ci)
     - [Changed](#changed)
-    - [Fixed](#fixed-2)
+    - [Fixed](#fixed-3)
   - [9.0.0](#900)
-    - [⚠ Breaking Changes](#-breaking-changes-1)
+    - [⚠ Breaking Changes](#-breaking-changes-2)
     - [Added](#added)
   - [8.0.5](#805)
-    - [Fixed](#fixed-3)
+    - [Fixed](#fixed-4)
   - [8.0.4](#804)
   - [8.0.3](#803)
   - [8.0.2](#802)
@@ -71,6 +74,49 @@
   - [4.0.0](#400)
 
 ---
+
+## 11.0.0
+
+Released on 2026-08-31
+
+### ⚠ Breaking Changes
+
+- **tokio:** send close_notify on finalize_retr_stream
+  > tokio finalize_retr_stream now requires streams to implement AsyncWrite and Unpin.
+- **smol:** close retrieval streams gracefully
+  > smol finalize_retr_stream now requires streams to implement AsyncWrite and Unpin.
+
+### Fixed
+
+- 💥 **tokio:** send close_notify on finalize_retr_stream
+  > finalize_retr_stream() (used by retr()/list()/nlst()/mlsd() on the tokio
+  > backend) dropped the data-connection stream without a graceful shutdown,
+  > unlike finalize_put_stream() which already calls stream.shutdown().
+  > 
+  > For a plain TCP data stream this is harmless, but for a TLS-secured FTPS
+  > data channel it means no close_notify is sent. TLS 1.2 servers tolerate
+  > the abrupt close (session-ID based resumption apparently masks it), but
+  > TLS-1.3-strict servers reply "426 Transfer failed (unable to close data
+  > connection gracefully)" even though the transfer already completed —
+  > reproduced live against test.rebex.net (public FTPS server, TLS 1.3) with
+  > RUST_LOG=trace: rustls confirms `Resuming using PSK` and the full LIST
+  > payload is read before the 426 appears, ruling out a session-resumption
+  > mismatch. The 426 only goes away when the data stream shuts down cleanly.
+  > 
+  > This widens finalize_retr_stream()'s bound from `impl AsyncRead` to
+  > `impl AsyncRead + AsyncWriteExt + Unpin` (matching finalize_put_stream's
+  > existing bound) and sends the close_notify before dropping. Shutdown
+  > errors are ignored, mirroring the fact that the data has already been
+  > fully read by this point — a failed shutdown must not fail an
+  > otherwise-successful transfer (finalize_put_stream is stricter here since
+  > for uploads the write isn't confirmed complete until shutdown succeeds).
+  > 
+  > Verified with a small standalone client exercising both an unrestricted
+  > rustls config (negotiates TLS 1.3) and one capped at TLS 1.2 against
+  > test.rebex.net: before this fix, only the TLS-1.2-capped path completed
+  > LIST; after, both do.
+- 💥 **smol:** close retrieval streams gracefully
+  > Mirror Tokio retrieval finalization by closing smol data streams before reading the final control response. Add deterministic coverage for both runtimes and document the response-authority policy.
 
 ## 10.0.2
 
