@@ -482,9 +482,18 @@ where
         Ok(data_stream)
     }
 
-    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read
-    pub async fn finalize_retr_stream(&mut self, stream: impl Read) -> FtpResult<()> {
+    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read.
+    ///
+    /// Write-side close errors are ignored after the payload has been read. The final FTP control
+    /// response determines whether the transfer succeeded.
+    pub async fn finalize_retr_stream(
+        &mut self,
+        mut stream: impl Read + Write + Unpin,
+    ) -> FtpResult<()> {
         debug!("Finalizing retr stream");
+        // Close the write side so TLS streams send close_notify before being dropped. The server's
+        // completion response remains authoritative if closing an already-read stream fails.
+        let _ = stream.close().await;
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(stream);
         self.data_connection_open = false;
@@ -1209,8 +1218,11 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::pin::Pin;
     use std::str::FromStr as _;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
 
     #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
@@ -1224,12 +1236,104 @@ mod test {
     use crate::types::FormatControl;
     use crate::{FtpError, Status};
 
+    #[derive(Debug)]
+    struct CloseTrackingStream {
+        close_attempted: Arc<AtomicBool>,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl smol::io::AsyncRead for CloseTrackingStream {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _buf: &mut [u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Ok(0))
+        }
+    }
+
+    impl smol::io::AsyncWrite for CloseTrackingStream {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            self.close_attempted.store(true, Ordering::SeqCst);
+            Poll::Ready(Err(std::io::Error::other("close failed")))
+        }
+    }
+
+    impl Drop for CloseTrackingStream {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
     #[test]
     fn connect() {
         smol::block_on(async {
             crate::log_init();
             let (stream, _container) = setup_stream().await;
             finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn finalize_retr_stream_attempts_close_before_reading_response() {
+        smol::block_on(async {
+            use smol::io::AsyncWriteExt as _;
+
+            let close_attempted = Arc::new(AtomicBool::new(false));
+            let dropped = Arc::new(AtomicBool::new(false));
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("failed to bind");
+            let port = listener.local_addr().expect("missing local address").port();
+            let server_close_attempted = Arc::clone(&close_attempted);
+            let server_dropped = Arc::clone(&dropped);
+            let server = smol::spawn(async move {
+                let (mut control, _) = listener.accept().await.expect("no incoming connection");
+                control.write_all(b"220 Welcome\r\n").await.unwrap();
+
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                while !server_dropped.load(Ordering::SeqCst) && std::time::Instant::now() < deadline
+                {
+                    smol::Timer::after(Duration::from_millis(1)).await;
+                }
+
+                let response: &[u8] = if server_close_attempted.load(Ordering::SeqCst)
+                    && server_dropped.load(Ordering::SeqCst)
+                {
+                    b"226 Transfer complete\r\n"
+                } else {
+                    b"426 Data connection was not closed gracefully\r\n"
+                };
+                control.write_all(response).await.unwrap();
+            });
+
+            let control = TcpStream::connect(("127.0.0.1", port))
+                .await
+                .expect("failed to connect");
+            let mut ftp = AsyncFtpStream::connect_with_stream(control)
+                .await
+                .expect("failed handshake");
+            let data = CloseTrackingStream {
+                close_attempted: Arc::clone(&close_attempted),
+                dropped: Arc::clone(&dropped),
+            };
+
+            ftp.finalize_retr_stream(data)
+                .await
+                .expect("FTP completion should override the local close error");
+            server.await;
         })
     }
 
