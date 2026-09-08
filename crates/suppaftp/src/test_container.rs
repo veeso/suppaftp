@@ -56,7 +56,7 @@ pub struct AsyncPureFtpRunner {
 impl AsyncPureFtpRunner {
     pub async fn start() -> Self {
         use testcontainers::runners::AsyncRunner;
-        let container = AlpineFtpServer::default()
+        let container = AlpineFtpServer
             .start()
             .await
             .expect("Failed to start container");
@@ -107,9 +107,7 @@ pub struct SyncPureFtpRunner {
 impl SyncPureFtpRunner {
     pub fn start() -> Self {
         use testcontainers::runners::SyncRunner;
-        let container = AlpineFtpServer::default()
-            .start()
-            .expect("Failed to start container");
+        let container = AlpineFtpServer.start().expect("Failed to start container");
 
         let resp = container
             .exec(

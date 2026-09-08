@@ -130,6 +130,7 @@ where
     }
 
     /// Switch to secure mode if possible (FTPS), using a provided SSL configuration.
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] before sending `AUTH` if a transfer is alive.
     /// This method does nothing if the connect is already secured.
     ///
     /// ## Example
@@ -152,6 +153,10 @@ where
         tls_connector: impl AsyncTlsConnector<Stream = T> + Send + Sync + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
+        // Reject a live transfer before asking the server to change the control protocol.
+        if Arc::strong_count(&self.control) != 1 {
+            return Err(FtpError::DataConnectionAlreadyOpen);
+        }
         debug!("Initializing TLS auth");
         {
             let mut cc = self.control().await?;
@@ -325,9 +330,14 @@ where
     /// Perform clear command channel (CCC).
     /// Once the command is performed, the command channel will be encrypted no more.
     /// The data stream will still be secure.
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] before sending `CCC` if a transfer is alive.
     #[cfg(feature = "async-secure")]
     #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
     pub async fn clear_command_channel(mut self) -> FtpResult<Self> {
+        // Reject a live transfer before asking the server to change the control protocol.
+        if Arc::strong_count(&self.control) != 1 {
+            return Err(FtpError::DataConnectionAlreadyOpen);
+        }
         {
             let mut cc = self.control().await?;
             // Ask the server to stop securing data
@@ -453,8 +463,8 @@ where
     ///
     /// `reader` is an async pinned closure that takes the [`TransferStream<T>`] and returns
     /// both the result `U` and the [`TransferStream<T>`] back in a tuple `(U, TransferStream<T>)`.
-    /// The stream is then finished by this method, so the control connection is left in sync
-    /// whether `reader` succeeded or not.
+    /// The stream is finished on callback success. If `reader` returns an error and drops the
+    /// stream, the next command drains its completion reply before sending anything.
     ///
     /// > Warning: Don't call [`TransferStream::finish`] inside `reader`; return the stream instead.
     pub async fn retr<S, F, U>(&mut self, file_name: S, mut reader: F) -> FtpResult<U>
@@ -634,6 +644,7 @@ where
     /// The data connection is closed and the server's abort replies (`426` followed by `226`,
     /// or a single `226`) are consumed, so the control connection is ready for the next command.
     /// `transfer` must have been obtained from this client.
+    /// This operation is not cancellation-safe: reconnect if its future is cancelled after polling.
     ///
     /// # Errors
     ///
@@ -973,7 +984,12 @@ where
             .await?;
         Ok((
             response,
-            TransferStream::new(data_stream, Arc::clone(&self.control), direction),
+            TransferStream::new(
+                data_stream,
+                Arc::clone(&self.control),
+                direction,
+                Arc::clone(&cc.pending_transfer_reply),
+            ),
         ))
     }
 
@@ -1412,7 +1428,7 @@ mod test {
             let container_t = container_t.clone();
             let handle = handle.clone();
             Box::pin(async move {
-                let mut addr = addr.clone();
+                let mut addr = addr;
                 let port = addr.port();
 
                 let mapped = tokio::task::spawn_blocking(move || {
@@ -1420,10 +1436,9 @@ mod test {
                 })
                 .await
                 .map_err(|e| {
-                    FtpError::ConnectionError(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("spawn_blocking failed: {e}"),
-                    ))
+                    FtpError::ConnectionError(std::io::Error::other(format!(
+                        "spawn_blocking failed: {e}"
+                    )))
                 })
                 .expect("failed to join");
 
@@ -2041,7 +2056,7 @@ mod test {
             let container_t = container_t.clone();
             let handle = handle.clone();
             Box::pin(async move {
-                let mut addr = addr.clone();
+                let mut addr = addr;
                 let port = addr.port();
 
                 let mapped = tokio::task::spawn_blocking(move || {
@@ -2049,10 +2064,9 @@ mod test {
                 })
                 .await
                 .map_err(|e| {
-                    FtpError::ConnectionError(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("spawn_blocking failed: {e}"),
-                    ))
+                    FtpError::ConnectionError(std::io::Error::other(format!(
+                        "spawn_blocking failed: {e}"
+                    )))
                 })
                 .expect("failed to join");
 

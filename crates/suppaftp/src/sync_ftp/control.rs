@@ -255,3 +255,65 @@ where
         self.guard.socket()
     }
 }
+
+#[cfg(all(test, feature = "secure"))]
+mod tls_transition_tests {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::super::tls::{NoTlsStream, TlsConnector};
+    use crate::{FtpError, FtpResult, FtpStream};
+
+    #[derive(Debug)]
+    struct UnusedConnector;
+
+    impl TlsConnector for UnusedConnector {
+        type Stream = NoTlsStream;
+
+        fn connect(&self, _: &str, _: std::net::TcpStream) -> FtpResult<Self::Stream> {
+            panic!("TLS must not start while a transfer owns the control connection")
+        }
+    }
+
+    #[test]
+    fn should_reject_tls_changes_before_sending_commands() {
+        for secure in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(socket);
+                reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+                let mut command = String::new();
+                reader.read_line(&mut command).unwrap();
+                if !command.is_empty() {
+                    let reply: &[u8] = if secure {
+                        b"234 start TLS\r\n"
+                    } else {
+                        b"200 cleared\r\n"
+                    };
+                    reader.get_mut().write_all(reply).unwrap();
+                    reader.read_to_end(&mut Vec::new()).unwrap();
+                }
+                command
+            });
+            let ftp = FtpStream::connect(address).unwrap();
+            // A live transfer retains this handle even when a TLS transition consumes the client.
+            let transfer_control = Arc::clone(&ftp.control);
+            let result = if secure {
+                ftp.into_secure(UnusedConnector, "localhost")
+            } else {
+                ftp.clear_command_channel()
+            };
+            assert!(matches!(result, Err(FtpError::DataConnectionAlreadyOpen)));
+            drop(transfer_control);
+            assert_eq!(server.join().unwrap(), "");
+        }
+    }
+}

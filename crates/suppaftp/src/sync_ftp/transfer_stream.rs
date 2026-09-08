@@ -17,7 +17,11 @@ use crate::types::FtpResult;
 /// socket and reads the server's completion reply on the control connection, which is the only
 /// way to learn whether the transfer succeeded. A stream that is merely dropped performs the same
 /// procedure on a best-effort basis, logging instead of returning the error, so the control
-/// connection never desynchronizes; the transfer outcome is lost in that case.
+/// connection can be reused after successful cleanup. Drop can block while waiting for the
+/// server, and the transfer outcome is lost in that case.
+///
+/// Finish the transfer before issuing any other command on the client, even when finishing
+/// on another thread or task. Flush buffered writers before recovering their inner transfer.
 ///
 /// While a `TransferStream` is alive the client refuses to open another data connection with
 /// [`FtpError::DataConnectionAlreadyOpen`]. The stream owns no reference to the client and is

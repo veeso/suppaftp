@@ -13,6 +13,7 @@
 
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -45,7 +46,10 @@ where
     /// command against opening a second one.
     pub(super) data_connection_open: bool,
     /// Whether a transfer stream was dropped without `finish()` and its reply is still unread.
-    pub(super) pending_transfer_reply: bool,
+    pub(super) pending_transfer_reply: Arc<AtomicBool>,
+    /// Reply bytes survive cancellation while waiting for a complete line or multiline reply.
+    response_line: Vec<u8>,
+    response_body: Vec<u8>,
 }
 
 /// Unwraps a shared control channel that is no longer referenced by any transfer.
@@ -73,7 +77,9 @@ where
         Self {
             reader: BufReader::new(stream),
             data_connection_open: false,
-            pending_transfer_reply: false,
+            pending_transfer_reply: Arc::new(AtomicBool::new(false)),
+            response_line: Vec::new(),
+            response_body: Vec::new(),
         }
     }
 
@@ -110,61 +116,60 @@ where
         &mut self,
         expected_code: &[Status],
     ) -> FtpResult<Response> {
-        let mut line = Vec::new();
-        let mut body: Vec<u8> = Vec::new();
-        self.read_line(&mut line).await?;
-        body.extend(line.iter());
-
-        trace!("CC IN: {:?}", line);
-
-        if line.len() < 5 {
-            return Err(FtpError::BadResponse);
-        }
-
-        let code_word: u32 = code_from_buffer(&line, 3)?;
-        let mut code = Status::from(code_word);
-
-        trace!("Code parsed from response: {} ({})", code, code_word);
-
-        // RFC 959 requires the terminal line to repeat the opening code, but some servers,
-        // including glFTPd, use a different operative code. FEAT remains special because
-        // `feat` reads its continuation lines after `read_response` returns the `211-` opener.
-        // FTP replies start with a three-digit code and one separator.
-        let expected = [line[0], line[1], line[2], 0x20];
-        let feat_opener = [line[0], line[1], line[2], b'-'];
-        let is_terminal = |reply: &[u8]| {
-            reply.len() >= 4
-                && reply[0].is_ascii_digit()
-                && reply[1].is_ascii_digit()
-                && reply[2].is_ascii_digit()
-                && (reply[3] == b' '
-                    || (expected_code.contains(&Status::System) && reply[0..4] == feat_opener))
-        };
-        trace!("CC IN: {:?}", line);
-        while !is_terminal(&line) {
-            line.clear();
-            let bytes_read = self.read_line(&mut line).await?;
-            if bytes_read == 0 {
+        loop {
+            let bytes_read = self
+                .reader
+                .read_until(b'\n', &mut self.response_line)
+                .await
+                .map_err(FtpError::ConnectionError)?;
+            if bytes_read == 0 && !self.response_body.is_empty() {
                 return Err(FtpError::ConnectionError(std::io::Error::new(
                     std::io::ErrorKind::UnexpectedEof,
                     "connection closed during multiline response",
                 )));
             }
-            body.extend(line.iter());
-            trace!("CC IN: {:?}", line);
-        }
+            self.response_body.extend_from_slice(&self.response_line);
+            trace!("CC IN: {line:?}", line = self.response_line);
 
-        if line[0..4] != expected {
-            code = Status::from(code_from_buffer(&line, 3)?);
-            trace!("Code updated from terminal response: {}", code);
-        }
-
-        let response: Response = Response::new(code, body);
-        // Return Ok or error with response
-        if expected_code.contains(&code) {
-            Ok(response)
-        } else {
-            Err(FtpError::UnexpectedResponse(response))
+            if self.response_body.len() < 5 {
+                self.response_line.clear();
+                self.response_body.clear();
+                return Err(FtpError::BadResponse);
+            }
+            let opening_code = match code_from_buffer(&self.response_body, 3) {
+                Ok(code) => code,
+                Err(err) => {
+                    self.response_line.clear();
+                    self.response_body.clear();
+                    return Err(err);
+                }
+            };
+            let opening = &self.response_body[..3];
+            let line = &self.response_line;
+            // Accept mismatched terminal codes for servers such as glFTPd. FEAT leaves its
+            // continuation lines for `feat()` to consume after returning the `211-` opener.
+            let terminal = line.len() >= 4
+                && line[..3].iter().all(u8::is_ascii_digit)
+                && (line[3] == b' '
+                    || (expected_code.contains(&Status::System)
+                        && line[..3] == *opening
+                        && line[3] == b'-'));
+            if terminal {
+                let code = if line[..3] == *opening {
+                    opening_code
+                } else {
+                    code_from_buffer(line, 3)?
+                };
+                let status = Status::from(code);
+                self.response_line.clear();
+                let response = Response::new(status, std::mem::take(&mut self.response_body));
+                return if expected_code.contains(&status) {
+                    Ok(response)
+                } else {
+                    Err(FtpError::UnexpectedResponse(response))
+                };
+            }
+            self.response_line.clear();
         }
     }
 
@@ -192,7 +197,9 @@ where
     pub(super) async fn complete_transfer(&mut self) -> FtpResult<()> {
         self.data_connection_open = false;
         trace!("data connection closed; reading transfer reply");
-        self.read_response_in(TRANSFER_COMPLETE).await.map(|_| ())
+        let reply = self.read_response_in(TRANSFER_COMPLETE).await.map(|_| ());
+        self.pending_transfer_reply.store(false, Ordering::Release);
+        reply
     }
 
     /// Consumes the reply of a transfer stream that was dropped without `finish()`.
@@ -203,13 +210,12 @@ where
     ///
     /// Returns [`FtpError::ConnectionError`] if the control connection cannot be read.
     pub(super) async fn drain_pending_transfer_reply(&mut self) -> FtpResult<()> {
-        if !self.pending_transfer_reply {
+        if !self.pending_transfer_reply.load(Ordering::Acquire) {
             return Ok(());
         }
-        self.pending_transfer_reply = false;
         debug!("reading the reply of a transfer stream dropped without finish()");
-        match self.read_response_in(TRANSFER_COMPLETE).await {
-            Ok(_) => Ok(()),
+        match self.complete_transfer().await {
+            Ok(()) => Ok(()),
             Err(FtpError::UnexpectedResponse(response)) => {
                 warn!("a dropped transfer stream failed: {response}");
                 Ok(())
@@ -272,5 +278,69 @@ where
 
     fn deref(&self) -> &Self::Target {
         self.guard.socket()
+    }
+}
+
+#[cfg(all(test, feature = "async-secure"))]
+mod tls_transition_tests {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::super::tls::{AsyncNoTlsStream, AsyncTlsConnector};
+    use crate::tokio::AsyncFtpStream;
+    use crate::{FtpError, FtpResult};
+
+    #[derive(Debug)]
+    struct UnusedConnector;
+
+    #[async_trait::async_trait]
+    impl AsyncTlsConnector for UnusedConnector {
+        type Stream = AsyncNoTlsStream;
+
+        async fn connect(&self, _: &str, _: tokio::net::TcpStream) -> FtpResult<Self::Stream> {
+            panic!("TLS must not start while a transfer owns the control connection")
+        }
+    }
+
+    #[tokio::test]
+    async fn should_reject_tls_changes_before_sending_commands() {
+        for secure in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(socket);
+                reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+                let mut command = String::new();
+                reader.read_line(&mut command).unwrap();
+                if !command.is_empty() {
+                    let reply: &[u8] = if secure {
+                        b"234 start TLS\r\n"
+                    } else {
+                        b"200 cleared\r\n"
+                    };
+                    reader.get_mut().write_all(reply).unwrap();
+                    reader.read_to_end(&mut Vec::new()).unwrap();
+                }
+                command
+            });
+            let ftp = AsyncFtpStream::connect(address).await.unwrap();
+            // A live transfer retains this handle even when a TLS transition consumes the client.
+            let transfer_control = Arc::clone(&ftp.control);
+            let result = if secure {
+                ftp.into_secure(UnusedConnector, "localhost").await
+            } else {
+                ftp.clear_command_channel().await
+            };
+            assert!(matches!(result, Err(FtpError::DataConnectionAlreadyOpen)));
+            drop(transfer_control);
+            assert_eq!(server.join().unwrap(), "");
+        }
     }
 }

@@ -146,6 +146,7 @@ where
     }
 
     /// Switch to explicit secure mode if possible (FTPS), using a provided SSL configuration.
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] before sending `AUTH` if a transfer is alive.
     /// This method does nothing if the connect is already secured.
     ///
     /// ## Example
@@ -168,6 +169,10 @@ where
         tls_connector: impl TlsConnector<Stream = T> + Send + Sync + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
+        // Reject a live transfer before asking the server to change the control protocol.
+        if Arc::strong_count(&self.control) != 1 {
+            return Err(FtpError::DataConnectionAlreadyOpen);
+        }
         {
             let mut cc = self.control();
             // Ask the server to start securing data.
@@ -304,9 +309,14 @@ where
     /// Perform clear command channel (CCC).
     /// Once the command is performed, the command channel will be encrypted no more.
     /// The data stream will still be secure.
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] before sending `CCC` if a transfer is alive.
     #[cfg(feature = "secure")]
     #[cfg_attr(docsrs, doc(cfg(feature = "secure")))]
     pub fn clear_command_channel(mut self) -> FtpResult<Self> {
+        // Reject a live transfer before asking the server to change the control protocol.
+        if Arc::strong_count(&self.control) != 1 {
+            return Err(FtpError::DataConnectionAlreadyOpen);
+        }
         {
             let mut cc = self.control();
             // Ask the server to stop securing data
@@ -426,7 +436,7 @@ where
     /// data stream opened.
     ///
     /// The data connection is finished once `reader` returns, whether it succeeded or not, so the
-    /// control connection is always left in sync.
+    /// control connection can be reused after successful cleanup.
     ///
     /// ```rust,ignore
     /// use suppaftp::{FtpStream, FtpError};
@@ -1985,7 +1995,7 @@ mod test {
         let container_t = container.clone();
 
         ftp_stream.passive_stream_builder(move |addr| {
-            let mut addr = addr.clone();
+            let mut addr = addr;
             let port = addr.port();
             let mapped = container_t.get_mapped_port(port);
 
