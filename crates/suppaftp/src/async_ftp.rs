@@ -36,7 +36,9 @@ pub mod smol {
     use crate::async_ftp::smol_ftp::AsyncNativeTlsStream;
     #[cfg(feature = "smol")]
     #[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
-    pub use crate::async_ftp::smol_ftp::DataStream as AsyncDataStream;
+    pub use crate::async_ftp::smol_ftp::{
+        ControlSocket, DataStream as AsyncDataStream, TransferStream,
+    };
 
     #[cfg(feature = "smol-async-native-tls")]
     #[cfg_attr(docsrs, doc(cfg(feature = "smol-async-native-tls")))]
@@ -100,7 +102,8 @@ pub mod tokio {
     )]
     pub use super::tokio_ftp::AsyncNativeTlsStream;
     pub use super::tokio_ftp::{
-        DataStream as AsyncDataStream, TokioPassiveStreamBuilder, TokioTlsStream,
+        ControlSocket, DataStream as AsyncDataStream, TokioPassiveStreamBuilder, TokioTlsStream,
+        TransferStream,
     };
 
     #[cfg(feature = "tokio-async-native-tls")]

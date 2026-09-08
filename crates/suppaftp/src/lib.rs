@@ -223,7 +223,6 @@ use sync_ftp::NoTlsStream;
 pub use sync_ftp::{ImplFtpStream, PassiveStreamBuilder, TlsStream};
 pub use types::{FtpError, FtpResult, Mode};
 pub type FtpStream = ImplFtpStream<NoTlsStream>;
-pub use sync_ftp::DataStream;
 // -- export secure (native-tls)
 #[cfg(feature = "native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
@@ -231,6 +230,7 @@ pub use sync_ftp::NativeTlsConnector;
 #[cfg(feature = "native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
 use sync_ftp::NativeTlsStream;
+pub use sync_ftp::{ControlSocket, DataStream, TransferStream};
 #[cfg(feature = "native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "native-tls")))]
 pub type NativeTlsFtpStream = ImplFtpStream<NativeTlsStream>;

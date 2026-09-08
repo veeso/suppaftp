@@ -14,6 +14,7 @@ use smol::net::TcpStream;
 use super::SmolTlsStream;
 
 /// Data Stream used for communications. It can be both of type Tcp in case of plain communication or Ssl in case of FTPS
+#[derive(Debug)]
 #[pin_project(project = DataStreamProj)]
 pub enum DataStream<T>
 where

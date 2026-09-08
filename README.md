@@ -95,7 +95,8 @@ programming. It aims to be a complete, reliable and well-tested implementation o
   [rustls](https://crates.io/crates/rustls)
 - 🕙 First-class **sync and async** APIs, with [tokio](https://crates.io/crates/tokio) and
   [smol](https://crates.io/crates/smol) as async backends
-- ⬇️ **Stream-based** transfers (e.g. `put_with_stream`, `retr`) for fine-grained control over data connections
+- ⬇️ **Stream-based** transfers (e.g. `put_with_stream`, `retr_as_stream`) returning a self-finalizing
+  `TransferStream`: call `finish()` to complete the transfer, or just drop it
 - ↔️ Both **passive and active** transfer modes
 - 🌟 Wide command coverage, including `ABOR`, `APPE`, `REST`, `EPSV` and `EPRT`
 - 📑 Built-in parser for the **LIST** command output (POSIX and DOS formats) into structured `File` objects
