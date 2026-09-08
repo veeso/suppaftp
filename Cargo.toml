@@ -3,7 +3,7 @@ members = ["crates/suppaftp", "crates/suppaftp-cli"]
 resolver = "3"
 
 [workspace.package]
-version = "11.0.0"
+version = "12.0.0"
 authors = ["Christian Visintin <christian.visintin@veeso.dev>"]
 categories = ["asynchronous", "network-programming"]
 edition = "2024"
@@ -29,7 +29,7 @@ rpassword = "7.2"
 rustls-crate = { package = "rustls", version = "0.23", default-features = false }
 rustls-pki-types = "1"
 smol = "2"
-suppaftp = { path = "crates/suppaftp", version = "11" }
+suppaftp = { path = "crates/suppaftp", version = "12" }
 testcontainers = "0.28"
 thiserror = "2"
 tokio = "1"

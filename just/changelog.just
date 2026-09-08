@@ -1,37 +1,18 @@
-# Print the unreleased changelog section to stdout (preview only), e.g. `just changelog_preview 8.1.0`
+# Preview unreleased Conventional Commits for a version.
 [group('changelog')]
 changelog_preview version:
-    git-cliff --config cliff.toml --unreleased --tag "v{{ version }}" --strip all
+  git-cliff --config cliff.toml --unreleased --tag "v{{ version }}" --strip all
 
-# Add a new entry to CHANGELOG.md from the unreleased conventional commits, e.g. `just changelog 8.1.0`
+# Generate CHANGELOG.md through the requested version.
 [group('changelog')]
 changelog version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tag="v{{ version }}"
-    section="$(git-cliff --config cliff.toml --unreleased --tag "$tag" --strip all)"
-    if [ -z "$section" ]; then
-        echo "No unreleased conventional commits found; nothing to add." >&2
-        exit 0
-    fi
-    anchor="$(echo "{{ version }}" | tr -d '.')"
-    secfile="$(mktemp)"
-    tmp="$(mktemp)"
-    printf '%s\n' "$section" > "$secfile"
-    # Insert a TOC entry before the first existing version entry and the rendered
-    # section before the first existing version heading, keeping the title + TOC.
-    awk -v secfile="$secfile" -v ver="{{ version }}" -v anc="$anchor" '
-        !toc_done && /^[[:space:]]*- \[[0-9]/ {
-            print "    - [" ver "](#" anc ")"
-            toc_done = 1
-        }
-        !body_done && /^## [0-9]/ {
-            while ((getline line < secfile) > 0) print line
-            print ""
-            body_done = 1
-        }
-        { print }
-    ' CHANGELOG.md > "$tmp"
-    rm -f "$secfile"
-    mv "$tmp" CHANGELOG.md
-    echo "CHANGELOG.md updated for $tag"
+  git-cliff --config cliff.toml --tag "v{{ version }}" --output CHANGELOG.md
+  just fmt CHANGELOG.md
+
+# Tag a version and create a GitHub release with the changelog section as notes. Does not publish to crates.io.
+[group('changelog')]
+gh_release version:
+  notes="$(just changelog_preview {{ version }})" && \
+  git tag "v{{ version }}" && \
+  git push origin "v{{ version }}" && \
+  echo "$notes" | gh release create "v{{ version }}" --title "v{{ version }}" --notes-file -

@@ -1,122 +1,92 @@
 # Changelog
 
-- [Changelog](#changelog)
-  - [11.0.0](#1100)
-    - [⚠ Breaking Changes](#-breaking-changes)
-    - [Fixed](#fixed)
-  - [10.0.2](#1002)
-    - [Fixed](#fixed-1)
-  - [10.0.1](#1001)
-    - [Fixed](#fixed-2)
-  - [10.0.0](#1000)
-    - [⚠ Breaking Changes](#-breaking-changes-1)
-    - [CI](#ci)
-    - [Changed](#changed)
-    - [Fixed](#fixed-3)
-  - [9.0.0](#900)
-    - [⚠ Breaking Changes](#-breaking-changes-2)
-    - [Added](#added)
-  - [8.0.5](#805)
-    - [Fixed](#fixed-4)
-  - [8.0.4](#804)
-  - [8.0.3](#803)
-  - [8.0.2](#802)
-  - [8.0.1](#801)
-  - [8.0.0](#800)
-  - [7.1.0](#710)
-  - [7.0.7](#707)
-  - [7.0.6](#706)
-  - [7.0.5](#705)
-  - [7.0.4](#704)
-  - [7.0.3](#703)
-  - [7.0.1](#701)
-  - [7.0.0](#700)
-  - [6.3.0](#630)
-  - [6.2.1](#621)
-  - [6.2.0](#620)
-  - [6.1.1](#611)
-  - [6.1.0](#610)
-  - [6.0.7](#607)
-  - [6.0.6](#606)
-  - [6.0.5](#605)
-  - [6.0.4](#604)
-  - [6.0.3](#603)
-  - [6.0.2](#602)
-  - [6.0.1](#601)
-  - [6.0.0](#600)
-  - [5.4.0](#540)
-  - [5.3.1](#531)
-  - [5.3.0](#530)
-  - [5.2.2](#522)
-  - [5.2.1](#521)
-  - [5.2.0](#520)
-  - [5.1.2](#512)
-  - [5.1.1](#511)
-  - [5.1.0](#510)
-  - [5.0.1](#501)
-  - [5.0.0](#500)
-  - [4.7.0](#470)
-  - [4.6.1](#461)
-  - [4.6.0](#460)
-  - [4.5.3](#453)
-  - [4.5.2](#452)
-  - [4.5.1](#451)
-  - [4.5.0](#450)
-  - [4.4.0](#440)
-  - [4.3.0](#430)
-  - [4.2.0](#420)
-  - [4.1.3](#413)
-  - [4.1.2](#412)
-  - [4.1.1](#411)
-  - [4.1.0](#410)
-  - [4.0.2](#402)
-  - [4.0.1](#401)
-  - [4.0.0](#400)
+All notable changes to this project are documented in this file.
 
----
+## 12.0.0
+
+Released on 2026-09-08
+
+### Breaking changes
+
+- make data streams finalize themselves
+
+> finalize_put_stream, finalize_retr_stream and
+> close_data_connection are removed; put_with_stream, append_with_stream,
+> retr_as_stream and custom_data_command return TransferStream, whose
+> finish() replaces them; abort takes a TransferStream; the async retr
+> callbacks receive and return a TransferStream; get_ref returns a locked
+> ControlSocket (async: through an async fn); get_lines_from_stream is
+> generic over BufRead readers.
+
+### Added
+
+- Breaking: make data streams finalize themselves
+
+> Move the control connection (reply reader and data-connection flag) of
+> every client behind an Arc<Mutex<..>> shared with a new TransferStream
+> returned by put_with_stream, append_with_stream, retr_as_stream and
+> custom_data_command. The stream closes its data socket and reads the
+> 226/250 reply itself through finish(); a dropped stream does the same
+> (sync) or defers the reply to the next command (tokio, smol), so the
+> control connection can no longer desynchronize because a caller forgot
+> to finalize.
+
+### Fixed
+
+- preserve transfer cleanup across cancellation and locking
+
+> Retain pending replies and partial response buffers when async finalization is cancelled. Record dropped transfers without locking the control channel and reject TLS mode changes before sending commands while a transfer is alive.
+>
+> Add regression coverage for cancellation, control socket contention, and TLS transitions. Document the breaking stream API migration and cleanup limitations, and resolve test helper lint warnings.
 
 ## 11.0.0
 
 Released on 2026-08-31
 
-### ⚠ Breaking Changes
+### Breaking changes
 
 - **tokio:** send close_notify on finalize_retr_stream
-  > tokio finalize_retr_stream now requires streams to implement AsyncWrite and Unpin.
+
+> tokio finalize_retr_stream now requires streams to implement AsyncWrite and Unpin.
+
 - **smol:** close retrieval streams gracefully
-  > smol finalize_retr_stream now requires streams to implement AsyncWrite and Unpin.
+
+> smol finalize_retr_stream now requires streams to implement AsyncWrite and Unpin.
 
 ### Fixed
 
-- 💥 **tokio:** send close_notify on finalize_retr_stream
-  > finalize_retr_stream() (used by retr()/list()/nlst()/mlsd() on the tokio
-  > backend) dropped the data-connection stream without a graceful shutdown,
-  > unlike finalize_put_stream() which already calls stream.shutdown().
-  > 
-  > For a plain TCP data stream this is harmless, but for a TLS-secured FTPS
-  > data channel it means no close_notify is sent. TLS 1.2 servers tolerate
-  > the abrupt close (session-ID based resumption apparently masks it), but
-  > TLS-1.3-strict servers reply "426 Transfer failed (unable to close data
-  > connection gracefully)" even though the transfer already completed —
-  > reproduced live against test.rebex.net (public FTPS server, TLS 1.3) with
-  > RUST_LOG=trace: rustls confirms `Resuming using PSK` and the full LIST
-  > payload is read before the 426 appears, ruling out a session-resumption
-  > mismatch. The 426 only goes away when the data stream shuts down cleanly.
-  > 
-  > This widens finalize_retr_stream()'s bound from `impl AsyncRead` to
-  > `impl AsyncRead + AsyncWriteExt + Unpin` (matching finalize_put_stream's
-  > existing bound) and sends the close_notify before dropping. Shutdown
-  > errors are ignored, mirroring the fact that the data has already been
-  > fully read by this point — a failed shutdown must not fail an
-  > otherwise-successful transfer (finalize_put_stream is stricter here since
-  > for uploads the write isn't confirmed complete until shutdown succeeds).
-  > 
-  > Verified with a small standalone client exercising both an unrestricted
-  > rustls config (negotiates TLS 1.3) and one capped at TLS 1.2 against
-  > test.rebex.net: before this fix, only the TLS-1.2-capped path completed
-  > LIST; after, both do.
-- 💥 **smol:** close retrieval streams gracefully
-  > Mirror Tokio retrieval finalization by closing smol data streams before reading the final control response. Add deterministic coverage for both runtimes and document the response-authority policy.
+- Breaking: **tokio:** send close_notify on finalize_retr_stream
+
+> finalize_retr_stream() (used by retr()/list()/nlst()/mlsd() on the tokio
+> backend) dropped the data-connection stream without a graceful shutdown,
+> unlike finalize_put_stream() which already calls stream.shutdown().
+>
+> For a plain TCP data stream this is harmless, but for a TLS-secured FTPS
+> data channel it means no close_notify is sent. TLS 1.2 servers tolerate
+> the abrupt close (session-ID based resumption apparently masks it), but
+> TLS-1.3-strict servers reply "426 Transfer failed (unable to close data
+> connection gracefully)" even though the transfer already completed —
+> reproduced live against test.rebex.net (public FTPS server, TLS 1.3) with
+> RUST_LOG=trace: rustls confirms `Resuming using PSK` and the full LIST
+> payload is read before the 426 appears, ruling out a session-resumption
+> mismatch. The 426 only goes away when the data stream shuts down cleanly.
+>
+> This widens finalize_retr_stream()'s bound from `impl AsyncRead` to
+> `impl AsyncRead + AsyncWriteExt + Unpin` (matching finalize_put_stream's
+> existing bound) and sends the close_notify before dropping. Shutdown
+> errors are ignored, mirroring the fact that the data has already been
+> fully read by this point — a failed shutdown must not fail an
+> otherwise-successful transfer (finalize_put_stream is stricter here since
+> for uploads the write isn't confirmed complete until shutdown succeeds).
+>
+> Verified with a small standalone client exercising both an unrestricted
+> rustls config (negotiates TLS 1.3) and one capped at TLS 1.2 against
+> test.rebex.net: before this fix, only the TLS-1.2-capped path completed
+> LIST; after, both do.
+
+- Breaking: **smol:** close retrieval streams gracefully
+
+> Mirror Tokio retrieval finalization by closing smol data streams before reading the final control response. Add deterministic coverage for both runtimes and document the response-authority policy.
 
 ## 10.0.2
 
@@ -124,15 +94,18 @@ Released on 2026-08-18
 
 ### Fixed
 
-- reject FTP commands carrying CR or LF to prevent command injection
-  > An argument containing CR or LF ended the intended command line and let a
-  > second command be smuggled onto the control channel. Every rendered command
-  > is now validated before it is written to the wire, in the sync, tokio and
-  > smol implementations alike, and rejected with an InvalidInput connection
-  > error.
-  > 
-  > As a consequence custom_command no longer accepts several commands joined by
-  > CRLF in a single call.
+- reject FTP commands carrying CR or LF to prevent command injection (#172)
+
+> - fix: reject FTP commands carrying CR or LF to prevent command injection
+>
+> An argument containing CR or LF ended the intended command line and let a
+> second command be smuggled onto the control channel. Every rendered command
+> is now validated before it is written to the wire, in the sync, tokio and
+> smol implementations alike, and rejected with an InvalidInput connection
+> error.
+>
+> As a consequence custom_command no longer accepts several commands joined by
+> CRLF in a single call.
 
 ## 10.0.1
 
@@ -141,85 +114,82 @@ Released on 2026-07-13
 ### Fixed
 
 - **parser:** accept mismatched terminal codes (#169)
-  > Accept non-standard multiline replies that finish with a different status code while preserving FEAT continuation handling.
+
+> Accept non-standard multiline replies that finish with a different status code while preserving FEAT continuation handling.
 
 ## 10.0.0
 
 Released on 2026-06-29
 
-### ⚠ Breaking Changes
+### Breaking changes
+
 - replace panics with errors across library and CLI (#166)
-  > the `tcp_stream` method of the `TlsStream`, `TokioTlsStream` and
-`SmolTlsStream` traits now returns `FtpResult<TcpStream>` instead of `TcpStream`,
-and `DataStream::into_tcp_stream` now returns `FtpResult<TcpStream>`.
 
-### CI
-
-- build all feature sets on windows and macos (#165)
-  > Extend the build job with an os matrix (ubuntu, windows, macos) so every feature combination is compiled on all three platforms, catching platform-specific build breaks. Coverage/tests stay linux-only as they require Docker.
+> the `tcp_stream` method of the `TlsStream`, `TokioTlsStream` and
+> `SmolTlsStream` traits now returns `FtpResult<TcpStream>` instead of `TcpStream`,
+> and `DataStream::into_tcp_stream` now returns `FtpResult<TcpStream>`.
 
 ### Changed
 
-- 💥 replace panics with errors across library and CLI (#166)
-  > Convert unwrap/expect/panic patterns in production code paths to proper
-  > FtpError/ParseError results, so malformed server responses (e.g. an out-of-range
-  > PASV octet or unparsable LIST/MLSx line) and socket-clone failures no longer abort
-  > the program. Placeholder no-TLS streams now return io errors or unreachable! for
-  > truly unreachable accessors.
+- Breaking: replace panics with errors across library and CLI (#166)
+
+> Convert unwrap/expect/panic patterns in production code paths to proper
+> FtpError/ParseError results, so malformed server responses (e.g. an out-of-range
+> PASV octet or unparsable LIST/MLSx line) and socket-clone failures no longer abort
+> the program. Placeholder no-TLS streams now return io errors or unreachable! for
+> truly unreachable accessors.
 
 ### Fixed
 
-- bump `time` to 0.3.47 to fix RUSTSEC-2026-0009 (#167)
-  > `time` 0.3.45 (a dev-only dependency via testcontainers) is affected by a
-  > denial-of-service via stack exhaustion when parsing RFC 2822 input. Bumping to
-  > 0.3.47 raises the workspace MSRV to 1.88.0.
 - `tcp_stream()` Windows compatibility with tokio + native-tls (#164)
-  > Add a branch on windows that uses `as_socket` instead of `as_fd` to get
-  > a reference to the underlying system socket before cloning.
+
+> Add a branch on windows that uses `as_socket` instead of `as_fd` to get
+> a reference to the underlying system socket before cloning.
 
 ## 9.0.0
 
 Released on 2026-06-20
 
-### ⚠ Breaking Changes
+### Breaking changes
 
 - replace async-std runtime with smol (#162)
 
+> the async-std runtime and all async-std* cargo features are
+> removed; use the smol runtime and the equivalent smol* features instead. The
+
 ### Added
 
-- 💥 replace async-std runtime with smol (#162)
-  > async-std is unmaintained upstream (RUSTSEC-2025-0052). Drop it as an async
-  > backend and replace it with smol, an equivalent lightweight runtime.
-  >
-  > The TLS backends are unchanged: futures-rustls and async-native-tls are
-  > runtime-agnostic, so only the runtime glue (TcpStream/TcpListener, timers,
-  > spawn, task) moved from async-std to smol. async-native-tls already ran on its
-  > runtime-smol backend. The direct futures-lite dependency is gone too: smol
-  > re-exports it and nothing else used it, so it is no longer compiled for
-  > sync/tokio builds.
-  >
-  > This commit also centralizes dependencies into [workspace.dependencies], applies
-  > Cargo.toml conventions across all manifests, and renames mod.rs files to the
-  > module_name.rs style.
-  >
-  > Migrating from async-std:
-  >
-  > - Cargo features: rename every async-std feature to its smol counterpart.
-  >   - async-std                            -> smol
-  >   - async-std-async-native-tls           -> smol-async-native-tls
-  >   - async-std-async-native-tls-vendored  -> smol-async-native-tls-vendored
-  >   - async-std-rustls-aws-lc-rs           -> smol-rustls-aws-lc-rs
-  >   - async-std-rustls-ring                -> smol-rustls-ring
-  >
-  > - Module path: the async module is now suppaftp::smol instead of
-  >   suppaftp::async_std. The stream type aliases are unchanged: AsyncFtpStream,
-  >   AsyncNativeTlsFtpStream, AsyncRustlsFtpStream.
-  >
-  > - Helper types: AsyncStdTlsStream is now SmolTlsStream, and
-  >   AsyncStdPassiveStreamBuilder is now SmolPassiveStreamBuilder.
-  >
-  > - Runtime: drive the client on a smol executor (e.g. smol::block_on) instead of
-  >   async_std::task::block_on or #[async_std::main].
+- Breaking: replace async-std runtime with smol (#162)
+
+> async-std is unmaintained upstream (RUSTSEC-2025-0052). Drop it as an async
+> backend and replace it with smol, an equivalent lightweight runtime.
+>
+> The TLS backends are unchanged: futures-rustls and async-native-tls are
+> runtime-agnostic, so only the runtime glue (TcpStream/TcpListener, timers,
+> spawn, task) moved from async-std to smol. async-native-tls already ran on its
+> runtime-smol backend. The direct futures-lite dependency is gone too: smol
+> re-exports it and nothing else used it, so it is no longer compiled for
+> sync/tokio builds.
+>
+> This commit also centralizes dependencies into [workspace.dependencies], applies
+> Cargo.toml conventions across all manifests, and renames mod.rs files to the
+> module_name.rs style.
+>
+> Migrating from async-std:
+>
+> - Cargo features: rename every async-std* feature to its smol* counterpart.
+>   - async-std -> smol
+>   - async-std-async-native-tls -> smol-async-native-tls
+>   - async-std-async-native-tls-vendored -> smol-async-native-tls-vendored
+>   - async-std-rustls-aws-lc-rs -> smol-rustls-aws-lc-rs
+>   - async-std-rustls-ring -> smol-rustls-ring
+> - Module path: the async module is now suppaftp::smol instead of
+>   suppaftp::async_std. The stream type aliases are unchanged: AsyncFtpStream,
+>   AsyncNativeTlsFtpStream, AsyncRustlsFtpStream.
+> - Helper types: AsyncStdTlsStream is now SmolTlsStream, and
+>   AsyncStdPassiveStreamBuilder is now SmolPassiveStreamBuilder.
+> - Runtime: drive the client on a smol executor (e.g. smol::block_on) instead of
+>   async_std::task::block_on or #[async_std::main].
 
 ## 8.0.5
 
@@ -228,481 +198,581 @@ Released on 2026-06-20
 ### Fixed
 
 - accept 200 as a valid response for file operations (#158)
-  > Some non-compliant FTP servers (e.g. bftpd) reply with 200 instead of
-  > the spec-mandated 250/257 to file operations such as DELE, RMD, RNTO and
-  > MKD. Tolerate 200 alongside the expected code in rm, rmdir, rename and
-  > mkdir, across the sync, tokio and async-std implementations.
+
+> Some non-compliant FTP servers (e.g. bftpd) reply with 200 instead of
+> the spec-mandated 250/257 to file operations such as DELE, RMD, RNTO and
+> MKD. Tolerate 200 alongside the expected code in rm, rmdir, rename and
+> mkdir, across the sync, tokio and async-std implementations.
 
 ## 8.0.4
 
-- [Issue 155](https://github.com/veeso/suppaftp/issues/155): Fixed data commands (`retr_as_stream`, `retr_as_buffer`, `put_with_stream`, `append_with_stream`, `custom_data_command`, `list`, `nlst`) leaving the `data_connection_open` flag set when the server rejected the command, which made every subsequent data command wrongly fail with `DataConnectionAlreadyOpen`.
-- Upgraded `async-native-tls` to 0.6. The async-std FTPS backend now uses the `runtime-smol` feature of `async-native-tls` (the crate dropped its `runtime-async-std` feature in 0.6).
+Released on 2026-06-08
+
+### Fixed
+
+- reset data_connection_open flag when a data command fails
+
+> Data commands set `data_connection_open = true` once the data stream is
+> opened, but the follow-up `read_response_in` could still fail (e.g. the
+> server returns 550 for a missing file). On that error the flag stayed
+> true, so every subsequent data command wrongly failed with
+> `DataConnectionAlreadyOpen`.
+>
+> Introduce a `data_command_with_response` wrapper that runs the data
+> command and reads its preliminary response, dropping the stream and
+> resetting the flag on error. Route every data-command caller
+> (`retr_as_stream`, `put_with_stream`, `append_with_stream`,
+> `custom_data_command`, `stream_lines`) through it, in the sync, tokio
+> and async-std implementations.
+>
+> Add tests in all three implementations verifying that every kind of
+> data command remains usable after a failed one.
+
+### Build
+
+- bump rand 0.10
+- upgrade async-native-tls to 0.6
+
+> The crate dropped its runtime-async-std feature in 0.6, so the
+> async-std FTPS backend now enables runtime-smol instead, which uses
+> the futures-util IO traits compatible with async-std's TcpStream.
 
 ## 8.0.3
 
-Released on 23/04/2026
+Released on 2026-04-23
 
-- [PR 153](https://github.com/veeso/suppaftp/pull/153): Fixed `cwd()` to accept `200 Command OK` in addition to `250` as success, for compatibility with servers that deviate from RFC 959.
+### Fixed
+
+- handle 200 (command OK) as success in cwd()
+
+> RFC 959 specifies 250 as the standard response code when changing
+> the working directory successfully, but some FTP servers return
+> 200 instead.
 
 ## 8.0.2
 
-Released on 12/02/2026
+Released on 2026-02-12
 
-- [PR 135](https://github.com/veeso/suppaftp/pull/135): Fixed unsafe undefined behavior in tokio `AsyncNativeTlsStream::tcp_stream()` which could cause use-after-free / double-free.
-- [PR 136](https://github.com/veeso/suppaftp/pull/136): Fixed `data_connection_open` flag being set before the data stream was actually created, which could incorrectly report `DataConnectionAlreadyOpen` on failure.
-- [PR 137](https://github.com/veeso/suppaftp/pull/137): Fixed infinite loop in async `feat()` when the server disconnects mid-response.
-- [PR 138](https://github.com/veeso/suppaftp/pull/138): Fixed infinite loop in `read_response_in()` on multiline responses when the server disconnects.
-- [PR 139](https://github.com/veeso/suppaftp/pull/139): Fixed MLSX parser to accept `cdir` and `pdir` entry types as directories (per RFC 3659).
-- [PR 140](https://github.com/veeso/suppaftp/pull/140): Fixed MLSX `unix.mode` parser to accept 4-digit octal modes (e.g. `0755`).
-- [PR 141](https://github.com/veeso/suppaftp/pull/141): Fixed `abort()` hanging when server sends 226 directly instead of 426+226.
-- [PR 142](https://github.com/veeso/suppaftp/pull/142): Fixed DOS LIST parser to handle comma-separated file sizes (e.g. `1,234,567`).
-- [PR 143](https://github.com/veeso/suppaftp/pull/143): Fixed `parse_lstime` to adjust year for future dates (matches GNU ls behavior).
-- [PR 144](https://github.com/veeso/suppaftp/pull/144): Fixed DOS time parser to handle space before AM/PM (e.g. `01:30 PM`).
-- [PR 145](https://github.com/veeso/suppaftp/pull/145): Fixed active mode to use EPRT command for IPv6 connections.
-- [PR 146](https://github.com/veeso/suppaftp/pull/146): Replaced `unwrap()` panics on server-controlled data (EPSV, SIZE, MDTM) with proper error handling.
-- [PR 147](https://github.com/veeso/suppaftp/pull/147): Removed redundant `feature = "async-std"` in cfg gate.
-- [PR 148](https://github.com/veeso/suppaftp/pull/148): Fixed `doc(cfg)` attribute on `SecureError` variant to show both `secure` and `async-secure` features.
-- [PR 133](https://github.com/veeso/suppaftp/pull/133): Moved crates to `crates/` folder.
-- [PR 134](https://github.com/veeso/suppaftp/pull/134): Changed test container image to `delfer/alpine-ftp-server`.
+### Changed
+
+- Moved crates to crates/ folder (#133)
+
+### Fixed
+
+- reader does not need to be mutable
+- replace unsafe UB in tokio AsyncNativeTlsStream::tcp_stream() (#135)
+
+> The previous implementation used Box::from_raw on a pointer obtained from
+> get_ref(), which points into the interior of a TlsStream allocation, not
+> a Box allocation. This caused heap corruption / undefined behavior.
+>
+> Replace with safe fd cloning via BorrowedFd::try_clone_to_owned().
+
+- data_connection_open flag now only set on successful data_command (#136)
+
+> The data_connection_open flag was being set before the data stream was
+> actually created, causing it to remain true even when connection failed.
+
+- add EOF check to async feat() to prevent infinite loop (#137)
+
+> The async implementations of feat() were missing an EOF check in their
+> read loop, causing an infinite loop if the server disconnected mid-response.
+
+- add EOF check to read_response_in multiline loop (#138)
+
+> The multiline response reader could loop infinitely if the server
+> disconnected mid-response. Now returns ConnectionError on unexpected EOF.
+
+- MLSX parser now accepts cdir and pdir type values (#139)
+
+> RFC 3659 defines cdir (current directory) and pdir (parent directory)
+> as standard MLSX type values. Most FTP servers include these in MLSD
+> output for . and .. entries.
+
+- MLSX unix.mode accepts 4-digit octal modes (#140)
+
+> - fix: MLSX unix.mode now accepts 4-digit octal modes
+>
+> Some FTP servers return 4-digit octal modes (e.g. 0755) in MLSX responses.
+> The parser now accepts both 3 and 4 digit modes by taking the last 3 chars.
+
+- abort() only reads second response when server sends 426 (#141)
+
+> Previously abort() always tried to read two responses, which could hang
+> if the server only sends one response (226). Now conditionally reads the
+> second response only when the first is 426 (TransferAborted).
+
+- DOS LIST parser handles comma-separated file sizes (#142)
+
+> - fix: DOS LIST parser now handles comma-separated file sizes
+>
+> Some FTP servers return file sizes with comma separators (e.g. 1,234,567).
+> The parser now strips commas before parsing the size.
+
+- remove redundant feature = "async-std" in cfg gate (#147)
+- correct doc(cfg) attribute on SecureError (#148)
+- parse_lstime adjusts year for future dates (#143)
+
+> - fix: parse_lstime now adjusts year for future dates
+>
+> When a LIST response contains a date more than 6 months in the future
+> (no year specified), it almost certainly refers to the previous year.
+> The parser now adjusts accordingly, matching the behavior of GNU ls.
+
+- DOS time parser handles space before AM/PM (#144)
+
+> - fix: DOS time parser now handles space before AM/PM
+>
+> Some FTP servers format DOS timestamps with a space before AM/PM
+> (e.g. '01:30 PM' vs '01:30PM'). The parser now tries both formats.
+
+- replace unwrap() panics on server-controlled data (#146)
+
+> - fix: replace unwrap() with error handling on server-controlled data
+>
+> Server responses parsed via unwrap() (EPSV port, SIZE value, MDTM
+> timestamp) could panic on malformed data. Now returns FtpError::BadResponse.
+
+- active mode uses EPRT for IPv6 connections (#145)
+
+> - fix: active mode uses EPRT for IPv6, fix unwrap panics
+>
+> The PORT command only supports IPv4. When connected via IPv6, the client
+> now uses EPRT instead. Also replaces unwrap() on local_addr() with
+> proper error handling.
 
 ## 8.0.1
 
-Released on 18/01/2026
+Released on 2026-01-18
+
+### Fixed
 
 - Fixed docs.rs build
 
 ## 8.0.0
 
-Released on 18/01/2026
+Released on 2026-01-18
 
-- [Issue 131](https://github.com/veeso/suppaftp/issues/131): Added new features to choose the backend for `rustls`:
-    - `rustls-ring`: use `ring` as crypto backend (default)
-    - `rustls-aws-lc-rs`: use `aws-lc-rs` as crypto backend
-    - Removed `rustls` feature. Use either `rustls-ring` or `rustls-aws-lc-rs` instead.
-    - Removed `async-rustls` feature. Use either `async-std-rustls-ring` or `async-std-rustls-aws-lc-rs` instead.
-    - Removed `tokio-rustls` feature. Use either `tokio-rustls-ring` or `tokio-rustls-aws-lc-rs` instead.
+### Breaking changes
 
-> [!CAUTION]
-> In case you're using `rustls`, `tokio-rustls`, or `async-rustls` features, you need to update your `Cargo.toml`
-> accordingly.
+- **deps:** Added new features to choose the backend for `rustls` (#132)
+
+> Update your Cargo.toml if you're using `rustls` to explicitly set the Rustls backend to use
+
+### Build
+
+- Breaking: **deps:** Added new features to choose the backend for `rustls` (#132)
+
+> - build(deps)!: Added new features to choose the backend for `rustls`
+>
+> Added `-aws-lc-rs` and `-ring` to all `rustls` features to allow choosing the backend. Removed all the `async-std-rustls`, `rustls`, and `tokio-rustls` features to prevent ambiguity.
 
 ## 7.1.0
 
-Released on 07/01/2026
+Released on 2026-01-07
 
-- [Issue 128](https://github.com/veeso/suppaftp/issues/128)
-    - Made `FileType` enum public
-    - Added `File::file_type()` method to retrieve the file type
-    - Deprecated `File::from_dos_line`,  `File::from_mlsx_line`, and `File::from_posix_line` methods in favor of
-      `ListParser::parse_dos`, `ListParser::parse_mlst`, `ListParser::parse_mlsd`, and `ListParser::parse_posix`
-      respectively.
-- [Issue 127](https://github.com/veeso/suppaftp/issues/127): Prevent commands which require a data connection to be
-  executed if there is already a data connection open.
+### Added
+
+- **list:** FileType enum is now public; deprecated File::from...line in favour of `LineParser` (#129)
+
+> It is now possible to retrieve the `FileType` from a file using `File::file_type()`.
+>
+> [Issue 128](https://github.com/veeso/suppaftp/issues/128)
+>
+> - Made `FileType` enum public
+> - Added `File::file_type()` method to retrieve the file type
+> - Deprecated `File::from_dos_line`, `File::from_mlsx_line`, and `File::from_posix_line` methods in favor of `ListParser::parse_dos`, `ListParser::parse_mlst`, `ListParser::parse_mlsd`, and `ListParser::parse_posix` respectively.
+
+### Fixed
+
+- Prevent commands which require a data connection to be executed if there is already a data connection open (#130)
+
+> - fix: Prevent commands which require a data connection from being executed if there is already a data connection open
+>
+> ftp should never allow this. Indeed, it currently causes the code to hang
 
 ## 7.0.7
 
-Released on 05/11/2025
+Released on 2025-11-05
 
-- [Issue 126](https://github.com/veeso/suppaftp/pull/126): re-export tls streams when using tokio
+### Fix
+
+- re-export tls streams when using tokio (#126)
 
 ## 7.0.6
 
-Released on 07/10/2025
+Released on 2025-10-07
 
-- [Issue 125](https://github.com/veeso/suppaftp/pull/125): Allow to access async_native_tls when using tokio
+### Fixed
+
+- Allow to access async_native_tls when using tokio (#125)
+- 7.0.6
 
 ## 7.0.5
 
-Released on 03/10/2025
+Released on 2025-10-03
 
-- Update `chrono` version to `0.4.25` to guarantee compatibility with `and_utc` method.
+### Build
+
+- Update chrono version (#124)
+
+> - update chrono version
+> - docs: 7.0.5
+>
+> ---
 
 ## 7.0.4
 
-Released on 22/09/2025
+Released on 2025-09-22
 
-- Exported `TlsStream` types for implementing functions that use the retrieved stream.
-    - `TlsStream` for sync ftp.
-    - `AsyncStdTlsStream` for async-std ftp.
-    - `TokioTlsStream` for tokio ftp.
+### Fixed
 
-## 7.0.3
+- docs.rs build
+- Exported `TlsStream` types for implementing functions that use the retrieved stream. (#122)
 
-Released on 31/08/2025
-
-- Just docs.rs whining like a baby he can't fix a single missing comma.
-
-## 7.0.1
-
-Released on 31/08/2025
-
-- fixed docs.rs build
+> - fix: Exported `TlsStream` types for implementing functions that use the retrieved stream.
+>
+> `TlsStream` for sync ftp.
+> `AsyncStdTlsStream` for async-std ftp.
 
 ## 7.0.0
 
-Released on 31/08/2025
+Released on 2025-08-31
 
-- **Breaking changes**:
-    - Removed `async` feature; use either `async-std` or `tokio`.
-    - Removed `async-native-tls`; use either `async-std-async-native-tls` (for `async-std`) or
-      `tokio-async-native-tls` (for `tokio`) instead.
-    - Renamed `async-native-tls-vendored` to `async-std-async-native-tls-vendored`.
-    - Removed `async-default-tls`.
-    - Removed `default-tls`
-    - Renamed `async-rustls` to `async-std-rustls`.
-- **Higher MSRV requirements**
-    - Now requires Rust edition 2024 (before: 2021)
-    - Now requires Rust version 1.85.1 or later (before: 1.80.1)
-- **Tokio support**:
-    - Added tokio support along with async-std.
-    - Use `tokio` feature to use tokio
-    - Use `tokio-rustls` feature to use tokio with rustls
-    - Use `tokio-async-native-tls` feature to use async-native-tls with tokio
-- **Custom Data commands**:
-    - Added `custom_data_command` to perform the execution of custom data commands.
-    - Added `close_data_connection` to close the `DataStream` once consumed after executing custom data commands.
-    - Made `get_lines_from_stream` public to easily read String lines from the `DataStream`.
+### Breaking changes
+
+- Tokio for a new async backend of suppaftp (#116)
+
+> Tokio for a new async backend of suppaftp (#116)
+
+### Added
+
+- Breaking: Tokio for a new async backend of suppaftp (#116)
+
+> - feat: add tokio for a new backend of suppaftp
+> - feat: make async-std and tokio backend parallel existed.
+> - fix: conflicting with tokio async backend and test container environment.
+> - fix: mismatched feature gates of async-native-tls-std, async-std; fix wrong ref.
+> - fix: Exports for async and features
+> - fix: fail-fast
+> - ci: Workflow
+> - test: tests
+> - docs: Features docs
+> - ci: Merged coverage workflow into tests
+> - ci: coverage
+>
+> ---
+
+- Custom Data commands (#117)
+
+> Added `custom_data_command` to perform the execution of custom data commands.
+> Added `close_data_connection` to close the `DataStream` once consumed after executing custom data commands.
+> Made `get_lines_from_stream` public to easily read String lines from the `DataStream`.
 
 ## 6.3.0
 
-Released on 05/06/2025
+Released on 2025-06-05
 
-- [Issue 85](https://github.com/veeso/suppaftp/issues/85): Fixed `retr` method signature on the `AsyncFtpStream` to
-  allow passing a closure taking the stream reader.
+### Fixed
 
-    ```rust
-    stream
-      .retr("test.txt", |mut reader| {
-            Box::pin(async move {
-                let mut buf = Vec::new();
-                reader.read_to_end(&mut buf).await.expect("failed to read stream");
-                Ok((buf, reader))
-            })
-        })
-        .await
-    ```
+- FEAT command response parser (#109)
 
-- [Issue 108](https://github.com/veeso/suppaftp/issues/108): fixed FEAT command response parser
+> The parser didn't fully respect the RFC 2389
+
+- **async:** Fixed `retr` method signature on the `AsyncFtpStream` to allow passing a closure taking the stream reader. (#110)
+
+> The signature of the `retr` method was not allowing any argument, because the dyn Read needs to be Unpin, but it's a mutable reference at the same time and this with Async causes several issues. The mutable reference is required by the finalize_retr_stream which is called immediately after calling the closure. Because of this, the signature has been changed to return both the result and the stream back to be able to finalize it.
+
+- 6.3.0
 
 ## 6.2.1
 
-Released on 13/05/2025
+Released on 2025-05-13
 
-- [Issue 106](https://github.com/veeso/suppaftp/issues/106): Fixed `list` related commands which failed if the file name
-  contained non UTF-8 characters.
-- MSRV updated to 1.80.1
+### Fixed
+
+- **chore:** Update/fix rustls example in readme (#104)
+- Fixed `list` related commands which failed if the file name contained non UTF8 characters (#107)
+
+> Changed the logic of get stream lines: use read_until and then convert to UTF8 lossy
+
+### Build
+
+- Updated dev-dependencies
 
 ## 6.2.0
 
-Released on 14/04/2025
+Released on 2025-04-14
 
-- [feat (BREAKING): `get_ref` for async tls stream was unnecessarily async](https://github.com/veeso/suppaftp/pull/103)
+### Breaking changes
+
+- `get_ref` for async tls stream was unnecessarily async
+
+> get_ref calls must remove await
+
+### Added
+
+- Breaking: `get_ref` for async tls stream was unnecessarily async
+
+> it was an async function, but it didn't make sense to be async and created issues when dealing with pooling
+
+### Fixed
+
+- set `get_ref` to sync, to acquire reference to internal tls stream. (#103)
+- unnecessary to_string
+- lint
 
 ## 6.1.1
 
-Released on 17/03/2025
+Released on 2025-03-17
 
-- added a couple of logs to debug streams.
+### Changed
+
+- **log:** added better logs for tracing streams
+
+### Fixed
+
+- **chore:** readme styles
 
 ## 6.1.0
 
-Released on 10/03/2025
+Released on 2025-03-10
 
-- [Issue 100](https://github.com/veeso/suppaftp/issues/100): Migrated away from unmaintained `async-tls` to
-  `futures-rustls`
-- [Issue 98](https://github.com/veeso/suppaftp/issues/98): doc: fixed minor typos that referenced `termscp`
+### Added
+
+- **deps:** migrated from async-tls to futures-rustls (#101)
+
+> async-tls is unmaintained and rustls has actually released an official version for async tls, so we should use that instead
+
+### Fixed
+
+- **ci:** coverage
+- doc: fix minor typos referencing 'termscp' in CONTRIBUTING.md (#98) (#99)
 
 ## 6.0.7
 
-- [Issue 88](https://github.com/veeso/suppaftp/issues/88): Removed `ip.is_private()` check on NAT workaround, which
-  prevented public IPs to be used for Natting.
+Released on 2025-01-18
+
+### Fixed
+
+- remove is_private check for nat workaround (#97)
+- 6.0.7
 
 ## 6.0.6
 
-Released on 17/01/2025
+Released on 2025-01-17
 
-- [Issue 95](https://github.com/veeso/suppaftp/issues/95): Fixed TLS Stream not properly closed when using rustls.
+### Fixed
+
+- msrv
+- close rustls stream on drop (#96)
+- suppaftp 6.0.6
 
 ## 6.0.5
 
-Released on 27/11/2024
+Released on 2024-11-27
 
-- [Force rustls to use ring](https://github.com/veeso/suppaftp/issues/94)
+### Fixed
+
+- **deps:** force rustls to use ring
+- ci
+- testcontainers for tests
 
 ## 6.0.4
 
-Released on 26/10/2024
+Released on 2024-10-26
 
-- Added `Sync` to client.
-- Added unit test to guarantee that sync FtpStream stays `Sync`
+### Fixed
+
+- FtpStream should be Sync
 
 ## 6.0.3
 
-Released on 15/10/2024
+Released on 2024-10-15
 
-- Added `Send` marker to the Closure:
-  `dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send>> + Send;`
-- Added unit test to guarantee that FtpStream stays `Send`
+### Fixed
+
+- Added `Send` marker to the Closure: `dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Output = FtpResult<TcpStream>> + Send>> + Send;`
 
 ## 6.0.2
 
-Released on 14/10/2024
+Released on 2024-10-14
 
-- [Issue 89](https://github.com/veeso/suppaftp/issues/89): added new `FtpStream::passive_stream_builder` to provide a
-  function to build the Passive mode `TcpStream` with a custom builder. This is useful if you need to use some proxy.
+### Fixed
+
+- Passive mode with custom provided TcpStream (#91)
+
+> - fix: Passive mode with custom provided TcpStream
+> - fix: ci
+> - fix: ci
 
 ## 6.0.1
 
-Released on 24/05/2024
+Released on 2024-05-24
 
-- [PR 84](https://github.com/veeso/suppaftp/pull/84): LIST with DOS lines parsed `%d-%m` but the correct syntax is
-  `%m-%d`
+### Fixed
+
+- docs
+- docs
+- ms-dos date format (#84)
+
+> - fix:ms-dos date format
+> - fix:ms-dos date format
+>
+> ---
 
 ## 6.0.0
 
-Released on 20/05/2024
+Released on 2024-05-20
 
-- feat!: `Response.body` now contains the entire response
-- feat!: `site()` and `custom_command` now return `FtpResult<Response>`
+### Breaking changes
+
+- `Response.body` now contains the entire response
+
+> `Response.body` now contains the entire response
+
+- `site()` and `custom_command` now return `FtpResult<Response>`
+
+> `site()` and `custom_command` now return `FtpResult<Response>`
+
+- 6.0.0
+
+> 6.0.0
+
+### Added
+
+- Breaking: `Response.body` now contains the entire response
+- Breaking: `site()` and `custom_command` now return `FtpResult<Response>`
+- Breaking: 6.0.0
+
+### Fixed
+
+- style flat stars badge
+- unique manifest
+- deps
+- lint
+- test
+- test
 
 ## 5.4.0
 
-Released on 18/05/2024
+Released on 2024-05-18
 
-- [Issue 70](https://github.com/veeso/suppaftp/issues/70): **SITE** Command
-- [Issue 75](https://github.com/veeso/suppaftp/issues/75): Public access to `connect_with_stream`
-- [Issue 76](https://github.com/veeso/suppaftp/issues/76): Support for **MLST** and **MLSD**
-- [PR 78](https://github.com/veeso/suppaftp/pull/78): Async SSL file uploads not properly closing
-- `custom_command`: added `custom_command` function to perform custom commands
+### Added
+
+- custom_command
+- SITE command
+- Support MLST and MLSD
+
+### Fixed
+
+- #75 Make function connect_with_stream public
+- lint
+- async
+- async
+- lint
 
 ## 5.3.1
 
-Released on 28/01/2024
+Released on 2024-01-28
 
-- Fixed [issue #69](https://github.com/veeso/suppaftp/issues/69): SyntaxError on name that starts with 2 numbers
+### Added
+
+- suppaftp 5.3.1
+
+### Fixed
+
+- issue #69 Syntax error on name that staqrts with 2 number
 
 ## 5.3.0
 
-Released on 06/01/2024
+Released on 2024-01-06
 
-- Fix [issue #64](https://github.com/veeso/suppaftp/issues/64): added active mode listener timeout
-- Fix [issue #66](https://github.com/veeso/suppaftp/issues/66): abort can be called without passing ownership to
-  data_stream
+### Added
+
+- active mode socket timeout (#68)
+
+> - feat: active mode socket timeout
+> - fix: build
+
+- release
 
 ## 5.2.2
 
-Released on 14/11/2023
+Released on 2023-11-14
 
-- Fix issue #61: Send + Sync trait to AsyncFtpStream/FtpStream
-- Fix issue #63: FEAT function hangs on async
+### Added
+
+- Send + Sync trait to AsyncFtpStream/FtpStream (#61)
+
+> - feat: Send trait to AsyncFtpStream/FtpStream
+> - fix: ci failing
+
+### Fixed
+
+- async feat function hang (#63)
+- format
 
 ## 5.2.1
 
-Released on 16/10/2023
+Released on 2023-10-16
 
-- Add POSIX setgid/setuid/sticky bit support: [PR59](https://github.com/veeso/suppaftp/pull/59)
+### Added
 
-Thanks to [@rye](https://github.com/rye)
+- deps
+- changelog
+- removed broken tests
+
+### Fixed
+
+- removed test
 
 ## 5.2.0
 
-Released on 07/09/2023
+Released on 2023-09-07
 
-- Implemented [RFC 2389](https://www.rfc-editor.org/rfc/rfc2389)
-    - Added `FEAT` command
-    - Added `OPTS` command
+### Added
 
-## 5.1.2
-
-Released on 14/06/2023
-
-- Added `clock` feature to chrono to overcome security issue with `time` <https://github.com/veeso/suppaftp/issues/46>
+- FEAT and OPTS commands (#51)
 
 ## 5.1.1
 
-Released on 03/04/2023
+Released on 2023-04-03
+
+### Added
 
 - `ImplFtpStream` and `ImplAsyncFtpStream` are now public
 
-## 5.1.0
-
-Released on 02/03/2023
-
-- Implemented new connection method `connect_timeout` with the possibility to specify a timeout on connect
-
-## 5.0.1
-
-Released on 26/02/2023
-
-- Exposed publicly `DataStream` and `AsyncDataStream`
-
-## 5.0.0
-
-Released on 24/02/2023
-
-- [Issue 33](https://github.com/veeso/suppaftp/issues/33) **‼️ BREAKING CHANGES ‼️**
-    - Features are now additive. This means that you can successfully build suppaftp with all the features enabled at
-      the same time.
-    - Ftp stream has now been split into different types:
-        - `FtpStream`: sync no-tls stream
-        - `NativeTlsFtpStream`: ftp stream with TLS with native-tls
-        - `RustlsFtpStream`: ftp stream with TLS with rustls
-        - `AsyncFtpStream`: async no-tls stream
-        - `AsyncNativeTlsFtpStream`: async ftp stream with TLS with async-native-tls
-        - `AsyncRustlsFtpStream`: async ftp stream with TLS with async-rustls
-
-## 4.7.0
-
-Released on 01/02/2023
-
-- [RFC 2428](https://www.rfc-editor.org/rfc/rfc2428) implementation
-    - [Issue 28](https://github.com/veeso/suppaftp/issues/28): Implemented Extended Passive mode (**EPSV**)
-    - [Issue 30](https://github.com/veeso/suppaftp/issues/30): Implemented EPRT
-- Updated suppaftp-cli to suppaftp 4.7.0
-
-## 4.6.1
-
-Released on 26/01/2023
-
-- `suppaftp::list::File` now derives the `core::hash::Hash` trait
-
-## 4.6.0
-
-Released on 09/01/2023
-
-- `MDTM` now returns `NaiveDateTime` since the command won't provide timezone
-
-## 4.5.3
-
-Released on 27/12/2022
-
-- Don't use read to string from stream, but read line
-- Response body is now bytes
-- Fixed [issue 24](https://github.com/veeso/suppaftp/issues/24)
-
 ## 4.5.2
 
-Released on 10/10/2022
+Released on 2022-10-10
 
-- Fixed missing export of tls stream
+### Fixed
+
+- tls::TlsConnector should be pub use
 
 ## 4.5.1
 
-Released on 08/10/2022
+Released on 2022-10-08
 
-- Export `TlsStream` when async secure
+### Fixed
 
-## 4.5.0
-
-Released on 08/10/2022
-
-- Added `native-tls-vendored` and `async-native-tls-vendored` features to link OpenSSL statically
-- suppaftp-cli as a separate package.
-- Rustls support
-- **‼️ BREAKING CHANGE**: refactored secure features:
-    - **REMOVED** `secure`/`async-secure` feature
-    - Use `native-tls` to enable TLS support with native-tls crate
-    - Use `async-native-tls` to enable async TLS support with async-native-tls crate
-    - Use `rustls` to enable TLS support with rustls crate
-    - Use `async-rustls` to enable TLS support with async-tls crate
+- async TlsConnector not exported
 
 ## 4.4.0
 
-Released on 02/08/2022
+Released on 2022-08-02
 
-- Added `set_passive_nat_workaround()` method to allow PASV with server behind NAT/proxy
+### FtpStream
 
-## 4.3.0
-
-Released on 27/06/2022
-
-- Added implicit FTPS support
-    - Added `connect_secure_implicit()` method
-    - Added `deprecated` feature to enable deprecated methods (required for implicit FTPS)
-
-## 4.2.0
-
-Released on 07/12/2021
-
-- **Active mode**
-    - suppaftp now supports Active-mode (credit [@devbydav](https://github.com/devbydav))
-    - You can change mode with `set_mode(Mode::Passive) or set_mode(Mode::Active)` whenever you want
-- **New commands**
-    - **Abort command**: implemented the `ABOR` FTP command
-    - **Append command**: implemented the `APPE` FTP command
-    - **Resume transfer command**: implemented the `REST` FTP command
-- **Logging**: `log` crate has been implemented for debugging. You can disable logging with `no-log` feature
-- Security
-    - **TlsStream shutdown**: fixed [issue 5](https://github.com/veeso/suppaftp/issues/5) (
-      credit [@devbydav](https://github.com/devbydav))
-- ❗ Breaking changes:
-    - `Response.code` renamed to `status`.
-    - status is no more a `u32`: from now on it will be an enum named `Status`.
-        - The status enum implements the `code()` method which will return the `u32` representation
-        - The status enum can be displayed and converted to string: this will return the description of the error code
-    - Changed `into_insecure()` to `clear_command_channel()`: the implementation of into_insecure was wrong and
-      inconsistent. What it actually does is to make the server not to encrypt the communication on the command channel.
-    - Removed `File::from_line`; use `File::try_from()` or `File::from_str()`
-
-## 4.1.3
-
-Released on 01/12/2021
-
-- UNIX file parser:
-    - Fixed file parsing, which didn't allow any other characters than alphanumerics for groups, users and dates
-- `put_file()` will now return the amount of bytes written
-- Updated dependencies
-
-## 4.1.2
-
-Released on 23/08/2021
-
-- Renamed `InvalidResponse` to `UnexpectedResponse`, which makes more sense
-- Renamed `File::from_unix_line` to `File::from_posix_line`
-- Renamed `UnixPexQuery` to `PosixPexQuery`
-- Made `parse_dostime` private
+- :set_nat_workaround() instead of feature flag "nat".
 
 ## 4.1.1
 
-Released on 22/08/2021
+Released on 2021-08-22
 
-- Fixed missing `cli/` directory on Cargo registry.
+### README
 
-## 4.1.0
+- syntax highlighting fix
 
-Released on 22/08/2021
-
-- Added `Response` struct, which will be returned in case of `InvalidResponse` error.
-    - This adds the possibility to get the exact error code and the message
-- Added **async** support
-- **API** changes
-    - renamed `simple_retr` to `retr_as_buffer`
-    - renamed `get` to `retr_as_stream`
-    - renamed `finalize_get_stream` to `finalize_retr_stream`
-- **LIST** command output parser
-    - Read more on [docs.rs](https://docs.rs/suppaftp/4.1.0/suppaftp/list/index.html)
-- Optimized code to reuse stream functions as much as possible
-- `size()` and `mdtm()` methods will return an option no more.
-- Improved code with linter
-- Added CI tests
-
-## 4.0.2
-
-Released on 09/01/2020
-
-- Fixed `finalize_get` and `finalize_put_stream`. Stream must be dropped before waiting for response.
-
-## 4.0.1
-
-Released on 10/12/2020
-
-- Added `finalize_get` method to terminate reader and `RETR` command
-
-## 4.0.0
-
-Released on 06/12/2020
-
-- Removed deprecated statements
-- Replaced openssl with native-tls
-- Added `put_with_stream` method
-- Added `get_welcome_msg` method
+> This fixes the syntax highlighting for the Rust code by using the `rust` language for the fenced code block.
