@@ -68,7 +68,6 @@
   - [Introduction 👋](#introduction-)
     - [Features ✨](#features-)
   - [Get started 🏁](#get-started-)
-    - [Migrating to self-finalizing streams (unreleased)](#migrating-to-self-finalizing-streams-unreleased)
     - [Cargo features](#cargo-features)
       - [SSL/TLS Support](#ssltls-support)
       - [Async support](#async-support)
@@ -116,54 +115,6 @@ To get started, first add **suppaftp** to your dependencies:
 ```toml
 suppaftp = "^11"
 ```
-
-### Migrating to self-finalizing streams (unreleased)
-
-The next major release changes the streaming API from version 11. The changes below
-apply to this development branch and are not available in the published version 11.
-
-- `put_with_stream`, `append_with_stream`, `retr_as_stream`, and
-  `custom_data_command` return a `TransferStream` that owns transfer cleanup.
-- Replace `ftp.finalize_put_stream(stream)` and `ftp.finalize_retr_stream(stream)`
-  with `stream.finish()`. For Tokio and smol, use `stream.finish().await`.
-  `close_data_connection` is removed; finish or abort the transfer instead.
-- `abort` takes the `TransferStream` returned by that client.
-- Async `retr` callbacks receive a `TransferStream` and return it with the callback
-  result as `(value, stream)`. A callback that returns an error drops its stream,
-  leaving cleanup to the next command.
-- `ftp.get_ref()` returns a `ControlSocket` guard that dereferences to the TCP
-  socket. Async clients require `ftp.get_ref().await`. Keep the guard short-lived;
-  release it before calling another client method or finishing a transfer. In the
-  sync client, release it before dropping a transfer too, to avoid a deadlock.
-- To access the data connection, use `transfer.get_ref()` or `transfer.get_mut()`.
-  If you wrap a transfer in a buffered reader or writer, flush any buffered writes
-  and recover the transfer with `into_inner()` before calling `finish()`.
-
-```rust
-use std::io::Write;
-use suppaftp::FtpStream;
-
-let mut ftp = FtpStream::connect("127.0.0.1:21")?;
-ftp.login("test", "test")?;
-let mut upload = ftp.put_with_stream("hello.txt")?;
-upload.write_all(b"hello")?;
-upload.finish()?;
-ftp.noop()?;
-Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-Always finish the transfer before issuing another command, including when the
-transfer runs in another thread or task. `finish()` closes the data connection and
-checks the server's completion reply. Dropping a transfer loses its result and does
-not guarantee that all data was transferred. Sync drop waits for the completion
-reply and can block; async drop defers reading that reply to the next command.
-Async drop also skips the TLS close notification, which strict FTPS servers may
-reject, so prefer `finish().await` for successful transfers.
-
-Cancelling async `finish()` leaves the completion reply for the next command.
-If that command is cancelled while draining the reply, a later command resumes
-reading it. This recovery does not extend to arbitrary commands or `abort()`;
-reconnect if their futures are cancelled after polling begins.
 
 ### Cargo features
 
