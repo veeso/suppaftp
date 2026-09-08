@@ -37,7 +37,7 @@ rustls-crate = { workspace = true, features = ["logging", "std", "tls12"], optio
 rustls-pki-types = { workspace = true, features = ["alloc"], optional = true }
 smol = { workspace = true, optional = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "net", "rt", "time"], optional = true }
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"], optional = true }
 tokio-rustls-crate = { workspace = true, features = ["logging", "tls12"], optional = true }
 
 [dev-dependencies]

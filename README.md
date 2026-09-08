@@ -95,7 +95,8 @@ programming. It aims to be a complete, reliable and well-tested implementation o
   [rustls](https://crates.io/crates/rustls)
 - 🕙 First-class **sync and async** APIs, with [tokio](https://crates.io/crates/tokio) and
   [smol](https://crates.io/crates/smol) as async backends
-- ⬇️ **Stream-based** transfers (e.g. `put_with_stream`, `retr`) for fine-grained control over data connections
+- ⬇️ **Stream-based** transfers (e.g. `put_with_stream`, `retr_as_stream`) returning a self-finalizing
+  `TransferStream`: call `finish()` to check the transfer result; dropping it attempts cleanup
 - ↔️ Both **passive and active** transfer modes
 - 🌟 Wide command coverage, including `ABOR`, `APPE`, `REST`, `EPSV` and `EPRT`
 - 📑 Built-in parser for the **LIST** command output (POSIX and DOS formats) into structured `File` objects
@@ -112,7 +113,7 @@ programming. It aims to be a complete, reliable and well-tested implementation o
 To get started, first add **suppaftp** to your dependencies:
 
 ```toml
-suppaftp = "^8"
+suppaftp = "^11"
 ```
 
 ### Cargo features
@@ -158,9 +159,9 @@ If you want to enable **support for FTPS**, you must enable the `native-tls` or 
 cargo dependencies, based on the TLS provider you prefer.
 
 ```toml
-suppaftp = { version = "^8", features = ["native-tls"] }
+suppaftp = { version = "^11", features = ["native-tls"] }
 # or
-suppaftp = { version = "^8", features = ["rustls-aws-lc-rs"] }
+suppaftp = { version = "^11", features = ["rustls-aws-lc-rs"] }
 ```
 
 > [!NOTE]
@@ -174,7 +175,7 @@ use [smol](https://crates.io/crates/smol) or `tokio` feature, to use [tokio](htt
 as backend, in your cargo dependencies.
 
 ```toml
-suppaftp = { version = "^8", features = ["tokio"] }
+suppaftp = { version = "^11", features = ["tokio"] }
 ```
 
 > [!CAUTION]

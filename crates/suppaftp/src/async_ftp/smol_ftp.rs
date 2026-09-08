@@ -2,8 +2,10 @@
 //!
 //! This module contains the definition for smol async implementation of suppaftp
 
+mod control;
 mod data_stream;
 mod tls;
+mod transfer_stream;
 
 use std::future::Future;
 #[cfg(not(feature = "async-secure"))]
@@ -11,15 +13,17 @@ use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::string::String;
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
+pub use control::ControlSocket;
+use control::{ControlChannel, SharedControl};
 pub use data_stream::DataStream;
 use smol::future::FutureExt;
-use smol::io::{
-    AsyncBufReadExt, AsyncRead as Read, AsyncWrite as Write, AsyncWriteExt, BufReader, copy,
-};
+use smol::io::{AsyncBufReadExt, AsyncRead as Read, BufReader, copy};
+use smol::lock::MutexGuard;
 use smol::net::{AsyncToSocketAddrs as ToSocketAddrs, TcpListener, TcpStream};
 #[cfg(feature = "async-secure")]
 pub use tls::AsyncTlsConnector;
@@ -28,6 +32,8 @@ pub use tls::{AsyncNativeTlsConnector, AsyncNativeTlsStream};
 pub use tls::{AsyncNoTlsStream, SmolTlsStream};
 #[cfg(any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring"))]
 pub use tls::{AsyncRustlsConnector, AsyncRustlsStream};
+use transfer_stream::Direction;
+pub use transfer_stream::TransferStream;
 
 use super::super::Status;
 use super::super::regex::{EPSV_PORT_RE, MDTM_RE, SIZE_RE};
@@ -46,21 +52,21 @@ pub type SmolPassiveStreamBuilder = dyn Fn(SocketAddr) -> Pin<Box<dyn Future<Out
     + Sync;
 
 /// Stream to interface with the FTP server. This interface is only for the command stream.
+///
+/// The control connection is shared with the [`TransferStream`]s handed out by the data
+/// commands, so that each transfer can close its data connection and read the completion reply
+/// on its own; see [`TransferStream`] for details.
 pub struct ImplAsyncFtpStream<T>
 where
     T: SmolTlsStream + Send,
 {
-    reader: BufReader<DataStream<T>>,
+    /// Control connection, locked for the duration of each command.
+    control: SharedControl<T>,
     mode: Mode,
     nat_workaround: bool,
     welcome_msg: Option<String>,
     active_timeout: Duration,
     passive_stream_builder: Box<SmolPassiveStreamBuilder>,
-    /// flags whether a data connection is currently open
-    ///
-    /// Since it isn't possible to have multiple data connections at the same time,
-    /// this flag is used to track whether a data connection is currently open.
-    data_connection_open: bool,
     #[cfg(not(feature = "async-secure"))]
     marker: PhantomData<T>,
     #[cfg(feature = "async-secure")]
@@ -105,11 +111,10 @@ where
     pub async fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
         debug!("Established connection with server");
         let mut ftp_stream = ImplAsyncFtpStream {
-            reader: BufReader::new(DataStream::Tcp(stream)),
+            control: ControlChannel::shared(DataStream::Tcp(stream)),
             #[cfg(not(feature = "async-secure"))]
             marker: PhantomData {},
             mode: Mode::Passive,
-            data_connection_open: false,
             nat_workaround: false,
             passive_stream_builder: Self::default_passive_stream_builder(),
             welcome_msg: None,
@@ -120,7 +125,8 @@ where
             active_timeout: Duration::from_secs(60),
         };
         debug!("Reading server response...");
-        match ftp_stream.read_response(Status::Ready).await {
+        let ready = ftp_stream.read_response(Status::Ready).await;
+        match ready {
             Ok(response) => {
                 let welcome_msg = response.as_string().ok();
                 debug!("Server READY; response: {:?}", welcome_msg);
@@ -132,6 +138,7 @@ where
     }
 
     /// Switch to secure mode if possible (FTPS), using a provided SSL configuration.
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] before sending `AUTH` if a transfer is alive.
     /// This method does nothing if the connect is already secured.
     ///
     /// ## Example
@@ -150,26 +157,33 @@ where
     #[cfg(feature = "async-secure")]
     #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
     pub async fn into_secure(
-        mut self,
+        self,
         tls_connector: impl AsyncTlsConnector<Stream = T> + Send + Sync + 'static,
         domain: &str,
     ) -> FtpResult<Self> {
+        // Reject a live transfer before asking the server to change the control protocol.
+        if Arc::strong_count(&self.control) != 1 {
+            return Err(FtpError::DataConnectionAlreadyOpen);
+        }
         debug!("Initializing TLS auth");
-        // Ask the server to start securing data.
-        self.perform(Command::Auth).await?;
-        self.read_response(Status::AuthOk).await?;
+        {
+            let mut cc = self.control().await?;
+            // Ask the server to start securing data.
+            cc.perform(Command::Auth).await?;
+            cc.read_response(Status::AuthOk).await?;
+        }
         debug!("TLS OK; initializing ssl stream");
+        let plain = control::into_exclusive(self.control)?
+            .reader
+            .into_inner()
+            .into_tcp_stream()?;
         let stream = tls_connector
-            .connect(
-                domain,
-                self.reader.into_inner().into_tcp_stream()?.to_owned(),
-            )
+            .connect(domain, plain)
             .await
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
-        let mut secured_ftp_tream = ImplAsyncFtpStream {
-            reader: BufReader::new(DataStream::Ssl(Box::new(stream))),
+        let secured_ftp_tream = ImplAsyncFtpStream {
+            control: ControlChannel::shared(DataStream::Ssl(Box::new(stream))),
             mode: self.mode,
-            data_connection_open: self.data_connection_open,
             nat_workaround: self.nat_workaround,
             passive_stream_builder: self.passive_stream_builder,
             tls_ctx: Some(Box::new(tls_connector)),
@@ -177,14 +191,15 @@ where
             welcome_msg: self.welcome_msg,
             active_timeout: self.active_timeout,
         };
-        // Set protection buffer size
-        secured_ftp_tream.perform(Command::Pbsz(0)).await?;
-        secured_ftp_tream.read_response(Status::CommandOk).await?;
-        // Change the level of data protectio to Private
-        secured_ftp_tream
-            .perform(Command::Prot(ProtectionLevel::Private))
-            .await?;
-        secured_ftp_tream.read_response(Status::CommandOk).await?;
+        {
+            let mut cc = secured_ftp_tream.control().await?;
+            // Set protection buffer size
+            cc.perform(Command::Pbsz(0)).await?;
+            cc.read_response(Status::CommandOk).await?;
+            // Change the level of data protectio to Private
+            cc.perform(Command::Prot(ProtectionLevel::Private)).await?;
+            cc.read_response(Status::CommandOk).await?;
+        }
         Ok(secured_ftp_tream)
     }
 
@@ -218,33 +233,18 @@ where
         debug!("Connecting to server (secure)");
         let stream = TcpStream::connect(addr)
             .await
-            .map_err(FtpError::ConnectionError)
-            .map(|stream| {
-                debug!("Established connection with server");
-                Self {
-                    reader: BufReader::new(DataStream::Tcp(stream)),
-                    mode: Mode::Passive,
-                    data_connection_open: false,
-                    nat_workaround: false,
-                    welcome_msg: None,
-                    passive_stream_builder: Self::default_passive_stream_builder(),
-                    tls_ctx: None,
-                    domain: None,
-                    active_timeout: Duration::from_secs(60),
-                }
-            })?;
+            .map_err(FtpError::ConnectionError)?;
         debug!("Established connection with server");
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
-            .connect(domain, stream.reader.into_inner().into_tcp_stream()?)
+            .connect(domain, stream)
             .await
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut stream = ImplAsyncFtpStream {
-            reader: BufReader::new(DataStream::Ssl(stream.into())),
+            control: ControlChannel::shared(DataStream::Ssl(Box::new(stream))),
             mode: Mode::Passive,
             nat_workaround: false,
-            data_connection_open: false,
             passive_stream_builder: Self::default_passive_stream_builder(),
             tls_ctx: Some(Box::new(tls_connector)),
             domain: Some(String::from(domain)),
@@ -252,14 +252,10 @@ where
             active_timeout: Duration::from_secs(60),
         };
         debug!("Reading server response...");
-        match stream.read_response(Status::Ready).await {
-            Ok(response) => {
-                let welcome_msg = response.as_string().ok();
-                debug!("Server READY; response: {:?}", welcome_msg);
-                stream.welcome_msg = welcome_msg;
-            }
-            Err(err) => return Err(err),
-        }
+        let response = stream.read_response(Status::Ready).await?;
+        let welcome_msg = response.as_string().ok();
+        debug!("Server READY; response: {:?}", welcome_msg);
+        stream.welcome_msg = welcome_msg;
 
         Ok(stream)
     }
@@ -302,24 +298,38 @@ where
         self.nat_workaround = nat_workaround;
     }
 
-    /// Returns a reference to the underlying TcpStream.
-    pub fn get_ref(&self) -> &TcpStream {
-        self.reader.get_ref().get_ref()
+    /// Returns a locked view of the underlying control [`TcpStream`].
+    ///
+    /// The returned [`ControlSocket`] dereferences to the socket and keeps the control connection
+    /// locked while alive, so drop it before finishing a [`TransferStream`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use suppaftp::smol::AsyncFtpStream;
+    ///
+    /// # async fn run() {
+    /// let stream = AsyncFtpStream::connect("127.0.0.1:21").await.unwrap();
+    /// stream.get_ref().await.set_nodelay(true).unwrap();
+    /// # }
+    /// ```
+    pub async fn get_ref(&self) -> ControlSocket<'_, T> {
+        ControlSocket::new(self.control.lock().await)
     }
 
     /// Log in to the FTP server.
     pub async fn login<S: AsRef<str>>(&mut self, user: S, password: S) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Signin in with user '{}'", user.as_ref());
-        self.perform(Command::User(user.as_ref().to_string()))
-            .await?;
-        let response = self
+        cc.perform(Command::User(user.as_ref().to_string())).await?;
+        let response = cc
             .read_response_in(&[Status::LoggedIn, Status::NeedPassword])
             .await?;
         if response.status == Status::NeedPassword {
             debug!("Password is required");
-            self.perform(Command::Pass(password.as_ref().to_string()))
+            cc.perform(Command::Pass(password.as_ref().to_string()))
                 .await?;
-            self.read_response(Status::LoggedIn).await?;
+            cc.read_response(Status::LoggedIn).await?;
         }
         debug!("Login OK");
         Ok(())
@@ -328,42 +338,56 @@ where
     /// Perform clear command channel (CCC).
     /// Once the command is performed, the command channel will be encrypted no more.
     /// The data stream will still be secure.
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] before sending `CCC` if a transfer is alive.
     #[cfg(feature = "async-secure")]
     #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
     pub async fn clear_command_channel(mut self) -> FtpResult<Self> {
-        // Ask the server to stop securing data
-        debug!("performing clear command channel");
-        self.perform(Command::ClearCommandChannel).await?;
-        self.read_response(Status::CommandOk).await?;
+        // Reject a live transfer before asking the server to change the control protocol.
+        if Arc::strong_count(&self.control) != 1 {
+            return Err(FtpError::DataConnectionAlreadyOpen);
+        }
+        {
+            let mut cc = self.control().await?;
+            // Ask the server to stop securing data
+            debug!("performing clear command channel");
+            cc.perform(Command::ClearCommandChannel).await?;
+            cc.read_response(Status::CommandOk).await?;
+        }
         trace!("CCC OK");
-        self.reader = BufReader::new(DataStream::Tcp(self.reader.into_inner().into_tcp_stream()?));
+        let plain = control::into_exclusive(self.control)?
+            .reader
+            .into_inner()
+            .into_tcp_stream()?;
+        self.control = ControlChannel::shared(DataStream::Tcp(plain));
         Ok(self)
     }
 
     /// Change the current directory to the path specified.
     pub async fn cwd<S: AsRef<str>>(&mut self, path: S) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Changing working directory to {}", path.as_ref());
-        self.perform(Command::Cwd(path.as_ref().to_string()))
-            .await?;
-        self.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
+        cc.perform(Command::Cwd(path.as_ref().to_string())).await?;
+        cc.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
             .await
             .map(|_| ())
     }
 
     /// Move the current directory to the parent directory.
     pub async fn cdup(&mut self) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Going to parent directory");
-        self.perform(Command::Cdup).await?;
-        self.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
+        cc.perform(Command::Cdup).await?;
+        cc.read_response_in(&[Status::CommandOk, Status::RequestedFileActionOk])
             .await
             .map(|_| ())
     }
 
     /// Gets the current directory
     pub async fn pwd(&mut self) -> FtpResult<String> {
+        let mut cc = self.control().await?;
         debug!("Getting working directory");
-        self.perform(Command::Pwd).await?;
-        let response = self.read_response(Status::PathCreated).await?;
+        cc.perform(Command::Pwd).await?;
+        let response = cc.read_response(Status::PathCreated).await?;
         let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
         let status = response.status;
         match (body.find('"'), body.rfind('"')) {
@@ -377,27 +401,30 @@ where
 
     /// This does nothing. This is usually just used to keep the connection open.
     pub async fn noop(&mut self) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Pinging server");
-        self.perform(Command::Noop).await?;
-        self.read_response(Status::CommandOk).await.map(|_| ())
+        cc.perform(Command::Noop).await?;
+        cc.read_response(Status::CommandOk).await.map(|_| ())
     }
 
     /// The EPRT command allows for the specification of an extended address
     /// for the data connection. The extended address MUST consist of the
     /// network protocol as well as the network and transport addresses
     pub async fn eprt(&mut self, address: SocketAddr) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("EPRT with address {address}");
-        self.perform(Command::Eprt(address)).await?;
-        self.read_response(Status::CommandOk).await.map(|_| ())
+        cc.perform(Command::Eprt(address)).await?;
+        cc.read_response(Status::CommandOk).await.map(|_| ())
     }
 
     /// This creates a new directory on the server.
     pub async fn mkdir<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Creating directory at {}", pathname.as_ref());
-        self.perform(Command::Mkd(pathname.as_ref().to_string()))
+        cc.perform(Command::Mkd(pathname.as_ref().to_string()))
             .await?;
         // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 257.
-        self.read_response_in(&[Status::PathCreated, Status::CommandOk])
+        cc.read_response_in(&[Status::PathCreated, Status::CommandOk])
             .await
             .map(|_| ())
     }
@@ -405,32 +432,35 @@ where
     /// Sets the type of file to be transferred. That is the implementation
     /// of `TYPE` command.
     pub async fn transfer_type(&mut self, file_type: FileType) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Setting transfer type {}", file_type);
-        self.perform(Command::Type(file_type)).await?;
-        self.read_response(Status::CommandOk).await.map(|_| ())
+        cc.perform(Command::Type(file_type)).await?;
+        cc.read_response(Status::CommandOk).await.map(|_| ())
     }
 
     /// Quits the current FTP session.
     pub async fn quit(&mut self) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Quitting stream");
-        self.perform(Command::Quit).await?;
-        self.read_response(Status::Closing).await.map(|_| ())
+        cc.perform(Command::Quit).await?;
+        cc.read_response(Status::Closing).await.map(|_| ())
     }
 
     /// Renames the file from_name to to_name
     pub async fn rename<S: AsRef<str>>(&mut self, from_name: S, to_name: S) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!(
             "Renaming '{}' to '{}'",
             from_name.as_ref(),
             to_name.as_ref()
         );
-        self.perform(Command::RenameFrom(from_name.as_ref().to_string()))
+        cc.perform(Command::RenameFrom(from_name.as_ref().to_string()))
             .await?;
-        self.read_response(Status::RequestFilePending).await?;
-        self.perform(Command::RenameTo(to_name.as_ref().to_string()))
+        cc.read_response(Status::RequestFilePending).await?;
+        cc.perform(Command::RenameTo(to_name.as_ref().to_string()))
             .await?;
         // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
-        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
+        cc.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .await
             .map(|_| ())
     }
@@ -439,89 +469,87 @@ where
     /// to download from FTP and `reader` is the function which operates with the
     /// data stream opened.
     ///
-    /// `reader` is an async pinned closure that takes the [`DataStream<T>`] and returns
-    /// both the result `U` and the [`DataStream<T>`] back in a tuple `(U, DataStream<T>)`.
+    /// `reader` is an async pinned closure that takes the [`TransferStream<T>`] and returns
+    /// both the result `U` and the [`TransferStream<T>`] back in a tuple `(U, TransferStream<T>)`.
+    /// The stream is finished on callback success. If `reader` returns an error and drops the
+    /// stream, the next command drains its completion reply before sending anything.
     ///
-    /// This is necessary because the stream is then finalized with `finalize_retr_stream()`
-    /// within this method.
-    ///
-    /// > Warning: Don't call [`Self::finalize_retr_stream`] manually, otherwise this will cause an error.
+    /// > Warning: Don't call [`TransferStream::finish`] inside `reader`; return the stream instead.
     pub async fn retr<S, F, U>(&mut self, file_name: S, mut reader: F) -> FtpResult<U>
     where
         F: FnMut(
-            DataStream<T>,
-        ) -> Pin<Box<dyn Future<Output = FtpResult<(U, DataStream<T>)>> + Send>>,
+            TransferStream<T>,
+        )
+            -> Pin<Box<dyn Future<Output = FtpResult<(U, TransferStream<T>)>> + Send>>,
         S: AsRef<str>,
     {
-        match self.retr_as_stream(file_name).await {
-            Ok(stream) => {
-                let (result, stream) = reader(stream).await?;
-                self.finalize_retr_stream(stream).await?;
-                Ok(result)
-            }
-            Err(err) => Err(err),
-        }
+        let stream = self.retr_as_stream(file_name).await?;
+        let (result, stream) = reader(stream).await?;
+        stream.finish().await?;
+        Ok(result)
     }
 
-    /// Retrieves the file name specified from the server as a readable stream.
-    /// This method is a more complicated way to retrieve a file.
-    /// The reader returned should be dropped.
-    /// Also you will have to read the response to make sure it has the correct value.
-    /// Once file has been read, call `finalize_retr_stream()`
+    /// Retrieves the file `file_name` from the server as a readable [`TransferStream`].
+    ///
+    /// Read the payload from the returned stream, then call [`TransferStream::finish`] to close
+    /// the data connection and read the server's completion reply. Until then any other data
+    /// command fails with [`FtpError::DataConnectionAlreadyOpen`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use suppaftp::smol::AsyncFtpStream;
+    /// use smol::io::AsyncReadExt;
+    ///
+    /// # async fn run() {
+    /// let mut ftp = AsyncFtpStream::connect("127.0.0.1:21").await.unwrap();
+    /// ftp.login("test", "test").await.unwrap();
+    /// let mut download = ftp.retr_as_stream("hello.txt").await.unwrap();
+    /// let mut buf = Vec::new();
+    /// download.read_to_end(&mut buf).await.unwrap();
+    /// download.finish().await.unwrap();
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
+    /// [`FtpError::UnexpectedResponse`] if the server refuses the `RETR` command.
     pub async fn retr_as_stream<S: AsRef<str>>(
         &mut self,
         file_name: S,
-    ) -> FtpResult<DataStream<T>> {
+    ) -> FtpResult<TransferStream<T>> {
         debug!("Retrieving '{}'", file_name.as_ref());
-        let (_, data_stream) = self
-            .data_command_with_response(
+        let (_, stream) = self
+            .open_transfer(
                 Command::Retr(file_name.as_ref().to_string()),
                 &[Status::AboutToSend, Status::AlreadyOpen],
+                Direction::Download,
             )
             .await?;
-        Ok(data_stream)
-    }
-
-    /// Finalize retr stream; must be called once the requested file, got previously with `retr_as_stream()` has been read.
-    ///
-    /// Write-side close errors are ignored after the payload has been read. The final FTP control
-    /// response determines whether the transfer succeeded.
-    pub async fn finalize_retr_stream(
-        &mut self,
-        mut stream: impl Read + Write + Unpin,
-    ) -> FtpResult<()> {
-        debug!("Finalizing retr stream");
-        // Close the write side so TLS streams send close_notify before being dropped. The server's
-        // completion response remains authoritative if closing an already-read stream fails.
-        let _ = stream.close().await;
-        // Drop stream NOTE: must be done first, otherwise server won't return any response
-        drop(stream);
-        self.data_connection_open = false;
-        trace!("dropped stream");
-        // Then read response
-        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
-            .await
-            .map(|_| ())
+        Ok(stream)
     }
 
     /// Removes the remote pathname from the server.
     pub async fn rmdir<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Removing directory {}", pathname.as_ref());
-        self.perform(Command::Rmd(pathname.as_ref().to_string()))
+        cc.perform(Command::Rmd(pathname.as_ref().to_string()))
             .await?;
         // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
-        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
+        cc.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .await
             .map(|_| ())
     }
 
     /// Remove the remote file from the server.
     pub async fn rm<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Removing file {}", filename.as_ref());
-        self.perform(Command::Dele(filename.as_ref().to_string()))
+        cc.perform(Command::Dele(filename.as_ref().to_string()))
             .await?;
         // Some non-compliant servers (e.g. bftpd) reply with 200 instead of 250.
-        self.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
+        cc.read_response_in(&[Status::RequestedFileActionOk, Status::CommandOk])
             .await
             .map(|_| ())
     }
@@ -538,55 +566,68 @@ where
         let bytes = copy(r, &mut data_stream)
             .await
             .map_err(FtpError::ConnectionError)?;
-        self.finalize_put_stream(data_stream).await?;
+        data_stream.finish().await?;
         Ok(bytes)
     }
 
-    /// Send PUT command and returns a BufWriter, which references the file created on the server
-    /// The returned stream must be then correctly manipulated to write the content of the source file to the remote destination
-    /// The stream must be then correctly dropped.
-    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
+    /// Sends `STOR` and returns a writable [`TransferStream`] for the file `filename`.
+    ///
+    /// Write the payload to the returned stream, then call [`TransferStream::finish`] to close
+    /// the data connection and read the server's completion reply. Until then any other data
+    /// command fails with [`FtpError::DataConnectionAlreadyOpen`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use suppaftp::smol::AsyncFtpStream;
+    /// use smol::io::AsyncWriteExt;
+    ///
+    /// # async fn run() {
+    /// let mut ftp = AsyncFtpStream::connect("127.0.0.1:21").await.unwrap();
+    /// ftp.login("test", "test").await.unwrap();
+    /// let mut upload = ftp.put_with_stream("hello.txt").await.unwrap();
+    /// upload.write_all(b"hello, world!").await.unwrap();
+    /// upload.finish().await.unwrap();
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
+    /// [`FtpError::UnexpectedResponse`] if the server refuses the `STOR` command.
     pub async fn put_with_stream<S: AsRef<str>>(
         &mut self,
         filename: S,
-    ) -> FtpResult<DataStream<T>> {
+    ) -> FtpResult<TransferStream<T>> {
         debug!("Put file {}", filename.as_ref());
         let (_, stream) = self
-            .data_command_with_response(
+            .open_transfer(
                 Command::Store(filename.as_ref().to_string()),
                 &[Status::AlreadyOpen, Status::AboutToSend],
+                Direction::Upload,
             )
             .await?;
         Ok(stream)
     }
 
-    /// Finalize put when using stream
-    /// This method must be called once the file has been written and
-    /// `put_with_stream` has been used to write the file
-    pub async fn finalize_put_stream(&mut self, mut stream: impl Write + Unpin) -> FtpResult<()> {
-        debug!("Finalizing put stream");
-        // Drop stream NOTE: must be done first, otherwise server won't return any response
-        stream.close().await.map_err(FtpError::ConnectionError)?;
-        drop(stream);
-        self.data_connection_open = false;
-        trace!("Stream dropped");
-        // Read response
-        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
-            .await
-            .map(|_| ())
-    }
-
-    /// Open specified file for appending data. Returns the stream to append data to specified file.
-    /// Once you've finished the write, YOU MUST CALL THIS METHOD: `finalize_put_stream`
+    /// Sends `APPE` and returns a writable [`TransferStream`] appending to the file `filename`.
+    ///
+    /// Behaves like [`ImplAsyncFtpStream::put_with_stream`], except that the data is appended.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
+    /// [`FtpError::UnexpectedResponse`] if the server refuses the `APPE` command.
     pub async fn append_with_stream<S: AsRef<str>>(
         &mut self,
         filename: S,
-    ) -> FtpResult<DataStream<T>> {
+    ) -> FtpResult<TransferStream<T>> {
         debug!("Appending to file {}", filename.as_ref());
         let (_, stream) = self
-            .data_command_with_response(
+            .open_transfer(
                 Command::Appe(filename.as_ref().to_string()),
                 &[Status::AlreadyOpen, Status::AboutToSend],
+                Direction::Upload,
             )
             .await?;
         Ok(stream)
@@ -602,27 +643,36 @@ where
         let bytes = copy(r, &mut data_stream)
             .await
             .map_err(FtpError::ConnectionError)?;
-        self.finalize_put_stream(Box::new(data_stream)).await?;
+        data_stream.finish().await?;
         Ok(bytes)
     }
 
-    /// abort the previous FTP service command
-    pub async fn abort<R>(&mut self, data_stream: R) -> FtpResult<()>
-    where
-        R: Read + std::marker::Unpin + 'static,
-    {
+    /// Aborts the transfer running on `transfer` with the `ABOR` command.
+    ///
+    /// The data connection is closed and the server's abort replies (`426` followed by `226`,
+    /// or a single `226`) are consumed, so the control connection is ready for the next command.
+    /// `transfer` must have been obtained from this client.
+    /// This operation is not cancellation-safe: reconnect if its future is cancelled after polling.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::UnexpectedResponse`] if the server does not acknowledge the abort.
+    pub async fn abort(&mut self, transfer: TransferStream<T>) -> FtpResult<()> {
         debug!("Aborting active file transfer");
-        self.perform(Command::Abor).await?;
+        // Detach the socket first: the stream must not flag a pending reply on drop.
+        let data_stream = transfer.detach();
+        let mut cc = self.control().await?;
+        cc.perform(Command::Abor).await?;
         // Drop stream NOTE: must be done first, otherwise server won't return any response
         drop(data_stream);
-        self.data_connection_open = false;
+        cc.data_connection_open = false;
         trace!("dropped stream");
-        let response = self
+        let response = cc
             .read_response_in(&[Status::ClosingDataConnection, Status::TransferAborted])
             .await?;
         // If server sent 426 (TransferAborted), expect a follow-up 226
         if response.status == Status::TransferAborted {
-            self.read_response(Status::ClosingDataConnection).await?;
+            cc.read_response(Status::ClosingDataConnection).await?;
         }
         trace!("Transfer aborted");
         Ok(())
@@ -635,9 +685,10 @@ where
     ///
     /// It is possible to cancel the REST command, sending a REST command with offset 0
     pub async fn resume_transfer(&mut self, offset: usize) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Requesting to resume transfer at offset {}", offset);
-        self.perform(Command::Rest(offset)).await?;
-        self.read_response(Status::RequestFilePending).await?;
+        cc.perform(Command::Rest(offset)).await?;
+        cc.read_response(Status::RequestFilePending).await?;
         debug!("Resume transfer accepted");
         Ok(())
     }
@@ -691,11 +742,12 @@ where
     /// Execute `MLST` command which returns the machine-processable listing of a file.
     /// If `pathname` is omited then the list of files in the current directory will be
     pub async fn mlst(&mut self, pathname: Option<&str>) -> FtpResult<String> {
+        let mut cc = self.control().await?;
         debug!("Reading {} path information", pathname.unwrap_or("working"));
 
-        self.perform(Command::Mlst(pathname.map(|x| x.to_string())))
+        cc.perform(Command::Mlst(pathname.map(|x| x.to_string())))
             .await?;
-        let response = self
+        let response = cc
             .read_response_in(&[Status::RequestedFileActionOk])
             .await?;
         // read body at line 1
@@ -709,10 +761,11 @@ where
 
     /// Retrieves the modification time of the file at `pathname` if it exists.
     pub async fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<NaiveDateTime> {
+        let mut cc = self.control().await?;
         debug!("Getting modification time for {}", pathname.as_ref());
-        self.perform(Command::Mdtm(pathname.as_ref().to_string()))
+        cc.perform(Command::Mdtm(pathname.as_ref().to_string()))
             .await?;
-        let response: Response = self.read_response(Status::File).await?;
+        let response: Response = cc.read_response(Status::File).await?;
         let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
 
         match MDTM_RE.captures(&body) {
@@ -745,10 +798,11 @@ where
 
     /// Retrieves the size of the file in bytes at `pathname` if it exists.
     pub async fn size<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<usize> {
+        let mut cc = self.control().await?;
         debug!("Getting file size for {}", pathname.as_ref());
-        self.perform(Command::Size(pathname.as_ref().to_string()))
+        cc.perform(Command::Size(pathname.as_ref().to_string()))
             .await?;
-        let response: Response = self.read_response(Status::File).await?;
+        let response: Response = cc.read_response(Status::File).await?;
         let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
 
         match SIZE_RE.captures(&body) {
@@ -759,10 +813,11 @@ where
 
     /// Retrieves the features supported by the server, through the FEAT command.
     pub async fn feat(&mut self) -> FtpResult<Features> {
+        let mut cc = self.control().await?;
         debug!("Getting server supported features");
-        self.perform(Command::Feat).await?;
+        cc.perform(Command::Feat).await?;
 
-        let response = self.read_response(Status::System).await?;
+        let response = cc.read_response(Status::System).await?;
 
         let first_line = String::from_utf8_lossy(&response.body);
         debug!("FEAT response: {}", first_line);
@@ -770,7 +825,7 @@ where
 
         loop {
             let mut line = Vec::new();
-            let bytes_read = self.read_line(&mut line).await?;
+            let bytes_read = cc.read_line(&mut line).await?;
             if bytes_read == 0 {
                 break;
             }
@@ -791,22 +846,24 @@ where
         option: impl ToString,
         value: Option<impl ToString>,
     ) -> FtpResult<()> {
+        let mut cc = self.control().await?;
         debug!("Getting server supported features");
-        self.perform(Command::Opts(
+        cc.perform(Command::Opts(
             option.to_string(),
             value.map(|x| x.to_string()),
         ))
         .await?;
-        self.read_response(Status::CommandOk).await?;
+        cc.read_response(Status::CommandOk).await?;
 
         Ok(())
     }
 
     /// Execute a command on the server and return the response
     pub async fn site(&mut self, command: impl ToString) -> FtpResult<Response> {
+        let mut cc = self.control().await?;
         debug!("Sending SITE command: {}", command.to_string());
-        self.perform(Command::Site(command.to_string())).await?;
-        self.read_response(Status::CommandOk).await
+        cc.perform(Command::Site(command.to_string())).await?;
+        cc.read_response(Status::CommandOk).await
     }
 
     /// Perform custom command.
@@ -824,58 +881,44 @@ where
         command: impl ToString,
         expected_code: &[Status],
     ) -> FtpResult<Response> {
+        let mut cc = self.control().await?;
         let command = command.to_string();
         debug!("Sending custom command: {}", command);
-        self.perform(Command::Custom(command)).await?;
-        self.read_response_in(expected_code).await
+        cc.perform(Command::Custom(command)).await?;
+        cc.read_response_in(expected_code).await
     }
 
     /// Perform a custom command using the data connection.
-    /// It returns both the [`Response`] and the [`DataStream`].
     ///
-    /// The [`DataStream`] implements both [`Write`] and [`Read`] and so it can be written or read to interact with the
-    /// data channel.
+    /// It returns both the [`Response`] and a [`TransferStream`], which implements both
+    /// [`smol::io::AsyncWrite`] and [`smol::io::AsyncRead`] and so it can be written or read to interact
+    /// with the data channel.
     ///
-    /// If you want you can easily parse lines from the [`DataStream`] using [`Self::get_lines_from_stream`].
+    /// If you want you can easily parse lines from the stream using [`Self::get_lines_from_stream`].
     ///
-    /// The stream must eventually be closed using [`Self::close_data_connection`].
+    /// Once done, call [`TransferStream::finish`] to close the data connection and read the
+    /// server's completion reply.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
+    /// [`FtpError::UnexpectedResponse`] if the server's reply is not in `expected_code`.
     pub async fn custom_data_command(
         &mut self,
         command: impl ToString,
         expected_code: &[Status],
-    ) -> FtpResult<(Response, DataStream<T>)> {
+    ) -> FtpResult<(Response, TransferStream<T>)> {
         let command = command.to_string();
         debug!("Sending custom data command: {}", command);
-        let (response, data_stream) = self
-            .data_command_with_response(Command::Custom(command), expected_code)
-            .await?;
-        Ok((response, data_stream))
-    }
-
-    /// Close data connection.
-    ///
-    /// Call this function when you're done with the stream obtained with [`Self::custom_data_command`].
-    ///
-    /// # Warning
-    ///
-    /// Passing any other [`Read`] which is not the [`DataStream`]
-    /// obtained with [`Self::custom_data_command`] may lead to undefined behavior.
-    pub async fn close_data_connection(&mut self, stream: impl Read) -> FtpResult<()> {
-        debug!("closing data connection");
-        // Drop stream NOTE: must be done first, otherwise server won't return any response
-        drop(stream);
-        self.data_connection_open = false;
-        trace!("dropped stream");
-        // Then read response
-        self.read_response_in(&[Status::ClosingDataConnection, Status::RequestedFileActionOk])
+        self.open_transfer(Command::Custom(command), expected_code, Direction::Download)
             .await
-            .map(|_| ())
     }
 
-    /// Read a [`DataStream`] line by line.
-    pub async fn get_lines_from_stream(
-        data_stream: &mut BufReader<DataStream<T>>,
-    ) -> FtpResult<Vec<String>> {
+    /// Read a data stream line by line.
+    pub async fn get_lines_from_stream<R>(data_stream: &mut R) -> FtpResult<Vec<String>>
+    where
+        R: AsyncBufReadExt + Unpin,
+    {
         let mut lines: Vec<String> = Vec::new();
 
         loop {
@@ -906,17 +949,71 @@ where
         Ok(lines)
     }
 
+    /// Reads one reply from the control connection and checks that its status is `expected_code`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::UnexpectedResponse`] if the reply has another status.
+    pub async fn read_response(&mut self, expected_code: Status) -> FtpResult<Response> {
+        self.control().await?.read_response(expected_code).await
+    }
+
+    /// Reads one reply from the control connection and checks that its status is in `expected_code`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FtpError::UnexpectedResponse`] if the reply has another status.
+    pub async fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
+        self.control().await?.read_response_in(expected_code).await
+    }
+
     // -- private
 
+    /// Locks the control connection for the duration of one command.
+    ///
+    /// Drains the reply of a transfer stream dropped without `finish()` first, so that the
+    /// control connection is in sync when the command is sent.
+    async fn control(&self) -> FtpResult<MutexGuard<'_, ControlChannel<T>>> {
+        let mut cc = self.control.lock().await;
+        cc.drain_pending_transfer_reply().await?;
+        Ok(cc)
+    }
+
+    /// Opens the data connection for `cmd` and wraps it into a self-finalizing [`TransferStream`].
+    async fn open_transfer(
+        &self,
+        cmd: Command,
+        expected_code: &[Status],
+        direction: Direction,
+    ) -> FtpResult<(Response, TransferStream<T>)> {
+        let mut cc = self.control().await?;
+        let (response, data_stream) = self
+            .data_command_with_response(&mut cc, cmd, expected_code)
+            .await?;
+        Ok((
+            response,
+            TransferStream::new(
+                data_stream,
+                Arc::clone(&self.control),
+                direction,
+                Arc::clone(&cc.pending_transfer_reply),
+            ),
+        ))
+    }
+
     /// Execute command which send data back in a separate stream
-    async fn data_command(&mut self, cmd: Command) -> FtpResult<DataStream<T>> {
+    async fn data_command(
+        &self,
+        cc: &mut ControlChannel<T>,
+        cmd: Command,
+    ) -> FtpResult<DataStream<T>> {
         // guard data connection
-        self.guard_multiple_data_connections()?;
+        cc.guard_multiple_data_connections()?;
 
         let stream = match self.mode {
             Mode::Active => {
-                let listener = self.active().await?;
-                self.perform(cmd).await?;
+                let listener = self.active(cc).await?;
+                cc.perform(cmd).await?;
 
                 let accept = async { Ok(listener.accept().await) };
                 let deadline = async {
@@ -938,13 +1035,13 @@ where
                 }
             }
             Mode::ExtendedPassive => {
-                let addr = self.epsv().await?;
-                self.perform(cmd).await?;
+                let addr = self.epsv(cc).await?;
+                cc.perform(cmd).await?;
                 (self.passive_stream_builder)(addr).await?
             }
             Mode::Passive => {
-                let addr = self.pasv().await?;
-                self.perform(cmd).await?;
+                let addr = self.pasv(cc).await?;
+                cc.perform(cmd).await?;
                 (self.passive_stream_builder)(addr).await?
             }
         };
@@ -967,7 +1064,7 @@ where
         };
 
         if result.is_ok() {
-            self.data_connection_open = true;
+            cc.data_connection_open = true;
         }
         result
     }
@@ -979,60 +1076,51 @@ where
     /// failed command never leaves the client believing a data connection is still open, which would
     /// otherwise make every subsequent data command fail with [`FtpError::DataConnectionAlreadyOpen`].
     async fn data_command_with_response(
-        &mut self,
+        &self,
+        cc: &mut ControlChannel<T>,
         cmd: Command,
         expected_code: &[Status],
     ) -> FtpResult<(Response, DataStream<T>)> {
-        let data_stream = self.data_command(cmd).await?;
-        match self.read_response_in(expected_code).await {
+        let data_stream = self.data_command(cc, cmd).await?;
+        match cc.read_response_in(expected_code).await {
             Ok(response) => Ok((response, data_stream)),
             Err(err) => {
                 // server rejected the command: drop the data stream and reset the open flag
                 drop(data_stream);
-                self.data_connection_open = false;
+                cc.data_connection_open = false;
                 Err(err)
             }
         }
     }
 
     /// Runs the EPSV to enter Extended passive mode.
-    async fn epsv(&mut self) -> FtpResult<SocketAddr> {
+    async fn epsv(&self, cc: &mut ControlChannel<T>) -> FtpResult<SocketAddr> {
         debug!("EPSV command");
-        self.perform(Command::Epsv).await?;
+        cc.perform(Command::Epsv).await?;
         // PASV response format : 229 Entering Extended Passive Mode (|||PORT|)
-        let response: Response = self.read_response(Status::ExtendedPassiveMode).await?;
+        let response: Response = cc.read_response(Status::ExtendedPassiveMode).await?;
         let response_str = response.as_string().map_err(|_| FtpError::BadResponse)?;
         let caps = EPSV_PORT_RE
             .captures(&response_str)
             .ok_or_else(|| FtpError::UnexpectedResponse(response.clone()))?;
         let new_port = caps[1].parse::<u16>().map_err(|_| FtpError::BadResponse)?;
         trace!("Got port number from EPSV: {}", new_port);
-        let mut remote = self
-            .reader
-            .get_ref()
-            .get_ref()
-            .peer_addr()
-            .map_err(FtpError::ConnectionError)?;
+        let mut remote = cc.socket().peer_addr().map_err(FtpError::ConnectionError)?;
         remote.set_port(new_port);
         trace!("Remote address for extended passive mode is {}", remote);
         Ok(remote)
     }
 
     /// Runs the PASV command.
-    async fn pasv(&mut self) -> FtpResult<SocketAddr> {
+    async fn pasv(&self, cc: &mut ControlChannel<T>) -> FtpResult<SocketAddr> {
         debug!("PASV command");
-        self.perform(Command::Pasv).await?;
+        cc.perform(Command::Pasv).await?;
         // PASV response format : 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
-        let response: Response = self.read_response(Status::PassiveMode).await?;
+        let response: Response = cc.read_response(Status::PassiveMode).await?;
         let addr = FtpStream::parse_passive_address_from_response(response)?;
         trace!("Passive address: {}", addr);
         if self.nat_workaround {
-            let mut remote = self
-                .reader
-                .get_ref()
-                .get_ref()
-                .peer_addr()
-                .map_err(FtpError::ConnectionError)?;
+            let mut remote = cc.socket().peer_addr().map_err(FtpError::ConnectionError)?;
             remote.set_port(addr.port());
             trace!("Replacing site local address {} with {}", addr, remote);
             Ok(remote)
@@ -1042,7 +1130,7 @@ where
     }
 
     /// Create a new tcp listener and send a PORT command for it
-    async fn active(&mut self) -> FtpResult<TcpListener> {
+    async fn active(&self, cc: &mut ControlChannel<T>) -> FtpResult<TcpListener> {
         debug!("Starting local tcp listener...");
         let conn = TcpListener::bind("0.0.0.0:0")
             .await
@@ -1051,14 +1139,11 @@ where
         let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
         trace!("Local address is {}", addr);
 
-        let ip = match self.reader.get_mut() {
-            DataStream::Tcp(stream) => stream.local_addr().map_err(FtpError::ConnectionError)?.ip(),
-            DataStream::Ssl(stream) => stream
-                .get_ref()
-                .local_addr()
-                .map_err(FtpError::ConnectionError)?
-                .ip(),
-        };
+        let ip = cc
+            .socket()
+            .local_addr()
+            .map_err(FtpError::ConnectionError)?
+            .ip();
 
         debug!("Active mode, listening on {}:{}", ip, addr.port());
 
@@ -1068,123 +1153,27 @@ where
                 let lsb = addr.port() % 256;
                 let ip_port = format!("{},{},{}", ip.to_string().replace('.', ","), msb, lsb);
                 debug!("Running PORT command");
-                self.perform(Command::Port(ip_port)).await?;
+                cc.perform(Command::Port(ip_port)).await?;
             }
             std::net::IpAddr::V6(_) => {
                 debug!("Running EPRT command");
-                self.perform(Command::Eprt(SocketAddr::new(ip, addr.port())))
+                cc.perform(Command::Eprt(SocketAddr::new(ip, addr.port())))
                     .await?;
             }
         }
-        self.read_response(Status::CommandOk).await?;
+        cc.read_response(Status::CommandOk).await?;
 
         Ok(conn)
     }
 
-    /// Write data to stream
-    async fn perform(&mut self, command: Command) -> FtpResult<()> {
-        let command = command.to_string();
-        crate::command::validate_command_line(&command)?;
-        trace!("CC OUT: {}", command.trim_end_matches("\r\n"));
-
-        let stream = self.reader.get_mut();
-        stream
-            .write_all(command.as_bytes())
-            .await
-            .map_err(FtpError::ConnectionError)
-    }
-
-    /// Read response from stream
-    pub async fn read_response(&mut self, expected_code: Status) -> FtpResult<Response> {
-        self.read_response_in(&[expected_code]).await
-    }
-
-    /// Retrieve single line response
-    pub async fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
-        let mut line = Vec::new();
-        let mut body: Vec<u8> = Vec::new();
-        self.read_line(&mut line).await?;
-        body.extend(line.iter());
-
-        trace!("CC IN: {:?}", line);
-
-        if line.len() < 5 {
-            return Err(FtpError::BadResponse);
-        }
-
-        let code_word: u32 = self.code_from_buffer(&line, 3)?;
-        let mut code = Status::from(code_word);
-
-        trace!("Code parsed from response: {} ({})", code, code_word);
-
-        // RFC 959 requires the terminal line to repeat the opening code, but some servers,
-        // including glFTPd, use a different operative code. FEAT remains special because
-        // `feat` reads its continuation lines after `read_response` returns the `211-` opener.
-        // M-DOCUMENTED-MAGIC: FTP replies start with a three-digit code and one separator.
-        let expected = [line[0], line[1], line[2], 0x20];
-        let feat_opener = [line[0], line[1], line[2], b'-'];
-        let is_terminal = |reply: &[u8]| {
-            reply.len() >= 4
-                && reply[0].is_ascii_digit()
-                && reply[1].is_ascii_digit()
-                && reply[2].is_ascii_digit()
-                && (reply[3] == b' '
-                    || (expected_code.contains(&Status::System) && reply[0..4] == feat_opener))
-        };
-        trace!("CC IN: {:?}", line);
-        while !is_terminal(&line) {
-            line.clear();
-            let bytes_read = self.read_line(&mut line).await?;
-            if bytes_read == 0 {
-                return Err(FtpError::ConnectionError(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "connection closed during multiline response",
-                )));
-            }
-            body.extend(line.iter());
-            trace!("CC IN: {:?}", line);
-        }
-
-        if line[0..4] != expected {
-            code = Status::from(self.code_from_buffer(&line, 3)?);
-            trace!("Code updated from terminal response: {}", code);
-        }
-
-        let response: Response = Response::new(code, body);
-        // Return Ok or error with response
-        if expected_code.contains(&code) {
-            Ok(response)
-        } else {
-            Err(FtpError::UnexpectedResponse(response))
-        }
-    }
-
-    async fn read_line(&mut self, line: &mut Vec<u8>) -> FtpResult<usize> {
-        self.reader
-            .read_until(0x0A, line.as_mut())
-            .await
-            .map_err(FtpError::ConnectionError)?;
-        Ok(line.len())
-    }
-
-    /// Get code from buffer
-    fn code_from_buffer(&self, buf: &[u8], len: usize) -> Result<u32, FtpError> {
-        if buf.len() < len {
-            return Err(FtpError::BadResponse);
-        }
-        let buffer = buf[0..len].to_vec();
-        let as_string = String::from_utf8(buffer).map_err(|_| FtpError::BadResponse)?;
-        as_string.parse::<u32>().map_err(|_| FtpError::BadResponse)
-    }
-
     /// Execute a command which returns list of strings in a separate stream
-    async fn stream_lines(&mut self, cmd: Command, open_code: Status) -> FtpResult<Vec<String>> {
+    async fn stream_lines(&self, cmd: Command, open_code: Status) -> FtpResult<Vec<String>> {
         let (_, stream) = self
-            .data_command_with_response(cmd, &[open_code, Status::AlreadyOpen])
+            .open_transfer(cmd, &[open_code, Status::AlreadyOpen], Direction::Download)
             .await?;
         let mut data_stream = BufReader::new(stream);
         let lines = Self::get_lines_from_stream(&mut data_stream).await;
-        self.finalize_retr_stream(data_stream).await?;
+        data_stream.into_inner().finish().await?;
         lines
     }
 
@@ -1202,33 +1191,19 @@ where
             })
         })
     }
-
-    /// guard against multiple data connections
-    ///
-    /// If `data_connection_open` is true, returns an [`FtpError::DataConnectionAlreadyOpen`] indicating that a data connection is already open.
-    /// Otherwise, returns Ok(()).
-    fn guard_multiple_data_connections(&self) -> FtpResult<()> {
-        if self.data_connection_open {
-            Err(FtpError::DataConnectionAlreadyOpen)
-        } else {
-            Ok(())
-        }
-    }
 }
 
 #[cfg(test)]
 mod test {
-    use std::pin::Pin;
     use std::str::FromStr as _;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::task::{Context, Poll};
+    use std::time::Instant;
 
     #[cfg(feature = "async-secure")]
     use pretty_assertions::assert_eq;
     use rand::distr::Alphanumeric;
     use rand::{RngExt, rng};
-    use smol::io::AsyncReadExt;
+    use smol::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::super::smol::AsyncFtpStream;
     use super::*;
@@ -1236,104 +1211,12 @@ mod test {
     use crate::types::FormatControl;
     use crate::{FtpError, Status};
 
-    #[derive(Debug)]
-    struct CloseTrackingStream {
-        close_attempted: Arc<AtomicBool>,
-        dropped: Arc<AtomicBool>,
-    }
-
-    impl smol::io::AsyncRead for CloseTrackingStream {
-        fn poll_read(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            _buf: &mut [u8],
-        ) -> Poll<std::io::Result<usize>> {
-            Poll::Ready(Ok(0))
-        }
-    }
-
-    impl smol::io::AsyncWrite for CloseTrackingStream {
-        fn poll_write(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            buf: &[u8],
-        ) -> Poll<std::io::Result<usize>> {
-            Poll::Ready(Ok(buf.len()))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-            self.close_attempted.store(true, Ordering::SeqCst);
-            Poll::Ready(Err(std::io::Error::other("close failed")))
-        }
-    }
-
-    impl Drop for CloseTrackingStream {
-        fn drop(&mut self) {
-            self.dropped.store(true, Ordering::SeqCst);
-        }
-    }
-
     #[test]
     fn connect() {
         smol::block_on(async {
             crate::log_init();
             let (stream, _container) = setup_stream().await;
             finalize_stream(stream).await;
-        })
-    }
-
-    #[test]
-    fn finalize_retr_stream_attempts_close_before_reading_response() {
-        smol::block_on(async {
-            use smol::io::AsyncWriteExt as _;
-
-            let close_attempted = Arc::new(AtomicBool::new(false));
-            let dropped = Arc::new(AtomicBool::new(false));
-            let listener = TcpListener::bind("127.0.0.1:0")
-                .await
-                .expect("failed to bind");
-            let port = listener.local_addr().expect("missing local address").port();
-            let server_close_attempted = Arc::clone(&close_attempted);
-            let server_dropped = Arc::clone(&dropped);
-            let server = smol::spawn(async move {
-                let (mut control, _) = listener.accept().await.expect("no incoming connection");
-                control.write_all(b"220 Welcome\r\n").await.unwrap();
-
-                let deadline = std::time::Instant::now() + Duration::from_secs(1);
-                while !server_dropped.load(Ordering::SeqCst) && std::time::Instant::now() < deadline
-                {
-                    smol::Timer::after(Duration::from_millis(1)).await;
-                }
-
-                let response: &[u8] = if server_close_attempted.load(Ordering::SeqCst)
-                    && server_dropped.load(Ordering::SeqCst)
-                {
-                    b"226 Transfer complete\r\n"
-                } else {
-                    b"426 Data connection was not closed gracefully\r\n"
-                };
-                control.write_all(response).await.unwrap();
-            });
-
-            let control = TcpStream::connect(("127.0.0.1", port))
-                .await
-                .expect("failed to connect");
-            let mut ftp = AsyncFtpStream::connect_with_stream(control)
-                .await
-                .expect("failed handshake");
-            let data = CloseTrackingStream {
-                close_attempted: Arc::clone(&close_attempted),
-                dropped: Arc::clone(&dropped),
-            };
-
-            ftp.finalize_retr_stream(data)
-                .await
-                .expect("FTP completion should override the local close error");
-            server.await;
         })
     }
 
@@ -1391,7 +1274,7 @@ mod test {
     fn get_ref() {
         smol::block_on(async {
             let (stream, _container) = setup_stream().await;
-            assert!(stream.get_ref().set_ttl(255).is_ok());
+            assert!(stream.get_ref().await.set_ttl(255).is_ok());
             finalize_stream(stream).await;
         })
     }
@@ -1528,7 +1411,7 @@ mod test {
             // Verify file matches
             assert_eq!(buffer.as_slice(), "test data\ntest data\n".as_bytes());
             // Finalize
-            assert!(stream.finalize_retr_stream(reader).await.is_ok());
+            assert!(reader.finish().await.is_ok());
             // Get size
             assert_eq!(stream.size("test.txt").await.unwrap(), 20);
             // Size of non-existing file
@@ -1591,7 +1474,7 @@ mod test {
             let mut stream = stream.passive_stream_builder(move |addr| {
                 let container_t = container_t.clone();
                 Box::pin(async move {
-                    let mut addr = addr.clone();
+                    let mut addr = addr;
                     let port = addr.port();
                     let mapped = container_t.get_mapped_port(port);
 
@@ -1622,7 +1505,7 @@ mod test {
                 6
             );
             // Finalize
-            assert!(stream.finalize_put_stream(transfer_stream).await.is_ok());
+            assert!(transfer_stream.finish().await.is_ok());
             // Get size
             //assert_eq!(stream.size("test.bin").await.unwrap(), 11);
             // Remove file
@@ -1706,7 +1589,7 @@ mod test {
                 .await
                 .expect("Failed to get lines from stream");
             // finalize
-            assert!(stream.close_data_connection(reader).await.is_ok());
+            assert!(reader.into_inner().finish().await.is_ok());
         })
     }
 
@@ -1736,7 +1619,7 @@ mod test {
             let mut reader = Cursor::new("test data\n".as_bytes());
             assert!(stream.append_file("test.txt", &mut reader).await.is_ok());
             let data_stream = stream.retr_as_stream("test.txt").await.unwrap();
-            assert!(stream.finalize_retr_stream(data_stream).await.is_ok());
+            assert!(data_stream.finish().await.is_ok());
             assert!(stream.list(None).await.is_ok());
             assert!(stream.nlst(None).await.is_ok());
 
@@ -1798,7 +1681,7 @@ mod test {
                 .await
                 .expect("Failed to get lines from stream");
             // finalize
-            assert!(stream.close_data_connection(reader).await.is_ok());
+            assert!(reader.into_inner().finish().await.is_ok());
 
             // Now it should be possible to open another data connection
             let (response, data_stream) = stream
@@ -1811,7 +1694,7 @@ mod test {
                 .await
                 .expect("Failed to get lines from stream");
             // finalize
-            assert!(stream.close_data_connection(reader).await.is_ok());
+            assert!(reader.into_inner().finish().await.is_ok());
         })
     }
 
@@ -1856,14 +1739,14 @@ mod test {
             smol::io::AsyncWriteExt::write_all(&mut data_stream, b"part2")
                 .await
                 .unwrap();
-            stream.finalize_put_stream(data_stream).await.unwrap();
+            data_stream.finish().await.unwrap();
             // Verify content
             let mut reader = stream.retr_as_stream("append_stream.txt").await.unwrap();
             let mut buffer = Vec::new();
             smol::io::AsyncReadExt::read_to_end(&mut reader, &mut buffer)
                 .await
                 .unwrap();
-            stream.finalize_retr_stream(reader).await.unwrap();
+            reader.finish().await.unwrap();
             assert_eq!(buffer, b"part1part2");
             assert!(stream.rm("append_stream.txt").await.is_ok());
             finalize_stream(stream).await;
@@ -2085,6 +1968,182 @@ mod test {
         })
     }
 
+    #[test]
+    fn should_upload_via_stream_and_finish() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let mut upload = stream.put_with_stream("upload.bin").await.unwrap();
+            smol::io::AsyncWriteExt::write_all(&mut upload, b"0123456789")
+                .await
+                .unwrap();
+            upload
+                .finish()
+                .await
+                .expect("finish should read the transfer reply");
+            // The control connection is in sync: the next commands work.
+            assert_eq!(stream.size("upload.bin").await.unwrap(), 10);
+            assert_eq!(stream.nlst(None).await.unwrap().as_slice(), &["upload.bin"]);
+            assert!(stream.rm("upload.bin").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn should_download_via_stream_and_finish() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let mut reader = smol::io::Cursor::new("download me".as_bytes());
+            assert!(stream.put_file("download.txt", &mut reader).await.is_ok());
+            let mut download = stream.retr_as_stream("download.txt").await.unwrap();
+            let mut buffer = Vec::new();
+            download.read_to_end(&mut buffer).await.unwrap();
+            download
+                .finish()
+                .await
+                .expect("finish should read the transfer reply");
+            assert_eq!(buffer, b"download me");
+            // The control connection is in sync: the next commands work.
+            assert!(stream.pwd().await.is_ok());
+            assert_eq!(stream.size("download.txt").await.unwrap(), 11);
+            assert!(stream.rm("download.txt").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn should_drain_reply_of_dropped_stream_on_next_command() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let mut upload = stream.put_with_stream("dropped.bin").await.unwrap();
+            smol::io::AsyncWriteExt::write_all(&mut upload, b"dropped")
+                .await
+                .unwrap();
+            smol::io::AsyncWriteExt::flush(&mut upload).await.unwrap();
+            // Drop without finish(): the reply is consumed by the next command.
+            drop(upload);
+            assert_eq!(stream.size("dropped.bin").await.unwrap(), 7);
+            let mut download = stream.retr_as_stream("dropped.bin").await.unwrap();
+            let mut buffer = Vec::new();
+            download.read_to_end(&mut buffer).await.unwrap();
+            download.finish().await.unwrap();
+            assert_eq!(buffer, b"dropped");
+            assert!(stream.rm("dropped.bin").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn should_read_a_single_reply_on_finish_then_drop() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let mut upload = stream.put_with_stream("single.bin").await.unwrap();
+            smol::io::AsyncWriteExt::write_all(&mut upload, b"single")
+                .await
+                .unwrap();
+            // A second (spurious) reply read would block: bound finish() with a timeout.
+            let timeout = Duration::from_millis(500);
+            let started = Instant::now();
+            let finished =
+                smol::future::or(async { upload.finish().await.map(|()| true) }, async {
+                    smol::Timer::after(timeout).await;
+                    Ok(false)
+                })
+                .await;
+            assert!(
+                matches!(finished, Ok(true)),
+                "finish() blocked: a second reply read was attempted"
+            );
+            assert!(started.elapsed() < timeout);
+            // The control connection is in sync: the next commands work.
+            assert!(stream.noop().await.is_ok());
+            assert_eq!(stream.size("single.bin").await.unwrap(), 6);
+            assert!(stream.rm("single.bin").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn should_reject_data_commands_while_a_transfer_stream_is_alive() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let mut upload = stream.put_with_stream("alive.bin").await.unwrap();
+            smol::io::AsyncWriteExt::write_all(&mut upload, b"alive")
+                .await
+                .unwrap();
+            assert!(matches!(
+                stream.list(None).await,
+                Err(FtpError::DataConnectionAlreadyOpen)
+            ));
+            assert!(matches!(
+                stream.retr_as_stream("alive.bin").await,
+                Err(FtpError::DataConnectionAlreadyOpen)
+            ));
+            assert!(matches!(
+                stream.put_with_stream("other.bin").await,
+                Err(FtpError::DataConnectionAlreadyOpen)
+            ));
+            upload.finish().await.unwrap();
+            // Once finished, data commands work again.
+            assert_eq!(stream.nlst(None).await.unwrap().as_slice(), &["alive.bin"]);
+            assert!(stream.rm("alive.bin").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn should_finish_transfer_stream_on_another_task() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let mut upload = stream.put_with_stream("spawned.bin").await.unwrap();
+            let task = smol::spawn(async move {
+                smol::io::AsyncWriteExt::write_all(&mut upload, b"from another task")
+                    .await
+                    .unwrap();
+                upload.finish().await
+            });
+            task.await.expect("finish should succeed on another task");
+            assert_eq!(stream.size("spawned.bin").await.unwrap(), 17);
+            assert!(stream.rm("spawned.bin").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
+    #[test]
+    fn should_finalize_transfer_when_retr_callback_fails() {
+        smol::block_on(async {
+            let (mut stream, _container) = setup_stream().await;
+            assert!(stream.transfer_type(FileType::Binary).await.is_ok());
+            let mut reader = smol::io::Cursor::new("callback".as_bytes());
+            assert!(
+                stream
+                    .put_file("callback_err.txt", &mut reader)
+                    .await
+                    .is_ok()
+            );
+            let result: FtpResult<()> = stream
+                .retr("callback_err.txt", |reader| {
+                    Box::pin(async move {
+                        // Hand the stream back on failure so `retr` can finish it.
+                        drop(reader);
+                        Err(FtpError::BadResponse)
+                    })
+                })
+                .await;
+            assert!(matches!(result, Err(FtpError::BadResponse)));
+            // The dropped stream flagged a pending reply, which the next command drains.
+            assert_eq!(stream.size("callback_err.txt").await.unwrap(), 8);
+            assert!(stream.list(None).await.is_ok());
+            assert!(stream.rm("callback_err.txt").await.is_ok());
+            finalize_stream(stream).await;
+        })
+    }
+
     // -- test utils
 
     async fn setup_stream() -> (AsyncFtpStream, Arc<SyncPureFtpRunner>) {
@@ -2107,7 +2166,7 @@ mod test {
         let ftp_stream = ftp_stream.passive_stream_builder(move |addr| {
             let container_t = container_t.clone();
             Box::pin(async move {
-                let mut addr = addr.clone();
+                let mut addr = addr;
                 let port = addr.port();
                 let mapped = container_t.get_mapped_port(port);
 
