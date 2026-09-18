@@ -17,11 +17,21 @@ mod rustls;
 #[cfg(any(feature = "smol-rustls-aws-lc-rs", feature = "smol-rustls-ring"))]
 pub use self::rustls::{AsyncRustlsConnector, AsyncRustlsStream};
 
+/// Establishes TLS over a connected smol FTP socket.
+///
+/// Implement this trait together with [`SmolTlsStream`] to provide a custom TLS backend. The
+/// connector is retained and reused for protected FTP data connections.
 #[cfg(feature = "async-secure")]
 #[async_trait::async_trait]
 pub trait AsyncTlsConnector: Debug {
+    /// TLS stream produced by this connector.
     type Stream: SmolTlsStream;
 
+    /// Establishes a TLS session for `stream` using `domain` as the server name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the TLS session cannot be established.
     async fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 

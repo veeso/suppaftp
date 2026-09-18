@@ -16,10 +16,20 @@ mod rustls;
 #[cfg(any(feature = "rustls-aws-lc-rs", feature = "rustls-ring"))]
 pub use self::rustls::{RustlsConnector, RustlsStream};
 
+/// Establishes TLS over a connected FTP socket.
+///
+/// Implement this trait together with [`TlsStream`] to provide a custom TLS backend. The
+/// connector is retained and reused for protected FTP data connections.
 #[cfg(feature = "secure")]
 pub trait TlsConnector: Debug {
+    /// TLS stream produced by this connector.
     type Stream: TlsStream;
 
+    /// Establishes a TLS session for `stream` using `domain` as the server name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the TLS session cannot be established.
     fn connect(&self, domain: &str, stream: TcpStream) -> crate::FtpResult<Self::Stream>;
 }
 

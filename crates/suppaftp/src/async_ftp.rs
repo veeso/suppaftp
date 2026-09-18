@@ -12,6 +12,10 @@ pub mod smol {
     #[cfg(feature = "smol")]
     #[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
     use crate::async_ftp::smol_ftp::AsyncNoTlsStream;
+    #[cfg(feature = "async-secure")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
+    #[doc(inline)]
+    pub use crate::async_ftp::smol_ftp::AsyncTlsConnector;
     pub use crate::async_ftp::smol_ftp::SmolPassiveStreamBuilder;
     #[cfg(feature = "smol")]
     #[cfg_attr(docsrs, doc(cfg(feature = "smol")))]
@@ -86,6 +90,10 @@ pub mod smol {
 #[cfg(feature = "tokio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
 pub mod tokio {
+    #[cfg(feature = "async-secure")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "async-secure")))]
+    #[doc(inline)]
+    pub use super::tokio_ftp::AsyncTlsConnector;
     pub use super::tokio_ftp::{AsyncNoTlsStream, ImplAsyncFtpStream};
     pub type AsyncFtpStream = ImplAsyncFtpStream<AsyncNoTlsStream>;
 
