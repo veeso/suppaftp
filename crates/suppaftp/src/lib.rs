@@ -220,6 +220,10 @@ pub extern crate tokio_rustls_crate as tokio_rustls;
 pub use status::Status;
 use sync_ftp::NoTlsStream;
 // -- export sync
+#[cfg(feature = "secure")]
+#[cfg_attr(docsrs, doc(cfg(feature = "secure")))]
+#[doc(inline)]
+pub use sync_ftp::TlsConnector;
 pub use sync_ftp::{ImplFtpStream, PassiveStreamBuilder, TlsStream};
 pub use types::{FtpError, FtpResult, Mode};
 pub type FtpStream = ImplFtpStream<NoTlsStream>;
