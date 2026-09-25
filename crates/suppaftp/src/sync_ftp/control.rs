@@ -112,7 +112,12 @@ where
     pub(super) fn read_response_in(&mut self, expected_code: &[Status]) -> FtpResult<Response> {
         let mut line = Vec::new();
         let mut body: Vec<u8> = Vec::new();
-        self.read_line(&mut line, 0)?;
+        if self.read_line(&mut line, 0)? == 0 {
+            return Err(FtpError::ConnectionError(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "connection closed before the response",
+            )));
+        }
         body.extend(line.iter());
 
         trace!("CC IN: {:?}", line);
@@ -335,7 +340,10 @@ mod tls_transition_tests {
 #[cfg(test)]
 mod reply_size_tests {
     use crate::FtpStream;
-    use crate::types::reply_size_fixture::{assert_reply_too_large, greeting_of_max_size, serve};
+    use crate::types::reply_size_fixture::{
+        assert_connection_closed, assert_reply_too_large, greeting_of_max_size, serve,
+        serve_and_hang_up,
+    };
 
     #[test]
     fn should_accept_a_reply_of_exactly_the_limit() {
@@ -372,5 +380,10 @@ mod reply_size_tests {
         );
         let mut ftp = FtpStream::connect(address).unwrap();
         assert_reply_too_large(ftp.feat().map(|_| ()));
+    }
+
+    #[test]
+    fn should_report_a_connection_closed_before_the_greeting() {
+        assert_connection_closed(FtpStream::connect(serve_and_hang_up()).map(|_| ()));
     }
 }

@@ -123,10 +123,14 @@ where
                 self.response_body.len(),
             )
             .await?;
-            if bytes_read == 0 && !self.response_body.is_empty() {
+            // EOF before any of the reply, or in the middle of it, means the connection closed.
+            // A first line that a cancelled read left unfinished is still parsed, as the sync
+            // client parses a first line that ends at EOF.
+            if bytes_read == 0 && (self.response_line.is_empty() || !self.response_body.is_empty())
+            {
                 return Err(FtpError::ConnectionError(std::io::Error::new(
                     std::io::ErrorKind::UnexpectedEof,
-                    "connection closed during multiline response",
+                    "connection closed before the end of the response",
                 )));
             }
             self.response_body.extend_from_slice(&self.response_line);
@@ -386,7 +390,10 @@ mod tls_transition_tests {
 #[cfg(test)]
 mod reply_size_tests {
     use crate::smol::AsyncFtpStream;
-    use crate::types::reply_size_fixture::{assert_reply_too_large, greeting_of_max_size, serve};
+    use crate::types::reply_size_fixture::{
+        assert_connection_closed, assert_reply_too_large, greeting_of_max_size, serve,
+        serve_and_hang_up,
+    };
 
     #[test]
     fn should_accept_a_reply_of_exactly_the_limit() {
@@ -432,6 +439,14 @@ mod reply_size_tests {
             );
             let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
             assert_reply_too_large(ftp.feat().await.map(|_| ()));
+        });
+    }
+
+    #[test]
+    fn should_report_a_connection_closed_before_the_greeting() {
+        smol::block_on(async {
+            let result = AsyncFtpStream::connect(serve_and_hang_up()).await;
+            assert_connection_closed(result.map(|_| ()));
         });
     }
 }

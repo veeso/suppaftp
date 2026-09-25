@@ -210,6 +210,23 @@ pub(crate) mod reply_size_fixture {
         address
     }
 
+    /// Starts a one-connection server that closes the connection without sending anything.
+    pub(crate) fn serve_and_hang_up() -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || drop(listener.accept()));
+        address
+    }
+
+    /// Panics unless `result` failed with an `UnexpectedEof` connection error.
+    pub(crate) fn assert_connection_closed(result: Result<(), FtpError>) {
+        match result {
+            Err(FtpError::ConnectionError(err))
+                if err.kind() == std::io::ErrorKind::UnexpectedEof => {}
+            other => panic!("expected UnexpectedEof, got {other:?}"),
+        }
+    }
+
     /// A greeting of exactly [`MAX_REPLY_SIZE`] bytes.
     pub(crate) fn greeting_of_max_size() -> Vec<u8> {
         let last = b"220 ready\r\n";
