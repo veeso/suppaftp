@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## 12.1.1
+
+Released on 2026-09-28
+
+### Fixed
+
+- report a control connection closed before the reply as EOF (#184)
+
+> When the server closed the control connection before sending any byte
+> of a reply, the sync, tokio and smol clients returned
+> `FtpError::BadResponse`, as if the server had sent a malformed reply.
+> EOF in the middle of a multiline reply was already reported as
+> `FtpError::ConnectionError` with `ErrorKind::UnexpectedEof`; EOF before
+> the first line now is too, so callers can tell a dropped connection from
+> a broken server.
+>
+> In the async clients, a first line that a cancelled read left
+> unfinished is still parsed at EOF, as before, the same way the sync
+> client parses a first line that ends at EOF.
+
 ## 12.1.0
 
 Released on 2026-09-25
