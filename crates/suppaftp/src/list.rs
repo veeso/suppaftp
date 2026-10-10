@@ -160,7 +160,11 @@ impl ListParser {
                     f.gid = value.parse::<u32>().ok();
                 }
                 "unix.mode" => {
-                    if value.len() != 3 && value.len() != 4 {
+                    // Require 3 or 4 bytes, all ASCII octal digits (0–7), before slicing.
+                    // This ensures the byte-index slices below land on UTF-8 boundaries.
+                    if (value.len() != 3 && value.len() != 4)
+                        || !value.bytes().all(|b| (b'0'..=b'7').contains(&b))
+                    {
                         return Err(ParseError::SyntaxError);
                     }
                     // Take the last 3 characters (handles both "755" and "0755")
@@ -996,6 +1000,71 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn parse_mlsx_rejects_short_character_mode() {
+        let line = "type=file;unix.mode=é0; a";
+        assert!(matches!(
+            ListParser::parse_mlsd(line),
+            Err(ParseError::SyntaxError)
+        ));
+        assert!(matches!(
+            ListParser::parse_mlst(line),
+            Err(ParseError::SyntaxError)
+        ));
+    }
+
+    #[test]
+    fn parse_mlsx_rejects_mode_splitting_utf8() {
+        let line = "type=file;unix.mode=é00; b";
+        assert!(matches!(
+            ListParser::parse_mlsd(line),
+            Err(ParseError::SyntaxError)
+        ));
+        assert!(matches!(
+            ListParser::parse_mlst(line),
+            Err(ParseError::SyntaxError)
+        ));
+    }
+
+    #[test]
+    fn parse_mlsx_rejects_non_octal_modes() {
+        for mode in [
+            "800", "090", "008", "8644", "a00", "0a0", "00a", "a644", "+644", " 644", "644 ", "0€",
+            "😀", "", "0",
+        ] {
+            let line = format!("type=file;unix.mode={mode}; bad.txt");
+            assert!(
+                matches!(ListParser::parse_mlsd(&line), Err(ParseError::SyntaxError)),
+                "MLSD accepted mode {mode:?}"
+            );
+            assert!(
+                matches!(ListParser::parse_mlst(&line), Err(ParseError::SyntaxError)),
+                "MLST accepted mode {mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_mlsx_accepts_octal_boundaries() {
+        for (mode, expected) in [("000", (0, 0, 0)), ("777", (7, 7, 7)), ("4751", (7, 5, 1))] {
+            let line = format!("type=file;UNIX.mode={mode}; café.txt");
+            for file in [
+                ListParser::parse_mlsd(&line).unwrap(),
+                ListParser::parse_mlst(&line).unwrap(),
+            ] {
+                pretty_assertions::assert_eq!(file.name(), "café.txt");
+                pretty_assertions::assert_eq!(
+                    file.posix_pex,
+                    (
+                        PosixPex::from(expected.0),
+                        PosixPex::from(expected.1),
+                        PosixPex::from(expected.2),
+                    )
+                );
+            }
+        }
     }
 
     #[test]

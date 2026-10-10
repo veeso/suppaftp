@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 12.1.2
+
+Released on 2026-10-10
+
+### Fixed
+
+- **list:** reject malformed MLSx Unix modes
+
+> Validate three or four ASCII octal digits before slicing mode values.
+> Add MLSD and MLST regression tests for UTF-8 and invalid octal modes.
+
 ## 12.1.1
 
 Released on 2026-09-28
