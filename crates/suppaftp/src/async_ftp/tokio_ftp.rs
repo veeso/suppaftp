@@ -68,6 +68,10 @@ where
     active_peer_check: ActivePeerCheck,
     welcome_msg: Option<WelcomeMessage>,
     active_timeout: Duration,
+    /// Whether the transfer type is ASCII (the default), in which case
+    /// [`ImplAsyncFtpStream::put_file`] and [`ImplAsyncFtpStream::append_file`] send CRLF line
+    /// endings.
+    ascii_transfer: bool,
     passive_stream_builder: Box<TokioPassiveStreamBuilder>,
     #[cfg(not(feature = "async-secure"))]
     marker: PhantomData<T>,
@@ -119,6 +123,7 @@ where
             #[cfg(feature = "async-secure")]
             domain: None,
             active_timeout: Duration::from_secs(60),
+            ascii_transfer: true,
         };
         debug!("Reading server response...");
         let ready = ftp_stream.read_response(Status::Ready).await;
@@ -186,6 +191,7 @@ where
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
             active_timeout: self.active_timeout,
+            ascii_transfer: self.ascii_transfer,
         };
         {
             let mut cc = secured_ftp_tream.control().await?;
@@ -250,6 +256,7 @@ where
             domain: Some(String::from(domain)),
             welcome_msg: None,
             active_timeout: Duration::from_secs(60),
+            ascii_transfer: true,
         };
         debug!("Reading server response...");
         let response = stream.read_response(Status::Ready).await?;
@@ -452,11 +459,20 @@ where
 
     /// Sets the type of file to be transferred. That is the implementation
     /// of `TYPE` command.
+    ///
+    /// After [`FileType::Ascii`] is accepted, [`ImplAsyncFtpStream::put_file`] and
+    /// [`ImplAsyncFtpStream::append_file`] convert line endings to CRLF; any other accepted type
+    /// turns the conversion off. A refused type leaves it as it was.
     pub async fn transfer_type(&mut self, file_type: FileType) -> FtpResult<()> {
-        let mut cc = self.control().await?;
-        debug!("Setting transfer type {}", file_type);
-        cc.perform(Command::Type(file_type)).await?;
-        cc.read_response(Status::CommandOk).await.map(|_| ())
+        let ascii = matches!(file_type, FileType::Ascii(_));
+        {
+            let mut cc = self.control().await?;
+            debug!("Setting transfer type {}", file_type);
+            cc.perform(Command::Type(file_type)).await?;
+            cc.read_response(Status::CommandOk).await?;
+        }
+        self.ascii_transfer = ascii;
+        Ok(())
     }
 
     /// Quits the current FTP session.
@@ -576,17 +592,27 @@ where
     }
 
     /// This stores a file on the server.
-    /// r argument must be any struct which implemenents the Read trait
+    /// `r` must implement [`tokio::io::AsyncRead`].
+    ///
+    /// In the default ASCII transfer type, every LF not preceded by CR is sent as CRLF, as
+    /// RFC 959 requires. Selecting another type with [`ImplAsyncFtpStream::transfer_type`] sends
+    /// the bytes unchanged; selecting [`FileType::Ascii`] enables conversion again.
+    ///
+    /// Returns the number of bytes sent, including any CR added by the conversion.
     pub async fn put_file<S, R>(&mut self, filename: S, r: &mut R) -> FtpResult<u64>
     where
         R: AsyncRead + std::marker::Unpin,
         S: AsRef<str>,
     {
+        let ascii = self.ascii_transfer;
         // Get stream
         let mut data_stream = self.put_with_stream(filename).await?;
-        let bytes = copy(r, &mut data_stream)
-            .await
-            .map_err(FtpError::ConnectionError)?;
+        let bytes = if ascii {
+            crate::ascii::copy_crlf_tokio(r, &mut data_stream).await
+        } else {
+            copy(r, &mut data_stream).await
+        }
+        .map_err(FtpError::ConnectionError)?;
         data_stream.finish().await?;
         Ok(bytes)
     }
@@ -596,6 +622,9 @@ where
     /// Write the payload to the returned stream, then call [`TransferStream::finish`] to close
     /// the data connection and read the server's completion reply. Until then any other data
     /// command fails with [`FtpError::DataConnectionAlreadyOpen`].
+    ///
+    /// The bytes written are sent unchanged, even in the ASCII transfer type; use
+    /// [`ImplAsyncFtpStream::put_file`] to have line endings converted.
     ///
     /// # Examples
     ///
@@ -654,16 +683,22 @@ where
         Ok(stream)
     }
 
-    /// Append data from reader to file at `filename`
+    /// Append data from reader to file at `filename`.
+    ///
+    /// Line endings are converted like in [`ImplAsyncFtpStream::put_file`].
     pub async fn append_file<R>(&mut self, filename: &str, r: &mut R) -> FtpResult<u64>
     where
         R: AsyncRead + std::marker::Unpin,
     {
+        let ascii = self.ascii_transfer;
         // Get stream
         let mut data_stream = self.append_with_stream(filename).await?;
-        let bytes = copy(r, &mut data_stream)
-            .await
-            .map_err(FtpError::ConnectionError)?;
+        let bytes = if ascii {
+            crate::ascii::copy_crlf_tokio(r, &mut data_stream).await
+        } else {
+            copy(r, &mut data_stream).await
+        }
+        .map_err(FtpError::ConnectionError)?;
         data_stream.finish().await?;
         Ok(bytes)
     }
@@ -2629,10 +2664,18 @@ mod encoding_tests {
             .await
             .unwrap();
         assert_eq!(ftp.get_welcome_msg(), Some("220 café.txt ready"));
+        ftp.set_encoding(crate::Utf8Encoding).await;
+        assert_eq!(ftp.get_welcome_msg(), Some("220 caf\u{FFFD}.txt ready"));
+        ftp.set_encoding(Latin1).await;
+        assert_eq!(ftp.get_welcome_msg(), Some("220 café.txt ready"));
         assert_eq!(ftp.pwd().await.unwrap(), "/café");
         assert_eq!(ftp.nlst(None).await.unwrap(), vec!["café.txt".to_string()]);
         ftp.rm("café.txt").await.unwrap();
         let mut ftp = ftp.clear_command_channel().await.unwrap();
+        ftp.set_encoding(crate::Utf8Encoding).await;
+        assert_eq!(ftp.get_welcome_msg(), Some("220 caf\u{FFFD}.txt ready"));
+        ftp.set_encoding(Latin1).await;
+        assert_eq!(ftp.get_welcome_msg(), Some("220 café.txt ready"));
         assert_eq!(ftp.pwd().await.unwrap(), "/café");
         assert_eq!(ftp.nlst(None).await.unwrap(), vec!["café.txt".to_string()]);
         ftp.rm("café.txt").await.unwrap();
@@ -2675,10 +2718,17 @@ mod encoding_tests {
         ] {
             let (address, server) = serve_latin1_with_name(name);
             let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
-            let lossy_banner = format!("220 {} ready", filename.replace('ÿ', "\u{FFFD}"));
+            let lossy_banner = format!(
+                "220 {filename} ready",
+                filename = filename.replace('ÿ', "\u{FFFD}")
+            );
             assert_eq!(ftp.get_welcome_msg(), Some(lossy_banner.as_str()));
             ftp.set_encoding(Latin1).await;
             let banner = format!("220 {filename} ready");
+            assert_eq!(ftp.get_welcome_msg(), Some(banner.as_str()));
+            ftp.set_encoding(crate::Utf8Encoding).await;
+            assert_eq!(ftp.get_welcome_msg(), Some(lossy_banner.as_str()));
+            ftp.set_encoding(Latin1).await;
             assert_eq!(ftp.get_welcome_msg(), Some(banner.as_str()));
             let pwd = ftp.pwd().await.unwrap();
             assert_eq!(pwd, path);
@@ -2798,6 +2848,128 @@ mod encoding_tests {
             );
             drop(ftp);
             assert_eq!(server.join().unwrap(), Vec::<Vec<u8>>::new());
+        }
+    }
+}
+
+#[cfg(test)]
+mod ascii_tests {
+    use std::io::Cursor;
+
+    use pretty_assertions::assert_eq;
+    use tokio::io::AsyncWriteExt as _;
+
+    use crate::tokio::AsyncFtpStream;
+    use crate::types::{FileType, FormatControl};
+    use crate::upload_fixture::serve_uploads;
+
+    const ASCII: FileType = FileType::Ascii(FormatControl::Default);
+
+    #[tokio::test]
+    async fn should_convert_line_endings_on_ascii_upload() {
+        let (address, server) = serve_uploads();
+        let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+        ftp.transfer_type(ASCII).await.unwrap();
+        let mut text = Cursor::new(b"one\ntwo\r\nthree\rfour\n".as_slice());
+        assert_eq!(ftp.put_file("a.txt", &mut text).await.unwrap(), 22);
+        // The CR ends the first read and the LF starts the second: still one CRLF.
+        let mut split = tokio::io::AsyncReadExt::chain(
+            Cursor::new(b"five\r".as_slice()),
+            Cursor::new(b"\nsix\n".as_slice()),
+        );
+        assert_eq!(ftp.append_file("a.txt", &mut split).await.unwrap(), 11);
+        let mut raw = ftp.put_with_stream("raw.txt").await.unwrap();
+        raw.write_all(b"raw\n").await.unwrap();
+        raw.finish().await.unwrap();
+        ftp.quit().await.unwrap();
+        assert_eq!(
+            server.join().unwrap(),
+            vec![
+                b"one\r\ntwo\r\nthree\rfour\r\n".to_vec(),
+                b"five\r\nsix\r\n".to_vec(),
+                b"raw\n".to_vec(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_convert_default_ascii_uploads_and_preserve_binary_bytes() {
+        let (address, server) = serve_uploads();
+        let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+        let mut a = Cursor::new(b"a\n".as_slice());
+        assert_eq!(ftp.put_file("a.txt", &mut a).await.unwrap(), 3);
+        ftp.transfer_type(ASCII).await.unwrap();
+        ftp.transfer_type(FileType::Binary).await.unwrap();
+        let mut b = Cursor::new(b"b\n".as_slice());
+        assert_eq!(ftp.put_file("b.bin", &mut b).await.unwrap(), 2);
+        ftp.quit().await.unwrap();
+        assert_eq!(
+            server.join().unwrap(),
+            vec![b"a\r\n".to_vec(), b"b\n".to_vec()]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_keep_ascii_conversion_when_type_is_refused() {
+        let (address, server) = serve_uploads();
+        let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+        ftp.transfer_type(ASCII).await.unwrap();
+        assert!(
+            ftp.transfer_type(FileType::Ebcdic(FormatControl::Default))
+                .await
+                .is_err()
+        );
+        let mut c = Cursor::new(b"c\n".as_slice());
+        ftp.put_file("c.txt", &mut c).await.unwrap();
+        ftp.quit().await.unwrap();
+        assert_eq!(server.join().unwrap(), vec![b"c\r\n".to_vec()]);
+    }
+
+    #[cfg(feature = "async-secure")]
+    #[tokio::test]
+    async fn should_preserve_transfer_type_across_tls_transitions() {
+        use crate::encoding_fixture::PassthroughConnector;
+
+        for (file_type, expected) in [
+            (ASCII, b"a\r\n".as_slice()),
+            (FileType::Binary, b"a\n".as_slice()),
+        ] {
+            let (address, server) = serve_uploads();
+            let mut ftp =
+                crate::tokio::ImplAsyncFtpStream::<tokio::net::TcpStream>::connect(address)
+                    .await
+                    .unwrap();
+            ftp.transfer_type(file_type).await.unwrap();
+            let mut ftp = ftp
+                .into_secure(PassthroughConnector, "localhost")
+                .await
+                .unwrap();
+            assert_eq!(
+                ftp.put_file("a.txt", &mut Cursor::new(b"a\n".as_slice()))
+                    .await
+                    .unwrap(),
+                expected.len() as u64
+            );
+            let mut ftp = ftp.clear_command_channel().await.unwrap();
+            assert_eq!(
+                ftp.put_file("b.txt", &mut Cursor::new(b"a\n".as_slice()))
+                    .await
+                    .unwrap(),
+                expected.len() as u64
+            );
+            ftp.transfer_type(FileType::Binary).await.unwrap();
+            ftp.transfer_type(ASCII).await.unwrap();
+            assert_eq!(
+                ftp.append_file("b.txt", &mut Cursor::new(b"a\n".as_slice()))
+                    .await
+                    .unwrap(),
+                3
+            );
+            ftp.quit().await.unwrap();
+            assert_eq!(
+                server.join().unwrap(),
+                vec![expected.to_vec(), expected.to_vec(), b"a\r\n".to_vec()]
+            );
         }
     }
 }
