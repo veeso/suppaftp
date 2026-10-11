@@ -23,6 +23,7 @@ use super::data_stream::DataStream;
 use super::tls::TokioTlsStream;
 use crate::Status;
 use crate::command::Command;
+use crate::encoding::Encoding;
 use crate::types::{FtpError, FtpResult, MAX_REPLY_SIZE, ReplyTooLarge, Response};
 
 /// Replies that complete a data transfer: `226` or `250`.
@@ -47,6 +48,8 @@ where
     pub(super) data_connection_open: bool,
     /// Whether a transfer stream was dropped without `finish()` and its reply is still unread.
     pub(super) pending_transfer_reply: Arc<AtomicBool>,
+    /// Encoding of command lines and of the file names read back.
+    pub(super) encoding: Arc<dyn Encoding>,
     /// Reply bytes survive cancellation while waiting for a complete line or multiline reply.
     response_line: Vec<u8>,
     response_body: Vec<u8>,
@@ -73,19 +76,20 @@ where
     T: TokioTlsStream + Send,
 {
     /// Wraps `stream` as a fresh control channel with no data connection open.
-    pub(super) fn new(stream: DataStream<T>) -> Self {
+    pub(super) fn new(stream: DataStream<T>, encoding: Arc<dyn Encoding>) -> Self {
         Self {
             reader: BufReader::new(stream),
             data_connection_open: false,
             pending_transfer_reply: Arc::new(AtomicBool::new(false)),
+            encoding,
             response_line: Vec::new(),
             response_body: Vec::new(),
         }
     }
 
     /// Wraps `stream` into a [`SharedControl`].
-    pub(super) fn shared(stream: DataStream<T>) -> SharedControl<T> {
-        Arc::new(Mutex::new(Self::new(stream)))
+    pub(super) fn shared(stream: DataStream<T>, encoding: Arc<dyn Encoding>) -> SharedControl<T> {
+        Arc::new(Mutex::new(Self::new(stream, encoding)))
     }
 
     /// Returns the control socket.
@@ -93,15 +97,21 @@ where
         self.reader.get_ref().get_ref()
     }
 
-    /// Sends `command` on the control connection.
+    /// Sends `command` on the control connection, encoded with [`Self::encoding`].
     pub(super) async fn perform(&mut self, command: Command) -> FtpResult<()> {
         let command = command.to_string();
         crate::command::validate_command_line(&command)?;
         trace!("CC OUT: {}", command.trim_end_matches("\r\n"));
+        let line = self
+            .encoding
+            .encode(&command)
+            .map_err(FtpError::ConnectionError)?;
+        crate::command::validate_encoded_command_line(&line)?;
+        let line = crate::command::escape_telnet_iac(&line);
 
         self.reader
             .get_mut()
-            .write_all(command.as_bytes())
+            .write_all(&line)
             .await
             .map_err(FtpError::ConnectionError)
     }

@@ -4,6 +4,7 @@
 
 pub mod feat;
 
+use std::borrow::Cow;
 use std::fmt;
 use std::net::SocketAddr;
 use std::string::ToString;
@@ -31,6 +32,67 @@ pub(crate) fn validate_command_line(line: &str) -> FtpResult<()> {
     }
 
     Ok(())
+}
+
+/// Checks that an encoded command line is exactly one line: it ends with CRLF and contains no
+/// other CR or LF.
+///
+/// Runs after [`crate::Encoding::encode`], so a custom encoding can neither smuggle a second
+/// command nor leave the server waiting for the end of the line.
+pub(crate) fn validate_encoded_command_line(line: &[u8]) -> FtpResult<()> {
+    let Some(body) = line.strip_suffix(b"\r\n") else {
+        return Err(FtpError::ConnectionError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "encoded FTP command must end with CRLF",
+        )));
+    };
+    if body.iter().any(|byte| matches!(byte, b'\r' | b'\n')) {
+        return Err(FtpError::ConnectionError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "encoded FTP command must not contain CR or LF",
+        )));
+    }
+
+    Ok(())
+}
+
+/// Escapes Telnet's IAC byte in a control-channel data line.
+///
+/// FTP control connections use Telnet framing, where a literal `0xFF` data byte is sent twice.
+pub(crate) fn escape_telnet_iac(line: &[u8]) -> Cow<'_, [u8]> {
+    if !line.contains(&0xFF) {
+        return Cow::Borrowed(line);
+    }
+
+    let mut escaped = Vec::with_capacity(line.len());
+    for byte in line {
+        escaped.push(*byte);
+        if *byte == 0xFF {
+            escaped.push(*byte);
+        }
+    }
+
+    Cow::Owned(escaped)
+}
+
+/// Collapses doubled Telnet IAC bytes in a complete control reply.
+///
+/// Unpaired IAC bytes are preserved for servers that send them literally. Data-connection
+/// listings do not use Telnet framing and must not be passed through this function.
+pub(crate) fn unescape_telnet_iac(reply: &[u8]) -> Cow<'_, [u8]> {
+    if !reply.windows(2).any(|pair| pair == [0xFF, 0xFF]) {
+        return Cow::Borrowed(reply);
+    }
+
+    let mut unescaped = Vec::with_capacity(reply.len());
+    let mut bytes = reply.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        unescaped.push(byte);
+        if byte == 0xFF && bytes.peek() == Some(&0xFF) {
+            bytes.next();
+        }
+    }
+    Cow::Owned(unescaped)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,6 +319,55 @@ mod test {
             validate_command_line(&Command::Custom(String::from("NOOP\r\nDELE a.txt")).to_string())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn should_accept_encoded_command_line_ending_in_crlf() {
+        assert!(validate_encoded_command_line(b"RETR caf\xE9.txt\r\n").is_ok());
+    }
+
+    #[test]
+    fn should_unescape_only_doubled_telnet_iac_bytes() {
+        for (reply, expected) in [
+            (b"".as_slice(), b"".as_slice()),
+            (
+                b"257 /caf\xE9\r\n".as_slice(),
+                b"257 /caf\xE9\r\n".as_slice(),
+            ),
+            (b"\xFF".as_slice(), b"\xFF".as_slice()),
+            (b"a\xFFb".as_slice(), b"a\xFFb".as_slice()),
+            (b"\xFF\xFF".as_slice(), b"\xFF".as_slice()),
+            (b"\xFF\xFF\xFF".as_slice(), b"\xFF\xFF".as_slice()),
+            (b"\xFF\xFF\xFF\xFF".as_slice(), b"\xFF\xFF".as_slice()),
+            (b"a\xFF\xFFb\xFF".as_slice(), b"a\xFFb\xFF".as_slice()),
+        ] {
+            assert_eq!(unescape_telnet_iac(reply).as_ref(), expected);
+        }
+    }
+
+    #[test]
+    fn should_reject_encoded_command_line_with_inner_line_break() {
+        for line in [
+            b"RETR a\nDELE b\r\n".as_slice(),
+            b"RETR a\rDELE b\r\n".as_slice(),
+        ] {
+            let err = validate_encoded_command_line(line).unwrap_err();
+            assert!(
+                matches!(&err, FtpError::ConnectionError(io) if io.kind() == std::io::ErrorKind::InvalidInput),
+                "{err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_reject_encoded_command_line_without_crlf() {
+        for line in [b"NOOP".as_slice(), b"NOOP\n".as_slice(), b"".as_slice()] {
+            let err = validate_encoded_command_line(line).unwrap_err();
+            assert!(
+                matches!(&err, FtpError::ConnectionError(io) if io.kind() == std::io::ErrorKind::InvalidInput),
+                "{err:?}"
+            );
+        }
     }
 
     #[test]
