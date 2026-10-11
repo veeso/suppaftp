@@ -191,6 +191,8 @@ pub mod types;
 
 #[cfg(test)]
 mod test_container;
+#[cfg(all(test, any(feature = "secure", feature = "async-secure")))]
+pub(crate) mod test_data_command;
 
 // -- secure deps
 #[cfg(feature = "native-tls")]

@@ -960,15 +960,26 @@ where
         ))
     }
 
-    /// Execute command which send data back in a separate stream
-    fn data_command(&self, cc: &mut ControlChannel<T>, cmd: Command) -> FtpResult<DataStream<T>> {
-        // guard data connection
+    /// Opens the data channel after the transfer command's preliminary response is accepted.
+    ///
+    /// Passive mode connects the raw TCP socket before sending the command. Active mode sends the
+    /// command and validates its reply before accepting a data socket. Rejections drop the pending
+    /// socket or listener without starting TLS or marking the data connection open.
+    fn data_command_with_response(
+        &self,
+        cc: &mut ControlChannel<T>,
+        cmd: Command,
+        expected_code: &[Status],
+    ) -> FtpResult<(Response, DataStream<T>)> {
+        // Reject overlapping transfers before negotiating or opening another data socket.
         cc.guard_multiple_data_connections()?;
 
-        let stream = match self.mode {
+        let (response, stream) = match self.mode {
             Mode::Active => {
                 let listener = self.active(cc)?;
                 cc.perform(cmd)?;
+                let response = cc.read_response_in(expected_code)?;
+
                 // Anyone reaching the listener may connect first; only allowed peers are taken.
                 let control_peer = cc
                     .socket()
@@ -976,7 +987,7 @@ where
                     .map_err(FtpError::ConnectionError)?
                     .ip();
                 let start = Instant::now();
-                loop {
+                let stream = loop {
                     match listener.accept() {
                         Ok((stream, addr))
                             if self.active_peer_check.allows(addr.ip(), control_peer) =>
@@ -984,7 +995,7 @@ where
                             break stream;
                         }
                         Ok((_, addr)) => warn!("Ignoring data connection from unexpected {addr}"),
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             if start.elapsed() > self.active_timeout {
                                 return Err(FtpError::ConnectionError(
                                     std::io::ErrorKind::WouldBlock.into(),
@@ -992,66 +1003,48 @@ where
                             }
                             std::thread::sleep(Duration::from_millis(100));
                         }
-                        Err(e) => return Err(FtpError::ConnectionError(e)),
+                        Err(error) => return Err(FtpError::ConnectionError(error)),
                     }
-                }
+                };
+                (response, stream)
             }
             Mode::ExtendedPassive => {
-                let addr = self.epsv(cc)?;
+                let address = self.epsv(cc)?;
+                let stream = (self.passive_stream_builder)(address)?;
                 cc.perform(cmd)?;
-                (self.passive_stream_builder)(addr)?
+                let response = cc.read_response_in(expected_code)?;
+                (response, stream)
             }
             Mode::Passive => {
-                let addr = self.pasv(cc)?;
+                let address = self.pasv(cc)?;
+                let stream = (self.passive_stream_builder)(address)?;
                 cc.perform(cmd)?;
-                (self.passive_stream_builder)(addr)?
+                let response = cc.read_response_in(expected_code)?;
+                (response, stream)
             }
         };
 
         #[cfg(not(feature = "secure"))]
-        let result = Ok(DataStream::Tcp(stream));
+        let data_stream = DataStream::Tcp(stream);
 
         #[cfg(feature = "secure")]
-        let result = match (self.tls_ctx.as_ref(), self.domain.as_ref()) {
-            (Some(tls_ctx), Some(domain)) => tls_ctx
-                .connect(domain, stream)
-                .map(|x| DataStream::Ssl(Box::new(x)))
-                .map_err(|e| FtpError::SecureError(format!("{e}"))),
-            (Some(_), None) => Err(FtpError::SecureError(
-                "TLS context is set but no domain is available for the secure connection"
-                    .to_string(),
+        let data_stream = match (self.tls_ctx.as_ref(), self.domain.as_ref()) {
+            (Some(tls_ctx), Some(domain)) => DataStream::Ssl(Box::new(
+                tls_ctx
+                    .connect(domain, stream)
+                    .map_err(|error| FtpError::SecureError(format!("{error}")))?,
             )),
-            (None, _) => Ok(DataStream::Tcp(stream)),
+            (Some(_), None) => {
+                return Err(FtpError::SecureError(
+                    "TLS context is set but no domain is available for the secure connection"
+                        .to_string(),
+                ));
+            }
+            (None, _) => DataStream::Tcp(stream),
         };
 
-        if result.is_ok() {
-            cc.data_connection_open = true;
-        }
-        result
-    }
-
-    /// Open a data connection for `cmd` and read the preliminary response confirming the transfer.
-    ///
-    /// If the server rejects the command (the response is not one of `expected_code`), the data
-    /// connection is dropped and `data_connection_open` is reset to `false`. This guarantees that a
-    /// failed command never leaves the client believing a data connection is still open, which would
-    /// otherwise make every subsequent data command fail with [`FtpError::DataConnectionAlreadyOpen`].
-    fn data_command_with_response(
-        &self,
-        cc: &mut ControlChannel<T>,
-        cmd: Command,
-        expected_code: &[Status],
-    ) -> FtpResult<(Response, DataStream<T>)> {
-        let data_stream = self.data_command(cc, cmd)?;
-        match cc.read_response_in(expected_code) {
-            Ok(response) => Ok((response, data_stream)),
-            Err(err) => {
-                // server rejected the command: drop the data stream and reset the open flag
-                drop(data_stream);
-                cc.data_connection_open = false;
-                Err(err)
-            }
-        }
+        cc.data_connection_open = true;
+        Ok((response, data_stream))
     }
 
     /// Create a new tcp listener and send a PORT command for it
@@ -1172,6 +1165,12 @@ where
 #[cfg(test)]
 mod test {
 
+    #[cfg(any(
+        feature = "native-tls",
+        feature = "rustls-aws-lc-rs",
+        feature = "rustls-ring"
+    ))]
+    use std::collections::HashMap;
     use std::io::Write;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -1185,12 +1184,145 @@ mod test {
     use super::*;
     use crate::FtpStream;
     use crate::test_container::SyncPureFtpRunner;
+    #[cfg(any(
+        feature = "native-tls",
+        feature = "rustls-aws-lc-rs",
+        feature = "rustls-ring"
+    ))]
+    use crate::test_container::SyncTlsFtpRunner;
     use crate::types::FormatControl;
+
+    #[cfg(feature = "native-tls")]
+    type TestTlsFtpStream = crate::NativeTlsFtpStream;
+    #[cfg(all(not(feature = "native-tls"), feature = "rustls-ring"))]
+    type TestTlsFtpStream = crate::RustlsFtpStream;
+    #[cfg(all(
+        not(feature = "native-tls"),
+        not(feature = "rustls-ring"),
+        feature = "rustls-aws-lc-rs"
+    ))]
+    type TestTlsFtpStream = crate::RustlsFtpStream;
+
+    #[cfg(feature = "secure")]
+    #[derive(Debug)]
+    struct ProbeConnector(Arc<std::sync::atomic::AtomicUsize>);
+
+    #[cfg(feature = "secure")]
+    impl TlsConnector for ProbeConnector {
+        type Stream = NoTlsStream;
+
+        fn connect(&self, _domain: &str, _stream: TcpStream) -> FtpResult<Self::Stream> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(FtpError::SecureError("probe".into()))
+        }
+    }
+
+    #[cfg(feature = "secure")]
+    #[test]
+    fn should_validate_data_reply_before_tls_or_active_accept() {
+        use crate::test_data_command::ScriptedDataServer;
+
+        for mode in [Mode::Passive, Mode::ExtendedPassive, Mode::Active] {
+            for status in [
+                Status::BadCommand,
+                Status::FileUnavailable,
+                Status::AlreadyOpen,
+                Status::AboutToSend,
+            ] {
+                let server = ScriptedDataServer::start(mode, status);
+                let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let control = std::net::TcpStream::connect(server.address()).unwrap();
+                control
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                control
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut ftp = FtpStream::connect_with_stream(control).unwrap();
+                ftp = ftp.active_mode(Duration::from_secs(1));
+                ftp.set_mode(mode);
+                ftp.tls_ctx = Some(Box::new(ProbeConnector(Arc::clone(&calls))));
+                ftp.domain = Some("localhost".into());
+                let result = ftp
+                    .custom_data_command("RETR probe", &[Status::AlreadyOpen, Status::AboutToSend]);
+                let accepted = matches!(status, Status::AlreadyOpen | Status::AboutToSend);
+                if accepted {
+                    assert!(matches!(result, Err(FtpError::SecureError(ref text))
+                        if text == "Secure error: probe"));
+                } else {
+                    assert!(
+                        matches!(result, Err(FtpError::UnexpectedResponse(ref response))
+                        if response.status == status)
+                    );
+                }
+                assert_eq!(
+                    calls.load(std::sync::atomic::Ordering::SeqCst),
+                    usize::from(accepted)
+                );
+                ftp.noop().unwrap();
+                drop(ftp);
+                server.finish();
+            }
+        }
+    }
 
     #[test]
     fn connect() {
         crate::log_init();
         with_test_ftp_stream(|_stream| {});
+    }
+
+    #[cfg(any(
+        feature = "native-tls",
+        feature = "rustls-aws-lc-rs",
+        feature = "rustls-ring"
+    ))]
+    #[test]
+    fn should_return_ftps_rejections_and_recover() {
+        for mode in [Mode::Passive, Mode::ExtendedPassive] {
+            let (mut ftp, _container) = setup_tls_stream();
+            ftp.set_mode(mode);
+            ftp.transfer_type(FileType::Binary).unwrap();
+            for _ in 0..2 {
+                let cases = [
+                    (ftp.mlsd(None).map(|_| ()), Status::BadCommand),
+                    (
+                        ftp.retr_as_stream("missing-188.txt").map(|_| ()),
+                        Status::FileUnavailable,
+                    ),
+                    (
+                        ftp.custom_data_command(
+                            "STOR /readonly/denied.txt",
+                            &[Status::AboutToSend, Status::AlreadyOpen],
+                        )
+                        .map(|_| ()),
+                        Status::BadFilename,
+                    ),
+                ];
+                for (result, expected) in cases {
+                    match result {
+                        Err(FtpError::UnexpectedResponse(reply)) => {
+                            assert_eq!(reply.status, expected);
+                        }
+                        other => panic!("expected {expected:?}, got {other:?}"),
+                    }
+                }
+                ftp.noop().unwrap();
+            }
+            let payload = b"issue 188 TLS recovery\n";
+            let mut input = std::io::Cursor::new(payload);
+            assert_eq!(
+                ftp.put_file("recovered-188.txt", &mut input).unwrap(),
+                payload.len() as u64
+            );
+            let mut download = ftp.retr_as_stream("recovered-188.txt").unwrap();
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut download, &mut bytes).unwrap();
+            download.finish().unwrap();
+            assert_eq!(bytes, payload);
+            ftp.rm("recovered-188.txt").unwrap();
+            ftp.quit().unwrap();
+        }
     }
 
     #[test]
@@ -1991,6 +2123,97 @@ mod test {
     }
 
     // -- test utils
+
+    #[cfg(any(
+        feature = "native-tls",
+        feature = "rustls-aws-lc-rs",
+        feature = "rustls-ring"
+    ))]
+    fn setup_tls_stream() -> (TestTlsFtpStream, SyncTlsFtpRunner) {
+        crate::log_init();
+        let container = SyncTlsFtpRunner::start();
+        let port = container.get_ftp_port();
+        let ftp = TestTlsFtpStream::connect(format!("localhost:{port}")).unwrap();
+        ftp.get_ref()
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        ftp.get_ref()
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+
+        #[cfg(feature = "native-tls")]
+        let mut ftp = {
+            let certificate = crate::native_tls::Certificate::from_pem(include_bytes!(
+                "test_container/fixtures/ca-cert.pem"
+            ))
+            .unwrap();
+            let connector = crate::native_tls::TlsConnector::builder()
+                .add_root_certificate(certificate)
+                .build()
+                .unwrap();
+            ftp.into_secure(crate::NativeTlsConnector::from(connector), "localhost")
+                .unwrap()
+        };
+
+        #[cfg(all(not(feature = "native-tls"), feature = "rustls-ring"))]
+        let mut ftp = {
+            let mut roots = crate::rustls::RootCertStore::empty();
+            roots
+                .add(crate::rustls::pki_types::CertificateDer::from(
+                    include_bytes!("test_container/fixtures/ca-cert.der").to_vec(),
+                ))
+                .unwrap();
+            let provider = Arc::new(crate::rustls::crypto::ring::default_provider());
+            let config = crate::rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            ftp.into_secure(crate::RustlsConnector::from(Arc::new(config)), "localhost")
+                .unwrap()
+        };
+
+        #[cfg(all(
+            not(feature = "native-tls"),
+            not(feature = "rustls-ring"),
+            feature = "rustls-aws-lc-rs"
+        ))]
+        let mut ftp = {
+            let mut roots = crate::rustls::RootCertStore::empty();
+            roots
+                .add(crate::rustls::pki_types::CertificateDer::from(
+                    include_bytes!("test_container/fixtures/ca-cert.der").to_vec(),
+                ))
+                .unwrap();
+            let provider = Arc::new(crate::rustls::crypto::aws_lc_rs::default_provider());
+            let config = crate::rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            ftp.into_secure(crate::RustlsConnector::from(Arc::new(config)), "localhost")
+                .unwrap()
+        };
+
+        assert!(ftp.login("test", "test").is_ok());
+        let mapped_ports = (30_000..=30_009)
+            .map(|port| (port, container.get_mapped_port(port)))
+            .collect::<HashMap<_, _>>();
+        let ftp = ftp.passive_stream_builder(move |mut addr| {
+            addr.set_port(mapped_ports[&addr.port()]);
+            addr.set_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+            let stream = TcpStream::connect(addr).map_err(FtpError::ConnectionError)?;
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .map_err(FtpError::ConnectionError)?;
+            stream
+                .set_write_timeout(Some(Duration::from_secs(3)))
+                .map_err(FtpError::ConnectionError)?;
+            Ok(stream)
+        });
+
+        (ftp, container)
+    }
 
     fn with_test_ftp_stream<F>(f: F)
     where
