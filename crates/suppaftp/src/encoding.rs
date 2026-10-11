@@ -9,13 +9,15 @@ use std::{fmt, io};
 /// Converts text exchanged with the server between bytes and [`String`]s.
 ///
 /// The client encodes every command line it sends (verb, arguments and the trailing CRLF) and
-/// decodes listing lines (`LIST`, `NLST`, `MLSD`), the `MLST` reply and the `PWD` reply.
+/// decodes listing lines (`LIST`, `NLST`, `MLSD`), the `MLST` and `PWD` replies and the welcome
+/// message.
 ///
 /// The encoding must be ASCII-compatible: command verbs, spaces and CRLF must encode to the
 /// same bytes as in ASCII. Latin-1, Windows-1252, Shift-JIS and UTF-8 all are. A command whose
 /// encoded form contains CR or LF anywhere but at its end is rejected before it is sent.
 /// Literal `0xFF` bytes in commands are escaped for the FTP control connection's Telnet framing.
-/// Doubled `0xFF` bytes in `MLST` and `PWD` replies are unescaped before decoding.
+/// Doubled `0xFF` bytes in `MLST` and `PWD` replies and in the welcome message are unescaped
+/// before decoding.
 ///
 /// The default is [`Utf8Encoding`].
 ///
@@ -79,6 +81,41 @@ impl Encoding for Utf8Encoding {
 
     fn encode(&self, text: &str) -> io::Result<Vec<u8>> {
         Ok(text.as_bytes().to_vec())
+    }
+}
+
+/// The server's welcome banner.
+///
+/// The banner is read while connecting, before the caller can choose an [`Encoding`], so the raw
+/// bytes are kept and decoded again whenever the encoding changes.
+#[derive(Debug, Clone)]
+pub(crate) struct WelcomeMessage {
+    /// Reply body with doubled Telnet IAC bytes unescaped.
+    raw: Vec<u8>,
+    /// `raw` decoded with the current encoding, trailing whitespace trimmed.
+    text: String,
+}
+
+impl WelcomeMessage {
+    /// Keeps the reply `body` and decodes it with `encoding`.
+    pub(crate) fn new(body: &[u8], encoding: &dyn Encoding) -> Self {
+        let raw = crate::command::unescape_telnet_iac(body).into_owned();
+        let text = Self::decode(&raw, encoding);
+        Self { raw, text }
+    }
+
+    /// Decodes the banner again with `encoding`.
+    pub(crate) fn redecode(&mut self, encoding: &dyn Encoding) {
+        self.text = Self::decode(&self.raw, encoding);
+    }
+
+    /// Returns the decoded banner.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    fn decode(raw: &[u8], encoding: &dyn Encoding) -> String {
+        encoding.decode(raw).trim_end().to_string()
     }
 }
 

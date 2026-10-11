@@ -34,7 +34,7 @@ use super::types::{ActivePeerCheck, FileType, FtpError, FtpResult, Mode, Respons
 use crate::command::Command;
 #[cfg(feature = "secure")]
 use crate::command::ProtectionLevel;
-use crate::encoding::{Encoding, Utf8Encoding};
+use crate::encoding::{Encoding, Utf8Encoding, WelcomeMessage};
 use crate::types::Features;
 
 /// A function that creates a new stream for the data connection in passive mode.
@@ -57,7 +57,7 @@ where
     nat_workaround: bool,
     /// Which addresses an active-mode data connection is accepted from.
     active_peer_check: ActivePeerCheck,
-    welcome_msg: Option<String>,
+    welcome_msg: Option<WelcomeMessage>,
     active_timeout: Duration,
     passive_stream_builder: Box<PassiveStreamBuilder>,
     #[cfg(not(feature = "secure"))]
@@ -110,9 +110,9 @@ where
         let ready = ftp_stream.control().read_response(Status::Ready);
         match ready {
             Ok(response) => {
-                let welcome_msg = response.as_string().ok();
-                debug!("Server READY; response: {:?}", welcome_msg);
-                ftp_stream.welcome_msg = welcome_msg;
+                let welcome_msg = WelcomeMessage::new(&response.body, &Utf8Encoding);
+                debug!("Server READY; response: {:?}", welcome_msg.as_str());
+                ftp_stream.welcome_msg = Some(welcome_msg);
                 Ok(ftp_stream)
             }
             Err(err) => Err(err),
@@ -159,10 +159,15 @@ where
 
     /// Set the [`Encoding`] of file names and commands.
     ///
-    /// The encoding is applied to every command sent and to the lines of `LIST`, `NLST` and
-    /// `MLSD` listings and the replies of `MLST` and `PWD`. The default is [`Utf8Encoding`].
+    /// The encoding is applied to every command sent, to the lines of `LIST`, `NLST` and `MLSD`
+    /// listings, to the replies of `MLST` and `PWD`, and to the welcome message, which is decoded
+    /// again with the new encoding. The default is [`Utf8Encoding`].
     pub fn set_encoding(&mut self, encoding: impl Encoding + 'static) {
-        self.control().encoding = Arc::new(encoding);
+        let encoding: Arc<dyn Encoding> = Arc::new(encoding);
+        if let Some(welcome_msg) = self.welcome_msg.as_mut() {
+            welcome_msg.redecode(encoding.as_ref());
+        }
+        self.control().encoding = encoding;
     }
 
     /// Switch to explicit secure mode if possible (FTPS), using a provided SSL configuration.
@@ -279,16 +284,19 @@ where
         };
         debug!("Reading server response...");
         let response = stream.control().read_response(Status::Ready)?;
-        let welcome_msg = response.as_string().ok();
-        debug!("Server READY; response: {:?}", welcome_msg);
-        stream.welcome_msg = welcome_msg;
+        let welcome_msg = WelcomeMessage::new(&response.body, &Utf8Encoding);
+        debug!("Server READY; response: {:?}", welcome_msg.as_str());
+        stream.welcome_msg = Some(welcome_msg);
 
         Ok(stream)
     }
 
-    /// Returns welcome message retrieved from server (if available)
+    /// Returns the welcome message the server sent when the connection was opened.
+    ///
+    /// The message is decoded with the current [`Encoding`] (lossy UTF-8 by default) and decoded
+    /// again by [`ImplFtpStream::set_encoding`]. Trailing whitespace is trimmed.
     pub fn get_welcome_msg(&self) -> Option<&str> {
-        self.welcome_msg.as_deref()
+        self.welcome_msg.as_ref().map(WelcomeMessage::as_str)
     }
 
     /// Returns a locked view of the underlying control [`TcpStream`].
@@ -2531,6 +2539,7 @@ mod encoding_tests {
         let mut ftp = crate::ImplFtpStream::<std::net::TcpStream>::connect(address).unwrap();
         ftp.set_encoding(Latin1);
         let mut ftp = ftp.into_secure(PassthroughConnector, "localhost").unwrap();
+        assert_eq!(ftp.get_welcome_msg(), Some("220 café.txt ready"));
         assert_eq!(ftp.pwd().unwrap(), "/café");
         assert_eq!(ftp.nlst(None).unwrap(), vec!["café.txt".to_string()]);
         ftp.rm("café.txt").unwrap();
@@ -2577,7 +2586,11 @@ mod encoding_tests {
         ] {
             let (address, server) = serve_latin1_with_name(name);
             let mut ftp = FtpStream::connect(address).unwrap();
+            let lossy_banner = format!("220 {} ready", filename.replace('ÿ', "\u{FFFD}"));
+            assert_eq!(ftp.get_welcome_msg(), Some(lossy_banner.as_str()));
             ftp.set_encoding(Latin1);
+            let banner = format!("220 {filename} ready");
+            assert_eq!(ftp.get_welcome_msg(), Some(banner.as_str()));
             let pwd = ftp.pwd().unwrap();
             assert_eq!(pwd, path);
             assert_eq!(ftp.mlst(None).unwrap(), listing);
@@ -2617,6 +2630,15 @@ mod encoding_tests {
         let (address, server) = serve_latin1();
         let mut ftp = FtpStream::connect(address).unwrap();
         assert_eq!(ftp.pwd().unwrap(), "/caf\u{FFFD}");
+        ftp.quit().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn should_decode_welcome_lossily_by_default() {
+        let (address, server) = serve_latin1();
+        let mut ftp = FtpStream::connect(address).unwrap();
+        assert_eq!(ftp.get_welcome_msg(), Some("220 caf\u{FFFD}.txt ready"));
         ftp.quit().unwrap();
         server.join().unwrap();
     }
