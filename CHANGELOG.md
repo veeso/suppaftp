@@ -2,14 +2,40 @@
 
 All notable changes to this project are documented in this file.
 
+## 12.2.0
+
+Released on 2026-10-11
+
+### Added
+
+- support file names in encodings other than UTF-8 (#191)
+
+> Add the Encoding trait and its default Utf8Encoding. The sync, tokio and smol clients get set_encoding, which applies the encoding to every command sent and to the file names read from LIST, NLST, MLSD, MLST and PWD. Servers that store names in Latin-1, Windows-1252 or Shift-JIS can now be listed and addressed. A name the encoding cannot represent fails the command instead of sending a different name, and encoded commands are checked again for line breaks. Literal Telnet IAC bytes are escaped before FTP commands are written. PWD replies that are not valid UTF-8 are now decoded lossily by default instead of failing.
+
+### Fixed
+
+- **ftp:** return rejected data commands before starting TLS (#190)
+
+> Read transfer replies before data TLS and active accept in sync, Tokio and smol clients. Add protected vsftpd container regressions and protocol ordering coverage.
+
+- decode the welcome message with the stream encoding
+
+> The welcome banner was stored only when it was valid UTF-8, so servers that greet in Latin-1 or another encoding left get_welcome_msg returning None. The banner is now kept as raw bytes, decoded as lossy UTF-8 when connecting, and decoded again when set_encoding changes the encoding, like PWD replies and listings.
+
+- send CRLF line endings on ASCII uploads
+
+> RFC 959 requires the sender to convert text to CRLF line endings in the ASCII transfer type, but put_file and append_file sent the bytes unchanged, so text files uploaded from Unix lost their line breaks on servers that expect CRLF. After transfer_type selects ASCII, every LF not preceded by CR is now sent as CRLF; text that already uses CRLF is unchanged. Binary uploads, and uploads made without calling transfer_type, are unchanged. put_with_stream and append_with_stream still send the bytes as written.
+
 ## 12.1.2
 
 Released on 2026-10-10
 
 ### Fixed
 
-- **list:** reject malformed MLSx Unix modes
+- **list:** reject malformed MLSx Unix modes (#187)
 
+> - fix(list): reject malformed MLSx Unix modes
+>
 > Validate three or four ASCII octal digits before slicing mode values.
 > Add MLSD and MLST regression tests for UTF-8 and invalid octal modes.
 
