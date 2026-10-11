@@ -1008,19 +1008,25 @@ where
         ))
     }
 
-    /// Execute command which send data back in a separate stream
-    async fn data_command(
+    /// Opens the data channel after the transfer command's preliminary response is accepted.
+    ///
+    /// Passive mode connects the raw TCP socket before sending the command. Active mode sends the
+    /// command and validates its reply before accepting a data socket. Rejections drop the pending
+    /// socket or listener without starting TLS or marking the data connection open.
+    async fn data_command_with_response(
         &self,
         cc: &mut ControlChannel<T>,
         cmd: Command,
-    ) -> FtpResult<DataStream<T>> {
-        // guard data connection
+        expected_code: &[Status],
+    ) -> FtpResult<(Response, DataStream<T>)> {
+        // Reject overlapping transfers before negotiating or opening another data socket.
         cc.guard_multiple_data_connections()?;
 
-        let stream = match self.mode {
+        let (response, stream) = match self.mode {
             Mode::Active => {
                 let listener = self.active(cc).await?;
                 cc.perform(cmd).await?;
+                let response = cc.read_response_in(expected_code).await?;
 
                 // Anyone reaching the listener may connect first; only allowed peers are taken.
                 let control_peer = cc
@@ -1039,81 +1045,63 @@ where
                             Ok((_, addr)) => {
                                 warn!("Ignoring data connection from unexpected {addr}");
                             }
-                            Err(err) => break Err(err),
+                            Err(error) => break Err(error),
                         }
                     }
                 };
-                match tokio::time::timeout(self.active_timeout, accept).await {
+                let stream = match tokio::time::timeout(self.active_timeout, accept).await {
                     Ok(Ok((stream, addr))) => {
                         debug!("Connection received from {}", addr);
                         stream
                     }
-                    Ok(Err(e)) => return Err(FtpError::ConnectionError(e)), // Handle error
-                    Err(e) => {
+                    Ok(Err(error)) => return Err(FtpError::ConnectionError(error)),
+                    Err(error) => {
                         return Err(FtpError::ConnectionError(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
-                            e,
+                            error,
                         )));
                     }
-                }
+                };
+                (response, stream)
             }
             Mode::ExtendedPassive => {
-                let addr = self.epsv(cc).await?;
+                let address = self.epsv(cc).await?;
+                let stream = (self.passive_stream_builder)(address).await?;
                 cc.perform(cmd).await?;
-                (self.passive_stream_builder)(addr).await?
+                let response = cc.read_response_in(expected_code).await?;
+                (response, stream)
             }
             Mode::Passive => {
-                let addr = self.pasv(cc).await?;
+                let address = self.pasv(cc).await?;
+                let stream = (self.passive_stream_builder)(address).await?;
                 cc.perform(cmd).await?;
-                (self.passive_stream_builder)(addr).await?
+                let response = cc.read_response_in(expected_code).await?;
+                (response, stream)
             }
         };
 
         #[cfg(not(feature = "async-secure"))]
-        let result = Ok(DataStream::Tcp(stream));
+        let data_stream = DataStream::Tcp(stream);
 
         #[cfg(feature = "async-secure")]
-        let result = match (self.tls_ctx.as_ref(), self.domain.as_ref()) {
-            (Some(tls_ctx), Some(domain)) => tls_ctx
-                .connect(domain, stream)
-                .await
-                .map(|x| DataStream::Ssl(Box::new(x)))
-                .map_err(|e| FtpError::SecureError(format!("{e}"))),
-            (Some(_), None) => Err(FtpError::SecureError(
-                "TLS context is set but no domain is available for the secure connection"
-                    .to_string(),
+        let data_stream = match (self.tls_ctx.as_ref(), self.domain.as_ref()) {
+            (Some(tls_ctx), Some(domain)) => DataStream::Ssl(Box::new(
+                tls_ctx
+                    .connect(domain, stream)
+                    .await
+                    .map_err(|error| FtpError::SecureError(format!("{error}")))?,
             )),
-            (None, _) => Ok(DataStream::Tcp(stream)),
+            (Some(_), None) => {
+                return Err(FtpError::SecureError(
+                    "TLS context is set but no domain is available for the secure connection"
+                        .to_string(),
+                ));
+            }
+            (None, _) => DataStream::Tcp(stream),
         };
 
-        if result.is_ok() {
-            cc.data_connection_open = true;
-        }
-        result
-    }
-
-    /// Open a data connection for `cmd` and read the preliminary response confirming the transfer.
-    ///
-    /// If the server rejects the command (the response is not one of `expected_code`), the data
-    /// connection is dropped and `data_connection_open` is reset to `false`. This guarantees that a
-    /// failed command never leaves the client believing a data connection is still open, which would
-    /// otherwise make every subsequent data command fail with [`FtpError::DataConnectionAlreadyOpen`].
-    async fn data_command_with_response(
-        &self,
-        cc: &mut ControlChannel<T>,
-        cmd: Command,
-        expected_code: &[Status],
-    ) -> FtpResult<(Response, DataStream<T>)> {
-        let data_stream = self.data_command(cc, cmd).await?;
-        match cc.read_response_in(expected_code).await {
-            Ok(response) => Ok((response, data_stream)),
-            Err(err) => {
-                // server rejected the command: drop the data stream and reset the open flag
-                drop(data_stream);
-                cc.data_connection_open = false;
-                Err(err)
-            }
-        }
+        cc.data_connection_open = true;
+        Ok((response, data_stream))
     }
 
     /// Runs the EPSV to enter Extended passive mode.
@@ -1213,6 +1201,12 @@ where
 
 #[cfg(test)]
 mod test {
+    #[cfg(any(
+        feature = "tokio-async-native-tls",
+        feature = "tokio-rustls-aws-lc-rs",
+        feature = "tokio-rustls-ring"
+    ))]
+    use std::collections::HashMap;
     use std::io::Cursor;
     use std::str::FromStr as _;
     use std::sync::Arc;
@@ -1226,13 +1220,153 @@ mod test {
     use super::super::tokio::AsyncFtpStream;
     use super::*;
     use crate::test_container::AsyncPureFtpRunner;
+    #[cfg(any(
+        feature = "tokio-async-native-tls",
+        feature = "tokio-rustls-aws-lc-rs",
+        feature = "tokio-rustls-ring"
+    ))]
+    use crate::test_container::AsyncTlsFtpRunner;
     use crate::types::FormatControl;
+
+    #[cfg(feature = "tokio-async-native-tls")]
+    type TestTlsFtpStream = crate::tokio::AsyncNativeTlsFtpStream;
+    #[cfg(all(not(feature = "tokio-async-native-tls"), feature = "tokio-rustls-ring"))]
+    type TestTlsFtpStream = crate::tokio::AsyncRustlsFtpStream;
+    #[cfg(all(
+        not(feature = "tokio-async-native-tls"),
+        not(feature = "tokio-rustls-ring"),
+        feature = "tokio-rustls-aws-lc-rs"
+    ))]
+    type TestTlsFtpStream = crate::tokio::AsyncRustlsFtpStream;
+
+    #[cfg(feature = "async-secure")]
+    #[derive(Debug)]
+    struct ProbeConnector(Arc<std::sync::atomic::AtomicUsize>);
+
+    #[cfg(feature = "async-secure")]
+    #[async_trait::async_trait]
+    impl AsyncTlsConnector for ProbeConnector {
+        type Stream = AsyncNoTlsStream;
+
+        async fn connect(&self, _domain: &str, _stream: TcpStream) -> FtpResult<Self::Stream> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(FtpError::SecureError("probe".into()))
+        }
+    }
+
+    #[cfg(feature = "async-secure")]
+    #[tokio::test]
+    async fn should_validate_data_reply_before_tls_or_active_accept() {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            for mode in [Mode::Passive, Mode::ExtendedPassive, Mode::Active] {
+                for status in [
+                    Status::BadCommand,
+                    Status::FileUnavailable,
+                    Status::AlreadyOpen,
+                    Status::AboutToSend,
+                ] {
+                    let server = crate::test_data_command::ScriptedDataServer::start(mode, status);
+                    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                    let mut ftp = AsyncFtpStream::connect(server.address()).await.unwrap();
+                    ftp = ftp.active_mode(Duration::from_secs(1));
+                    ftp.set_mode(mode);
+                    ftp.tls_ctx = Some(Box::new(ProbeConnector(Arc::clone(&calls))));
+                    ftp.domain = Some("localhost".into());
+                    let result = ftp
+                        .custom_data_command(
+                            "RETR probe",
+                            &[Status::AlreadyOpen, Status::AboutToSend],
+                        )
+                        .await;
+                    let accepted = matches!(status, Status::AlreadyOpen | Status::AboutToSend);
+                    if accepted {
+                        assert!(matches!(result, Err(FtpError::SecureError(ref text))
+                            if text == "Secure error: probe"));
+                    } else {
+                        assert!(
+                            matches!(result, Err(FtpError::UnexpectedResponse(ref response))
+                            if response.status == status)
+                        );
+                    }
+                    assert_eq!(
+                        calls.load(std::sync::atomic::Ordering::SeqCst),
+                        usize::from(accepted)
+                    );
+                    ftp.noop().await.unwrap();
+                    drop(ftp);
+                    server.finish();
+                }
+            }
+        })
+        .await
+        .expect("data command ordering deadline exceeded");
+    }
 
     #[tokio::test]
     async fn connect() {
         crate::log_init();
         let (stream, _container) = setup_stream().await;
         finalize_stream(stream).await;
+    }
+
+    #[cfg(any(
+        feature = "tokio-async-native-tls",
+        feature = "tokio-rustls-aws-lc-rs",
+        feature = "tokio-rustls-ring"
+    ))]
+    #[tokio::test]
+    async fn should_return_ftps_rejections_and_recover() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            for mode in [Mode::Passive, Mode::ExtendedPassive] {
+                let (mut ftp, _container) = setup_tls_stream().await;
+                ftp.set_mode(mode);
+                ftp.transfer_type(FileType::Binary).await.unwrap();
+                for _ in 0..2 {
+                    let cases = [
+                        (ftp.mlsd(None).await.map(|_| ()), Status::BadCommand),
+                        (
+                            ftp.retr_as_stream("missing-188.txt").await.map(|_| ()),
+                            Status::FileUnavailable,
+                        ),
+                        (
+                            ftp.custom_data_command(
+                                "STOR /readonly/denied.txt",
+                                &[Status::AboutToSend, Status::AlreadyOpen],
+                            )
+                            .await
+                            .map(|_| ()),
+                            Status::BadFilename,
+                        ),
+                    ];
+                    for (result, expected) in cases {
+                        match result {
+                            Err(FtpError::UnexpectedResponse(reply)) => {
+                                assert_eq!(reply.status, expected);
+                            }
+                            other => panic!("expected {expected:?}, got {other:?}"),
+                        }
+                    }
+                    ftp.noop().await.unwrap();
+                }
+                let payload = b"issue 188 TLS recovery\n";
+                let mut input = std::io::Cursor::new(payload);
+                assert_eq!(
+                    ftp.put_file("recovered-188.txt", &mut input).await.unwrap(),
+                    payload.len() as u64
+                );
+                let mut download = ftp.retr_as_stream("recovered-188.txt").await.unwrap();
+                let mut bytes = Vec::new();
+                tokio::io::AsyncReadExt::read_to_end(&mut download, &mut bytes)
+                    .await
+                    .unwrap();
+                download.finish().await.unwrap();
+                assert_eq!(bytes, payload);
+                ftp.rm("recovered-188.txt").await.unwrap();
+                ftp.quit().await.unwrap();
+            }
+        })
+        .await
+        .expect("FTPS rejection or recovery exceeded 10 seconds");
     }
 
     #[tokio::test]
@@ -2070,6 +2204,105 @@ mod test {
     }
 
     // -- test utils
+
+    #[cfg(any(
+        feature = "tokio-async-native-tls",
+        feature = "tokio-rustls-aws-lc-rs",
+        feature = "tokio-rustls-ring"
+    ))]
+    async fn setup_tls_stream() -> (TestTlsFtpStream, AsyncTlsFtpRunner) {
+        crate::log_init();
+        let container = AsyncTlsFtpRunner::start().await;
+        let port = container.get_ftp_port().await;
+        let ftp = TestTlsFtpStream::connect(format!("localhost:{port}"))
+            .await
+            .unwrap();
+
+        #[cfg(feature = "tokio-async-native-tls")]
+        let mut ftp = {
+            let certificate = crate::async_native_tls::Certificate::from_pem(include_bytes!(
+                "../test_container/fixtures/ca-cert.pem"
+            ))
+            .unwrap();
+            let connector =
+                crate::async_native_tls::TlsConnector::new().add_root_certificate(certificate);
+            ftp.into_secure(
+                crate::tokio::AsyncNativeTlsConnector::from(connector),
+                "localhost",
+            )
+            .await
+            .unwrap()
+        };
+
+        #[cfg(all(not(feature = "tokio-async-native-tls"), feature = "tokio-rustls-ring"))]
+        let mut ftp = {
+            use crate::tokio_rustls::rustls;
+            let mut roots = rustls::RootCertStore::empty();
+            roots
+                .add(rustls::pki_types::CertificateDer::from(
+                    include_bytes!("../test_container/fixtures/ca-cert.der").to_vec(),
+                ))
+                .unwrap();
+            let provider = Arc::new(rustls::crypto::ring::default_provider());
+            let config = rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let connector = crate::tokio_rustls::TlsConnector::from(Arc::new(config));
+            ftp.into_secure(
+                crate::tokio::AsyncRustlsConnector::from(connector),
+                "localhost",
+            )
+            .await
+            .unwrap()
+        };
+
+        #[cfg(all(
+            not(feature = "tokio-async-native-tls"),
+            not(feature = "tokio-rustls-ring"),
+            feature = "tokio-rustls-aws-lc-rs"
+        ))]
+        let mut ftp = {
+            use crate::tokio_rustls::rustls;
+            let mut roots = rustls::RootCertStore::empty();
+            roots
+                .add(rustls::pki_types::CertificateDer::from(
+                    include_bytes!("../test_container/fixtures/ca-cert.der").to_vec(),
+                ))
+                .unwrap();
+            let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+            let config = rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            let connector = crate::tokio_rustls::TlsConnector::from(Arc::new(config));
+            ftp.into_secure(
+                crate::tokio::AsyncRustlsConnector::from(connector),
+                "localhost",
+            )
+            .await
+            .unwrap()
+        };
+
+        assert!(ftp.login("test", "test").await.is_ok());
+        let mut mapped_ports = HashMap::new();
+        for port in 30_000..=30_009 {
+            mapped_ports.insert(port, container.get_mapped_port(port).await);
+        }
+        let ftp = ftp.passive_stream_builder(move |mut addr| {
+            addr.set_port(mapped_ports[&addr.port()]);
+            addr.set_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+            Box::pin(async move {
+                TcpStream::connect(addr)
+                    .await
+                    .map_err(FtpError::ConnectionError)
+            })
+        });
+
+        (ftp, container)
+    }
 
     async fn setup_stream() -> (AsyncFtpStream, Arc<AsyncPureFtpRunner>) {
         crate::log_init();
