@@ -445,7 +445,8 @@ pub(crate) mod encoding_fixture {
                 .iter()
                 .flat_map(|byte| std::iter::once(*byte).chain((*byte == 0xFF).then_some(*byte)))
                 .collect();
-            reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+            let banner = [b"220 ".as_slice(), &control_name, b" ready\r\n"].concat();
+            reader.get_mut().write_all(&banner).unwrap();
             let mut data_listener: Option<TcpListener> = None;
             let mut received = Vec::new();
             loop {
