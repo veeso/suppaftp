@@ -181,6 +181,7 @@ extern crate log;
 mod async_ftp;
 
 pub(crate) mod command;
+mod encoding;
 mod regex;
 mod status;
 mod sync_ftp;
@@ -219,6 +220,7 @@ pub extern crate async_native_tls_crate as async_native_tls;
 pub extern crate tokio_rustls_crate as tokio_rustls;
 
 // -- export (common)
+pub use encoding::{Encoding, Utf8Encoding};
 pub use status::Status;
 use sync_ftp::NoTlsStream;
 // -- export sync
@@ -321,5 +323,189 @@ pub(crate) mod active_mode_fixture {
             }
         });
         address
+    }
+}
+
+/// A fake server with Latin-1 file names, for the encoding tests of every client.
+#[cfg(test)]
+pub(crate) mod encoding_fixture {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::{SocketAddr, TcpListener};
+    use std::thread::{self, JoinHandle};
+
+    /// `café.txt` in Latin-1.
+    pub(crate) const LATIN1_NAME: &[u8] = b"caf\xE9.txt";
+
+    /// A connector that exercises control-channel reconstruction without a TLS handshake.
+    #[derive(Debug)]
+    #[cfg(any(feature = "secure", feature = "async-secure"))]
+    pub(crate) struct PassthroughConnector;
+
+    #[cfg(feature = "secure")]
+    impl crate::TlsConnector for PassthroughConnector {
+        type Stream = std::net::TcpStream;
+
+        fn connect(&self, _: &str, stream: Self::Stream) -> crate::FtpResult<Self::Stream> {
+            Ok(stream)
+        }
+    }
+
+    #[cfg(feature = "secure")]
+    impl crate::TlsStream for std::net::TcpStream {
+        type InnerStream = Self;
+
+        fn tcp_stream(self) -> crate::FtpResult<Self> {
+            Ok(self)
+        }
+
+        fn get_ref(&self) -> &Self {
+            self
+        }
+
+        fn mut_ref(&mut self) -> &mut Self {
+            self
+        }
+    }
+
+    #[cfg(all(feature = "tokio", feature = "async-secure"))]
+    #[async_trait::async_trait]
+    impl crate::tokio::AsyncTlsConnector for PassthroughConnector {
+        type Stream = tokio::net::TcpStream;
+
+        async fn connect(&self, _: &str, stream: Self::Stream) -> crate::FtpResult<Self::Stream> {
+            Ok(stream)
+        }
+    }
+
+    #[cfg(all(feature = "tokio", feature = "async-secure"))]
+    impl crate::tokio::TokioTlsStream for tokio::net::TcpStream {
+        type InnerStream = Self;
+
+        fn tcp_stream(self) -> crate::FtpResult<Self> {
+            Ok(self)
+        }
+
+        fn get_ref(&self) -> &Self {
+            self
+        }
+
+        fn mut_ref(&mut self) -> &mut Self {
+            self
+        }
+    }
+
+    #[cfg(all(feature = "smol", feature = "async-secure"))]
+    #[async_trait::async_trait]
+    impl crate::smol::AsyncTlsConnector for PassthroughConnector {
+        type Stream = smol::net::TcpStream;
+
+        async fn connect(&self, _: &str, stream: Self::Stream) -> crate::FtpResult<Self::Stream> {
+            Ok(stream)
+        }
+    }
+
+    #[cfg(all(feature = "smol", feature = "async-secure"))]
+    impl crate::smol::SmolTlsStream for smol::net::TcpStream {
+        type InnerStream = Self;
+
+        fn tcp_stream(self) -> crate::FtpResult<Self> {
+            Ok(self)
+        }
+
+        fn get_ref(&self) -> &Self {
+            self
+        }
+
+        fn mut_ref(&mut self) -> &mut Self {
+            self
+        }
+    }
+
+    /// Starts a one-connection server for Latin-1 encoding and control-channel transition tests.
+    ///
+    /// The handle yields every raw command line received, CRLF included, once the client sends
+    /// `QUIT` or disconnects.
+    pub(crate) fn serve_latin1() -> (SocketAddr, JoinHandle<Vec<Vec<u8>>>) {
+        serve_latin1_with_name(LATIN1_NAME)
+    }
+
+    /// Starts the encoding fixture with a raw filename and Telnet-escaped control replies.
+    pub(crate) fn serve_latin1_with_name(
+        name: &'static [u8],
+    ) -> (SocketAddr, JoinHandle<Vec<Vec<u8>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(socket);
+            let control_name: Vec<u8> = name
+                .iter()
+                .flat_map(|byte| std::iter::once(*byte).chain((*byte == 0xFF).then_some(*byte)))
+                .collect();
+            reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+            let mut data_listener: Option<TcpListener> = None;
+            let mut received = Vec::new();
+            loop {
+                let mut line = Vec::new();
+                if reader.read_until(b'\n', &mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                received.push(line.clone());
+                let verb: Vec<u8> = line
+                    .split(|byte| matches!(byte, b' ' | b'\r' | b'\n'))
+                    .next()
+                    .unwrap_or_default()
+                    .to_vec();
+                let reply: Vec<u8> = match verb.as_slice() {
+                    b"PWD" => [
+                        b"257 \"/".as_slice(),
+                        control_name.strip_suffix(b".txt").unwrap_or(&control_name),
+                        b"\" is the current directory\r\n",
+                    ]
+                    .concat(),
+                    b"MLST" => [
+                        b"250-Listing\r\n type=file; ".as_slice(),
+                        &control_name,
+                        b"\r\n250 End\r\n",
+                    ]
+                    .concat(),
+                    b"AUTH" => b"234 start TLS\r\n".to_vec(),
+                    b"PASV" => {
+                        let data = TcpListener::bind("127.0.0.1:0").unwrap();
+                        let port = data.local_addr().unwrap().port();
+                        data_listener = Some(data);
+                        format!(
+                            "227 Entering Passive Mode (127,0,0,1,{},{})\r\n",
+                            port >> 8,
+                            port & 0xFF
+                        )
+                        .into_bytes()
+                    }
+                    b"LIST" | b"NLST" | b"MLSD" => {
+                        let data = data_listener.take().expect("PASV must precede a listing");
+                        reader
+                            .get_mut()
+                            .write_all(b"150 here it comes\r\n")
+                            .unwrap();
+                        let (mut socket, _) = data.accept().unwrap();
+                        socket.write_all(name).unwrap();
+                        socket.write_all(b"\r\n").unwrap();
+                        drop(socket);
+                        b"226 done\r\n".to_vec()
+                    }
+                    b"DELE" | b"CWD" => b"250 done\r\n".to_vec(),
+                    b"QUIT" => b"221 bye\r\n".to_vec(),
+                    _ => b"200 ok\r\n".to_vec(),
+                };
+                if reader.get_mut().write_all(&reply).is_err() || verb == b"QUIT" {
+                    break;
+                }
+            }
+            received
+        });
+        (address, handle)
     }
 }

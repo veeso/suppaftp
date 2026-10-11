@@ -42,6 +42,7 @@ use crate::FtpStream;
 use crate::command::Command;
 #[cfg(feature = "async-secure")]
 use crate::command::ProtectionLevel;
+use crate::encoding::{Encoding, Utf8Encoding};
 use crate::types::Features;
 
 /// A function that creates a new stream for the data connection in passive mode.
@@ -113,7 +114,7 @@ where
     pub async fn connect_with_stream(stream: TcpStream) -> FtpResult<Self> {
         debug!("Established connection with server");
         let mut ftp_stream = ImplAsyncFtpStream {
-            control: ControlChannel::shared(DataStream::Tcp(stream)),
+            control: ControlChannel::shared(DataStream::Tcp(stream), Arc::new(Utf8Encoding)),
             #[cfg(not(feature = "async-secure"))]
             marker: PhantomData {},
             mode: Mode::Passive,
@@ -176,16 +177,15 @@ where
             cc.read_response(Status::AuthOk).await?;
         }
         debug!("TLS OK; initializing ssl stream");
-        let plain = control::into_exclusive(self.control)?
-            .reader
-            .into_inner()
-            .into_tcp_stream()?;
+        let plain = control::into_exclusive(self.control)?;
+        let encoding = Arc::clone(&plain.encoding);
+        let plain = plain.reader.into_inner().into_tcp_stream()?;
         let stream = tls_connector
             .connect(domain, plain)
             .await
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         let secured_ftp_tream = ImplAsyncFtpStream {
-            control: ControlChannel::shared(DataStream::Ssl(Box::new(stream))),
+            control: ControlChannel::shared(DataStream::Ssl(Box::new(stream)), encoding),
             mode: self.mode,
             nat_workaround: self.nat_workaround,
             active_peer_check: self.active_peer_check,
@@ -246,7 +246,10 @@ where
             .map_err(|e| FtpError::SecureError(format!("{e}")))?;
         debug!("TLS Steam OK");
         let mut stream = ImplAsyncFtpStream {
-            control: ControlChannel::shared(DataStream::Ssl(Box::new(stream))),
+            control: ControlChannel::shared(
+                DataStream::Ssl(Box::new(stream)),
+                Arc::new(Utf8Encoding),
+            ),
             mode: Mode::Passive,
             nat_workaround: false,
             active_peer_check: ActivePeerCheck::default(),
@@ -311,6 +314,14 @@ where
         self.active_peer_check = check;
     }
 
+    /// Set the [`Encoding`] of file names and commands.
+    ///
+    /// The encoding is applied to every command sent and to the lines of `LIST`, `NLST` and
+    /// `MLSD` listings and the replies of `MLST` and `PWD`. The default is [`Utf8Encoding`].
+    pub async fn set_encoding(&mut self, encoding: impl Encoding + 'static) {
+        self.control.lock().await.encoding = Arc::new(encoding);
+    }
+
     /// Returns a locked view of the underlying control [`TcpStream`].
     ///
     /// The returned [`ControlSocket`] dereferences to the socket and keeps the control connection
@@ -367,11 +378,10 @@ where
             cc.read_response(Status::CommandOk).await?;
         }
         trace!("CCC OK");
-        let plain = control::into_exclusive(self.control)?
-            .reader
-            .into_inner()
-            .into_tcp_stream()?;
-        self.control = ControlChannel::shared(DataStream::Tcp(plain));
+        let plain = control::into_exclusive(self.control)?;
+        let encoding = Arc::clone(&plain.encoding);
+        let plain = plain.reader.into_inner().into_tcp_stream()?;
+        self.control = ControlChannel::shared(DataStream::Tcp(plain), encoding);
         Ok(self)
     }
 
@@ -401,14 +411,12 @@ where
         debug!("Getting working directory");
         cc.perform(Command::Pwd).await?;
         let response = cc.read_response(Status::PathCreated).await?;
-        let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
-        let status = response.status;
+        let body = cc
+            .encoding
+            .decode(&crate::command::unescape_telnet_iac(&response.body));
         match (body.find('"'), body.rfind('"')) {
             (Some(begin), Some(end)) if begin < end => Ok(body[begin + 1..end].to_string()),
-            _ => Err(FtpError::UnexpectedResponse(Response::new(
-                status,
-                response.body,
-            ))),
+            _ => Err(FtpError::UnexpectedResponse(response)),
         }
     }
 
@@ -764,7 +772,9 @@ where
             .read_response_in(&[Status::RequestedFileActionOk])
             .await?;
         // read body at line 1
-        let response_str = String::from_utf8_lossy(&response.body).to_string();
+        let response_str = cc
+            .encoding
+            .decode(&crate::command::unescape_telnet_iac(&response.body));
         match response_str.lines().nth(1) {
             Some("") => Err(FtpError::BadResponse),
             Some(line) => Ok(line.trim().to_string()),
@@ -929,8 +939,19 @@ where
             .await
     }
 
-    /// Read a data stream line by line.
+    /// Read a data stream line by line, decoding each line as lossy UTF-8.
     pub async fn get_lines_from_stream<R>(data_stream: &mut R) -> FtpResult<Vec<String>>
+    where
+        R: AsyncBufReadExt + Unpin,
+    {
+        Self::decode_lines_from_stream(data_stream, &Utf8Encoding).await
+    }
+
+    /// Reads `data_stream` line by line, decoding each non-empty line with `encoding`.
+    async fn decode_lines_from_stream<R>(
+        data_stream: &mut R,
+        encoding: &dyn Encoding,
+    ) -> FtpResult<Vec<String>>
     where
         R: AsyncBufReadExt + Unpin,
     {
@@ -940,18 +961,14 @@ where
             let mut line_buf = vec![];
             match data_stream.read_until(b'\n', &mut line_buf).await {
                 Ok(0) => break,
-                Ok(len) => {
-                    let mut line = String::from_utf8_lossy(&line_buf[..len]).to_string();
-                    trace!("STREAM IN: {:?}", line);
-                    if line.ends_with('\n') {
-                        line.pop();
-                    }
-                    if line.ends_with('\r') {
-                        line.pop();
-                    }
-                    if line.is_empty() {
+                Ok(_) => {
+                    let bytes = line_buf.strip_suffix(b"\n").unwrap_or(&line_buf);
+                    let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+                    if bytes.is_empty() {
                         continue;
                     }
+                    let line = encoding.decode(bytes);
+                    trace!("STREAM IN: {:?}", line);
                     lines.push(line);
                 }
                 Err(err) => {
@@ -1192,11 +1209,12 @@ where
 
     /// Execute a command which returns list of strings in a separate stream
     async fn stream_lines(&self, cmd: Command, open_code: Status) -> FtpResult<Vec<String>> {
+        let encoding = Arc::clone(&self.control.lock().await.encoding);
         let (_, stream) = self
             .open_transfer(cmd, &[open_code, Status::AlreadyOpen], Direction::Download)
             .await?;
         let mut data_stream = BufReader::new(stream);
-        let lines = Self::get_lines_from_stream(&mut data_stream).await;
+        let lines = Self::decode_lines_from_stream(&mut data_stream, encoding.as_ref()).await;
         data_stream.into_inner().finish().await?;
         lines
     }
@@ -2728,5 +2746,206 @@ mod active_peer_tests {
                 assert_eq!(listing.is_ok(), accepted, "{check:?}: {listing:?}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use pretty_assertions::assert_eq;
+
+    use crate::FtpError;
+    use crate::encoding::test_encodings::{DropsLineEnd, Latin1, Smuggler};
+    use crate::encoding_fixture::{LATIN1_NAME, serve_latin1, serve_latin1_with_name};
+    use crate::smol::AsyncFtpStream;
+
+    #[cfg(feature = "async-secure")]
+    #[test]
+    fn should_preserve_encoding_across_tls_transitions() {
+        smol::block_on(async {
+            use crate::encoding_fixture::PassthroughConnector;
+
+            let (address, server) = serve_latin1();
+            let mut ftp = crate::smol::ImplAsyncFtpStream::<smol::net::TcpStream>::connect(address)
+                .await
+                .unwrap();
+            ftp.set_encoding(Latin1).await;
+            let mut ftp = ftp
+                .into_secure(PassthroughConnector, "localhost")
+                .await
+                .unwrap();
+            assert_eq!(ftp.pwd().await.unwrap(), "/café");
+            assert_eq!(ftp.nlst(None).await.unwrap(), vec!["café.txt".to_string()]);
+            ftp.rm("café.txt").await.unwrap();
+            let mut ftp = ftp.clear_command_channel().await.unwrap();
+            assert_eq!(ftp.pwd().await.unwrap(), "/café");
+            assert_eq!(ftp.nlst(None).await.unwrap(), vec!["café.txt".to_string()]);
+            ftp.rm("café.txt").await.unwrap();
+            ftp.quit().await.unwrap();
+            let received = server.join().unwrap();
+            assert_eq!(
+                received
+                    .iter()
+                    .filter(|line| line.as_slice() == b"DELE caf\xE9.txt\r\n")
+                    .count(),
+                2
+            );
+            assert!(
+                received.iter().any(|line| line == b"AUTH TLS\r\n"),
+                "{received:?}"
+            );
+            assert!(
+                received.iter().any(|line| line == b"CCC\r\n"),
+                "{received:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn should_round_trip_telnet_escaped_names() {
+        smol::block_on(async {
+            for (name, path, filename, listing, command) in [
+                (
+                    b"\xFF.txt".as_slice(),
+                    "/ÿ",
+                    "ÿ.txt",
+                    "type=file; ÿ.txt",
+                    b"CWD /\xFF\xFF\r\n".as_slice(),
+                ),
+                (
+                    b"\xFF\xFF.txt".as_slice(),
+                    "/ÿÿ",
+                    "ÿÿ.txt",
+                    "type=file; ÿÿ.txt",
+                    b"CWD /\xFF\xFF\xFF\xFF\r\n".as_slice(),
+                ),
+            ] {
+                let (address, server) = serve_latin1_with_name(name);
+                let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+                ftp.set_encoding(Latin1).await;
+                let pwd = ftp.pwd().await.unwrap();
+                assert_eq!(pwd, path);
+                assert_eq!(ftp.mlst(None).await.unwrap(), listing);
+                assert_eq!(ftp.nlst(None).await.unwrap(), vec![filename.to_string()]);
+                ftp.cwd(&pwd).await.unwrap();
+                ftp.quit().await.unwrap();
+                let received = server.join().unwrap();
+                assert!(received.iter().any(|line| line == command), "{received:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn should_decode_listings_with_custom_encoding() {
+        smol::block_on(async {
+            let (address, server) = serve_latin1();
+            let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+            ftp.set_encoding(Latin1).await;
+            assert_eq!(ftp.list(None).await.unwrap(), vec!["café.txt".to_string()]);
+            assert_eq!(ftp.nlst(None).await.unwrap(), vec!["café.txt".to_string()]);
+            assert_eq!(ftp.mlsd(None).await.unwrap(), vec!["café.txt".to_string()]);
+            ftp.quit().await.unwrap();
+            server.join().unwrap();
+        })
+    }
+
+    #[test]
+    fn should_decode_mlst_and_pwd_with_custom_encoding() {
+        smol::block_on(async {
+            let (address, server) = serve_latin1();
+            let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+            ftp.set_encoding(Latin1).await;
+            assert_eq!(ftp.mlst(None).await.unwrap(), "type=file; café.txt");
+            assert_eq!(ftp.pwd().await.unwrap(), "/café");
+            ftp.quit().await.unwrap();
+            server.join().unwrap();
+        })
+    }
+
+    #[test]
+    fn should_decode_pwd_lossily_by_default() {
+        smol::block_on(async {
+            let (address, server) = serve_latin1();
+            let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+            assert_eq!(ftp.pwd().await.unwrap(), "/caf\u{FFFD}");
+            ftp.quit().await.unwrap();
+            server.join().unwrap();
+        })
+    }
+
+    #[test]
+    fn should_encode_commands_with_custom_encoding() {
+        smol::block_on(async {
+            let (address, server) = serve_latin1();
+            let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+            ftp.set_encoding(Latin1).await;
+            ftp.rm("café.txt").await.unwrap();
+            ftp.quit().await.unwrap();
+            let received = server.join().unwrap();
+            let expected = [b"DELE ".as_slice(), LATIN1_NAME, b"\r\n"].concat();
+            assert!(received.contains(&expected), "{received:?}");
+        })
+    }
+
+    #[test]
+    fn should_escape_telnet_iac_in_custom_encoded_commands() {
+        smol::block_on(async {
+            let (address, server) = serve_latin1();
+            let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+            ftp.set_encoding(Latin1).await;
+            ftp.rm("ÿ.txt").await.unwrap();
+            ftp.rm("ÿÿ.txt").await.unwrap();
+            ftp.quit().await.unwrap();
+            let received = server.join().unwrap();
+            assert!(
+                received.contains(&b"DELE \xFF\xFF.txt\r\n".to_vec()),
+                "{received:?}"
+            );
+            assert!(
+                received.contains(&b"DELE \xFF\xFF\xFF\xFF.txt\r\n".to_vec()),
+                "{received:?}"
+            );
+        })
+    }
+
+    #[test]
+    fn should_fail_command_when_name_cannot_be_encoded() {
+        smol::block_on(async {
+            let (address, server) = serve_latin1();
+            let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+            ftp.set_encoding(Latin1).await;
+            let err = ftp.rm("€.txt").await.unwrap_err();
+            assert!(
+                matches!(&err, FtpError::ConnectionError(io) if io.kind() == std::io::ErrorKind::InvalidInput),
+                "{err:?}"
+            );
+            ftp.quit().await.unwrap();
+            let received = server.join().unwrap();
+            assert!(
+                !received.iter().any(|line| line.starts_with(b"DELE")),
+                "{received:?}"
+            );
+        })
+    }
+
+    #[test]
+    fn should_reject_encoded_command_that_is_not_one_line() {
+        smol::block_on(async {
+            for smuggle in [true, false] {
+                let (address, server) = serve_latin1();
+                let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+                if smuggle {
+                    ftp.set_encoding(Smuggler).await;
+                } else {
+                    ftp.set_encoding(DropsLineEnd).await;
+                }
+                let err = ftp.rm("a.txt").await.unwrap_err();
+                assert!(
+                    matches!(&err, FtpError::ConnectionError(io) if io.kind() == std::io::ErrorKind::InvalidInput),
+                    "{err:?}"
+                );
+                drop(ftp);
+                assert_eq!(server.join().unwrap(), Vec::<Vec<u8>>::new());
+            }
+        })
     }
 }
