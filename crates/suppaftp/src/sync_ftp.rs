@@ -59,6 +59,9 @@ where
     active_peer_check: ActivePeerCheck,
     welcome_msg: Option<WelcomeMessage>,
     active_timeout: Duration,
+    /// Whether the transfer type is ASCII (the default), in which case
+    /// [`ImplFtpStream::put_file`] and [`ImplFtpStream::append_file`] send CRLF line endings.
+    ascii_transfer: bool,
     passive_stream_builder: Box<PassiveStreamBuilder>,
     #[cfg(not(feature = "secure"))]
     marker: PhantomData<T>,
@@ -98,6 +101,7 @@ where
             active_peer_check: ActivePeerCheck::default(),
             welcome_msg: None,
             active_timeout: Duration::from_secs(60),
+            ascii_transfer: true,
             passive_stream_builder: Self::default_passive_stream_builder(),
             #[cfg(feature = "secure")]
             tls_ctx: None,
@@ -223,6 +227,7 @@ where
             domain: Some(String::from(domain)),
             welcome_msg: self.welcome_msg,
             active_timeout: self.active_timeout,
+            ascii_transfer: self.ascii_transfer,
         };
         {
             let mut cc = secured_ftp_tream.control();
@@ -281,6 +286,7 @@ where
             domain: Some(String::from(domain)),
             welcome_msg: None,
             active_timeout: Duration::from_secs(60),
+            ascii_transfer: true,
         };
         debug!("Reading server response...");
         let response = stream.control().read_response(Status::Ready)?;
@@ -427,11 +433,20 @@ where
 
     /// Sets the type of file to be transferred. That is the implementation
     /// of `TYPE` command.
+    ///
+    /// After [`FileType::Ascii`] is accepted, [`ImplFtpStream::put_file`] and
+    /// [`ImplFtpStream::append_file`] convert line endings to CRLF; any other accepted type turns
+    /// the conversion off. A refused type leaves it as it was.
     pub fn transfer_type(&mut self, file_type: FileType) -> FtpResult<()> {
-        let mut cc = self.control();
-        debug!("Setting transfer type {}", file_type);
-        cc.perform(Command::Type(file_type))?;
-        cc.read_response(Status::CommandOk).map(|_| ())
+        let ascii = matches!(file_type, FileType::Ascii(_));
+        {
+            let mut cc = self.control();
+            debug!("Setting transfer type {}", file_type);
+            cc.perform(Command::Type(file_type))?;
+            cc.read_response(Status::CommandOk)?;
+        }
+        self.ascii_transfer = ascii;
+        Ok(())
     }
 
     /// Quits the current FTP session.
@@ -577,11 +592,22 @@ where
 
     /// This stores a file on the server.
     /// r argument must be any struct which implemenents the [`Read`] trait.
-    /// Returns amount of written bytes
+    ///
+    /// In the default ASCII transfer type, every LF not preceded by CR is sent as CRLF, as
+    /// RFC 959 requires. Selecting another type with [`ImplFtpStream::transfer_type`] sends the
+    /// bytes unchanged; selecting [`FileType::Ascii`] enables conversion again.
+    ///
+    /// Returns the number of bytes sent, including any CR added by the conversion.
     pub fn put_file<S: AsRef<str>, R: Read>(&mut self, filename: S, r: &mut R) -> FtpResult<u64> {
+        let ascii = self.ascii_transfer;
         // Get stream
         let mut data_stream = self.put_with_stream(filename.as_ref())?;
-        let bytes = copy(r, &mut data_stream).map_err(FtpError::ConnectionError)?;
+        let bytes = if ascii {
+            crate::ascii::copy_crlf(r, &mut data_stream)
+        } else {
+            copy(r, &mut data_stream)
+        }
+        .map_err(FtpError::ConnectionError)?;
         data_stream.finish()?;
         Ok(bytes)
     }
@@ -591,6 +617,9 @@ where
     /// Write the payload to the returned stream, then call [`TransferStream::finish`] to close
     /// the data connection and read the server's completion reply. Until then any other data
     /// command fails with [`FtpError::DataConnectionAlreadyOpen`].
+    ///
+    /// The bytes written are sent unchanged, even in the ASCII transfer type; use
+    /// [`ImplFtpStream::put_file`] to have line endings converted.
     ///
     /// # Examples
     ///
@@ -640,10 +669,18 @@ where
     }
 
     /// Append data from reader to file at `filename`
+    ///
+    /// Line endings are converted like in [`ImplFtpStream::put_file`].
     pub fn append_file<R: Read>(&mut self, filename: &str, r: &mut R) -> FtpResult<u64> {
+        let ascii = self.ascii_transfer;
         // Get stream
         let mut data_stream = self.append_with_stream(filename)?;
-        let bytes = copy(r, &mut data_stream).map_err(FtpError::ConnectionError)?;
+        let bytes = if ascii {
+            crate::ascii::copy_crlf(r, &mut data_stream)
+        } else {
+            copy(r, &mut data_stream)
+        }
+        .map_err(FtpError::ConnectionError)?;
         data_stream.finish()?;
         Ok(bytes)
     }
@@ -2540,10 +2577,18 @@ mod encoding_tests {
         ftp.set_encoding(Latin1);
         let mut ftp = ftp.into_secure(PassthroughConnector, "localhost").unwrap();
         assert_eq!(ftp.get_welcome_msg(), Some("220 café.txt ready"));
+        ftp.set_encoding(crate::Utf8Encoding);
+        assert_eq!(ftp.get_welcome_msg(), Some("220 caf\u{FFFD}.txt ready"));
+        ftp.set_encoding(Latin1);
+        assert_eq!(ftp.get_welcome_msg(), Some("220 café.txt ready"));
         assert_eq!(ftp.pwd().unwrap(), "/café");
         assert_eq!(ftp.nlst(None).unwrap(), vec!["café.txt".to_string()]);
         ftp.rm("café.txt").unwrap();
         let mut ftp = ftp.clear_command_channel().unwrap();
+        ftp.set_encoding(crate::Utf8Encoding);
+        assert_eq!(ftp.get_welcome_msg(), Some("220 caf\u{FFFD}.txt ready"));
+        ftp.set_encoding(Latin1);
+        assert_eq!(ftp.get_welcome_msg(), Some("220 café.txt ready"));
         assert_eq!(ftp.pwd().unwrap(), "/café");
         assert_eq!(ftp.nlst(None).unwrap(), vec!["café.txt".to_string()]);
         ftp.rm("café.txt").unwrap();
@@ -2586,10 +2631,17 @@ mod encoding_tests {
         ] {
             let (address, server) = serve_latin1_with_name(name);
             let mut ftp = FtpStream::connect(address).unwrap();
-            let lossy_banner = format!("220 {} ready", filename.replace('ÿ', "\u{FFFD}"));
+            let lossy_banner = format!(
+                "220 {filename} ready",
+                filename = filename.replace('ÿ', "\u{FFFD}")
+            );
             assert_eq!(ftp.get_welcome_msg(), Some(lossy_banner.as_str()));
             ftp.set_encoding(Latin1);
             let banner = format!("220 {filename} ready");
+            assert_eq!(ftp.get_welcome_msg(), Some(banner.as_str()));
+            ftp.set_encoding(crate::Utf8Encoding);
+            assert_eq!(ftp.get_welcome_msg(), Some(lossy_banner.as_str()));
+            ftp.set_encoding(Latin1);
             assert_eq!(ftp.get_welcome_msg(), Some(banner.as_str()));
             let pwd = ftp.pwd().unwrap();
             assert_eq!(pwd, path);
@@ -2709,6 +2761,120 @@ mod encoding_tests {
             );
             drop(ftp);
             assert_eq!(server.join().unwrap(), Vec::<Vec<u8>>::new());
+        }
+    }
+}
+
+#[cfg(test)]
+mod ascii_tests {
+    use std::io::{Cursor, Read as _, Write as _};
+
+    use pretty_assertions::assert_eq;
+
+    use crate::FtpStream;
+    use crate::types::{FileType, FormatControl};
+    use crate::upload_fixture::serve_uploads;
+
+    const ASCII: FileType = FileType::Ascii(FormatControl::Default);
+
+    #[test]
+    fn should_convert_line_endings_on_ascii_upload() {
+        let (address, server) = serve_uploads();
+        let mut ftp = FtpStream::connect(address).unwrap();
+        ftp.transfer_type(ASCII).unwrap();
+        let mut text = Cursor::new(b"one\ntwo\r\nthree\rfour\n".as_slice());
+        assert_eq!(ftp.put_file("a.txt", &mut text).unwrap(), 22);
+        // The CR ends the first read and the LF starts the second: still one CRLF.
+        let mut split = Cursor::new(b"five\r".as_slice()).chain(Cursor::new(b"\nsix\n".as_slice()));
+        assert_eq!(ftp.append_file("a.txt", &mut split).unwrap(), 11);
+        let mut raw = ftp.put_with_stream("raw.txt").unwrap();
+        raw.write_all(b"raw\n").unwrap();
+        raw.finish().unwrap();
+        ftp.quit().unwrap();
+        assert_eq!(
+            server.join().unwrap(),
+            vec![
+                b"one\r\ntwo\r\nthree\rfour\r\n".to_vec(),
+                b"five\r\nsix\r\n".to_vec(),
+                b"raw\n".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn should_convert_default_ascii_uploads_and_preserve_binary_bytes() {
+        let (address, server) = serve_uploads();
+        let mut ftp = FtpStream::connect(address).unwrap();
+        assert_eq!(
+            ftp.put_file("a.txt", &mut Cursor::new(b"a\n".as_slice()))
+                .unwrap(),
+            3
+        );
+        ftp.transfer_type(ASCII).unwrap();
+        ftp.transfer_type(FileType::Binary).unwrap();
+        assert_eq!(
+            ftp.put_file("b.bin", &mut Cursor::new(b"b\n".as_slice()))
+                .unwrap(),
+            2
+        );
+        ftp.quit().unwrap();
+        assert_eq!(
+            server.join().unwrap(),
+            vec![b"a\r\n".to_vec(), b"b\n".to_vec()]
+        );
+    }
+
+    #[test]
+    fn should_keep_ascii_conversion_when_type_is_refused() {
+        let (address, server) = serve_uploads();
+        let mut ftp = FtpStream::connect(address).unwrap();
+        ftp.transfer_type(ASCII).unwrap();
+        assert!(
+            ftp.transfer_type(FileType::Ebcdic(FormatControl::Default))
+                .is_err()
+        );
+        ftp.put_file("c.txt", &mut Cursor::new(b"c\n".as_slice()))
+            .unwrap();
+        ftp.quit().unwrap();
+        assert_eq!(server.join().unwrap(), vec![b"c\r\n".to_vec()]);
+    }
+
+    #[cfg(feature = "secure")]
+    #[test]
+    fn should_preserve_transfer_type_across_tls_transitions() {
+        use crate::encoding_fixture::PassthroughConnector;
+
+        for (file_type, expected) in [
+            (ASCII, b"a\r\n".as_slice()),
+            (FileType::Binary, b"a\n".as_slice()),
+        ] {
+            let (address, server) = serve_uploads();
+            let mut ftp = crate::ImplFtpStream::<std::net::TcpStream>::connect(address).unwrap();
+            ftp.transfer_type(file_type).unwrap();
+            let mut ftp = ftp.into_secure(PassthroughConnector, "localhost").unwrap();
+            assert_eq!(
+                ftp.put_file("a.txt", &mut Cursor::new(b"a\n".as_slice()))
+                    .unwrap(),
+                expected.len() as u64
+            );
+            let mut ftp = ftp.clear_command_channel().unwrap();
+            assert_eq!(
+                ftp.put_file("b.txt", &mut Cursor::new(b"a\n".as_slice()))
+                    .unwrap(),
+                expected.len() as u64
+            );
+            ftp.transfer_type(FileType::Binary).unwrap();
+            ftp.transfer_type(ASCII).unwrap();
+            assert_eq!(
+                ftp.append_file("b.txt", &mut Cursor::new(b"a\n".as_slice()))
+                    .unwrap(),
+                3
+            );
+            ftp.quit().unwrap();
+            assert_eq!(
+                server.join().unwrap(),
+                vec![expected.to_vec(), expected.to_vec(), b"a\r\n".to_vec()]
+            );
         }
     }
 }

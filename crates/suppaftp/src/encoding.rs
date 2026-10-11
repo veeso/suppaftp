@@ -115,7 +115,9 @@ impl WelcomeMessage {
     }
 
     fn decode(raw: &[u8], encoding: &dyn Encoding) -> String {
-        encoding.decode(raw).trim_end().to_string()
+        let mut text = encoding.decode(raw);
+        text.truncate(text.trim_end().len());
+        text
     }
 }
 

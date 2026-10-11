@@ -180,6 +180,7 @@ extern crate log;
 #[cfg(any(feature = "smol", feature = "tokio"))]
 mod async_ftp;
 
+mod ascii;
 pub(crate) mod command;
 mod encoding;
 mod regex;
@@ -506,6 +507,71 @@ pub(crate) mod encoding_fixture {
                 }
             }
             received
+        });
+        (address, handle)
+    }
+}
+
+/// A fake server that records uploads, for the ASCII transfer tests of every client.
+#[cfg(test)]
+pub(crate) mod upload_fixture {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::{SocketAddr, TcpListener};
+    use std::thread::{self, JoinHandle};
+
+    /// Starts a one-connection server that stores the payload of every `STOR` and `APPE`.
+    ///
+    /// `TYPE E` is refused with `504`; every other `TYPE` is accepted. The handle yields the
+    /// payloads in upload order once the client sends `QUIT` or disconnects.
+    pub(crate) fn serve_uploads() -> (SocketAddr, JoinHandle<Vec<Vec<u8>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(socket);
+            reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+            let mut data_listener: Option<TcpListener> = None;
+            let mut uploads = Vec::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                let command = line.trim_end();
+                let reply = if command.starts_with("TYPE E") {
+                    "504 type not implemented\r\n".to_string()
+                } else if command == "AUTH TLS" {
+                    "234 start TLS\r\n".to_string()
+                } else if command == "PASV" {
+                    let data = TcpListener::bind("127.0.0.1:0").unwrap();
+                    let port = data.local_addr().unwrap().port();
+                    data_listener = Some(data);
+                    format!(
+                        "227 Entering Passive Mode (127,0,0,1,{high},{low})\r\n",
+                        high = port >> 8,
+                        low = port & 0xFF
+                    )
+                } else if command.starts_with("STOR ") || command.starts_with("APPE ") {
+                    let data = data_listener.take().expect("PASV must precede an upload");
+                    reader.get_mut().write_all(b"150 send it\r\n").unwrap();
+                    let (mut socket, _) = data.accept().unwrap();
+                    let mut payload = Vec::new();
+                    socket.read_to_end(&mut payload).unwrap();
+                    uploads.push(payload);
+                    "226 stored\r\n".to_string()
+                } else if command == "QUIT" {
+                    "221 bye\r\n".to_string()
+                } else {
+                    "200 ok\r\n".to_string()
+                };
+                if reader.get_mut().write_all(reply.as_bytes()).is_err() || command == "QUIT" {
+                    break;
+                }
+            }
+            uploads
         });
         (address, handle)
     }
