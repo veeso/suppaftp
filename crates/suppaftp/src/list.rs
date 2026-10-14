@@ -111,7 +111,17 @@ impl ListParser {
     /// type=dir;modify=20201019151930;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000; pub
     /// ```
     fn parse_mlsx(line: &str) -> ParseResult<File> {
-        let tokens = line.split(';').collect::<Vec<&str>>();
+        // RFC 3659 §7.2: `entry = [ facts ] SP pathname`, and every fact ends with ";". A fact value
+        // can't contain ";", so the first "; " ends the facts; everything after it is the pathname,
+        // which may itself contain ";" or spaces. Lines without facts start with the SP.
+        let (facts, name) = if let Some(name) = line.strip_prefix(' ') {
+            ("", Some(name))
+        } else if let Some(end) = line.find("; ") {
+            (&line[..=end], Some(&line[end + 2..]))
+        } else {
+            (line, None)
+        };
+        let tokens = facts.split(';').collect::<Vec<&str>>();
         if tokens.is_empty() {
             return Err(ParseError::SyntaxError);
         }
@@ -185,11 +195,16 @@ impl ListParser {
         }
 
         // get name
-        f.name = tokens
-            .last()
-            .ok_or(ParseError::SyntaxError)?
-            .trim_start()
-            .to_string();
+        f.name = match name {
+            Some(name) => name.to_string(),
+            // Not RFC 3659 conforming (no "; " before the name): keep the previous behaviour and
+            // take the last token.
+            None => tokens
+                .last()
+                .ok_or(ParseError::SyntaxError)?
+                .trim_start()
+                .to_string(),
+        };
 
         Ok(f)
     }
@@ -390,11 +405,26 @@ impl ListParser {
     }
 
     /// Convert MLSD time to System Time
+    ///
+    /// RFC 3659 §2.3: `time-val = 14DIGIT [ "." 1*DIGIT ]` – the fraction of a second is optional
+    /// (FileZilla Server always sends milliseconds). Digits beyond nanoseconds are ignored.
     fn parse_mlsx_time(tm: &str) -> Result<SystemTime, ParseError> {
-        NaiveDateTime::parse_from_str(tm, "%Y%m%d%H%M%S")
+        let (whole, nanos) = match tm.split_once('.') {
+            Some((whole, fraction)) => {
+                if fraction.is_empty() || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(ParseError::InvalidDate);
+                }
+                let digits = &fraction[..fraction.len().min(9)];
+                let scale = 10u32.pow(9 - digits.len() as u32);
+                let nanos = digits.parse::<u32>().map_err(|_| ParseError::InvalidDate)? * scale;
+                (whole, nanos)
+            }
+            None => (tm, 0),
+        };
+        NaiveDateTime::parse_from_str(whole, "%Y%m%d%H%M%S")
             .map(|dt| {
                 SystemTime::UNIX_EPOCH
-                    .checked_add(Duration::from_secs(dt.and_utc().timestamp() as u64))
+                    .checked_add(Duration::new(dt.and_utc().timestamp() as u64, nanos))
                     .unwrap_or(SystemTime::UNIX_EPOCH)
             })
             .map_err(|_| ParseError::InvalidDate)
@@ -1104,6 +1134,46 @@ mod tests {
     #[test]
     fn parse_mlsx_with_invalid_modify() {
         assert!(ListParser::parse_mlsd("type=file;size=0;modify=notadate; bad.txt").is_err());
+        assert!(
+            ListParser::parse_mlsd("type=file;size=0;modify=20201019151930.; bad.txt").is_err()
+        );
+        assert!(
+            ListParser::parse_mlsd("type=file;size=0;modify=20201019151930.1x; bad.txt").is_err()
+        );
+    }
+
+    #[test]
+    fn parse_mlsx_with_fractional_seconds() {
+        // As sent by FileZilla Server.
+        let file = ListParser::parse_mlsd(
+            "type=file;size=11;modify=20201019151930.123;perms=awr; note.txt",
+        )
+        .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "note.txt");
+        pretty_assertions::assert_eq!(file.size(), 11);
+        pretty_assertions::assert_eq!(
+            file.modified(),
+            SystemTime::UNIX_EPOCH + Duration::new(1_603_120_770, 123_000_000)
+        );
+        let file =
+            ListParser::parse_mlsd("type=file;size=1;modify=20201019151930.1234567891234; a")
+                .unwrap();
+        pretty_assertions::assert_eq!(
+            file.modified(),
+            SystemTime::UNIX_EPOCH + Duration::new(1_603_120_770, 123_456_789)
+        );
+    }
+
+    #[test]
+    fn parse_mlsx_keeps_semicolons_and_spaces_in_names() {
+        let file =
+            ListParser::parse_mlsd("type=file;size=3;modify=20201019151930; a;b  c.txt").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "a;b  c.txt");
+        let file = ListParser::parse_mlsd("type=dir;modify=20201019151930;  leading").unwrap();
+        pretty_assertions::assert_eq!(file.name(), " leading");
+        assert!(file.is_directory());
+        let file = ListParser::parse_mlst(" no facts; at all").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "no facts; at all");
     }
 
     #[test]
