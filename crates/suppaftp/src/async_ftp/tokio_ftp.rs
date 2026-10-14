@@ -734,18 +734,21 @@ where
         Ok(())
     }
 
-    /// Tell the server to resume the transfer from a certain offset. The offset indicates the amount of bytes to skip
-    /// from the beginning of the file.
-    /// the REST command does not actually initiate the transfer.
-    /// After issuing a REST command, the client must send the appropriate FTP command to transfer the file
+    /// Tell the server to resume the next transfer from a certain offset. The offset indicates the amount of bytes
+    /// to skip from the beginning of the file.
     ///
-    /// It is possible to cancel the REST command, sending a REST command with offset 0
+    /// The `REST` command is not sent here: it is sent right before the next `RETR`, `STOR` or `APPE` (for example
+    /// from [`Self::retr_as_stream`] or [`Self::put_with_stream`]), after the data connection has been negotiated
+    /// with `PASV`/`EPSV`/`PORT`/`EPRT`. RFC 3659 §5.3 requires `REST` to be the command immediately preceding the
+    /// transfer command, and some servers (FileZilla Server) silently drop the offset when another command comes
+    /// in between. A server rejecting the offset is therefore reported by the transfer command.
+    /// `custom_data_command` does not use the offset.
+    ///
+    /// Passing an offset of 0 cancels a pending offset.
     pub async fn resume_transfer(&mut self, offset: usize) -> FtpResult<()> {
         let mut cc = self.control().await?;
-        debug!("Requesting to resume transfer at offset {}", offset);
-        cc.perform(Command::Rest(offset)).await?;
-        cc.read_response(Status::RequestFilePending).await?;
-        debug!("Resume transfer accepted");
+        debug!("Resuming the next transfer at offset {}", offset);
+        cc.restart = (offset > 0).then_some(offset);
         Ok(())
     }
 
@@ -1085,6 +1088,7 @@ where
         let (response, stream) = match self.mode {
             Mode::Active => {
                 let listener = self.active(cc).await?;
+                Self::send_restart(cc, &cmd).await?;
                 cc.perform(cmd).await?;
                 let response = cc.read_response_in(expected_code).await?;
 
@@ -1127,6 +1131,7 @@ where
             Mode::ExtendedPassive => {
                 let address = self.epsv(cc).await?;
                 let stream = (self.passive_stream_builder)(address).await?;
+                Self::send_restart(cc, &cmd).await?;
                 cc.perform(cmd).await?;
                 let response = cc.read_response_in(expected_code).await?;
                 (response, stream)
@@ -1134,6 +1139,7 @@ where
             Mode::Passive => {
                 let address = self.pasv(cc).await?;
                 let stream = (self.passive_stream_builder)(address).await?;
+                Self::send_restart(cc, &cmd).await?;
                 cc.perform(cmd).await?;
                 let response = cc.read_response_in(expected_code).await?;
                 (response, stream)
@@ -1198,6 +1204,20 @@ where
         } else {
             Ok(addr)
         }
+    }
+
+    /// Sends the offset set by `resume_transfer` as `REST`, if `cmd` is a transfer command. It must be the
+    /// command immediately preceding RETR/STOR/APPE (RFC 3659 §5.3), so it comes after PASV/EPSV/PORT/EPRT.
+    async fn send_restart(cc: &mut ControlChannel<T>, cmd: &Command) -> FtpResult<()> {
+        if !matches!(cmd, Command::Retr(_) | Command::Store(_) | Command::Appe(_)) {
+            return Ok(());
+        }
+        if let Some(offset) = cc.restart.take() {
+            debug!("Requesting to resume transfer at offset {}", offset);
+            cc.perform(Command::Rest(offset)).await?;
+            cc.read_response(Status::RequestFilePending).await?;
+        }
+        Ok(())
     }
 
     /// Create a new tcp listener and send a PORT command for it
@@ -1363,6 +1383,134 @@ mod test {
         .expect("data command ordering deadline exceeded");
     }
 
+    const RESTART_CONTENT: &[u8] = b"0123456789abcdef";
+
+    /// The address of [strict_restart_server] and its worker, which returns the received command
+    /// lines and the stored file.
+    type RestartServer = (
+        std::net::SocketAddr,
+        std::thread::JoinHandle<(Vec<String>, Vec<u8>)>,
+    );
+
+    /// A server that, like FileZilla Server, forgets a `REST` offset as soon as another command
+    /// follows it (RFC 3659 §5.3). It serves `RESTART_CONTENT` from the offset in effect when RETR
+    /// arrives, keeps what STOR sends after the bytes before the offset, and returns the command
+    /// lines it received together with the stored file.
+    fn strict_restart_server() -> RestartServer {
+        use std::io::{BufRead as _, Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let worker = std::thread::spawn(move || {
+            let (mut control, _) = listener.accept().unwrap();
+            let mut reader = std::io::BufReader::new(control.try_clone().unwrap());
+            control.write_all(b"220 ready\r\n").unwrap();
+            let mut restart = 0usize;
+            let mut passive: Option<std::net::TcpListener> = None;
+            let mut active: Option<std::net::SocketAddr> = None;
+            let (mut lines, mut stored) = (Vec::new(), Vec::new());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                let line = line.trim_end().to_string();
+                lines.push(line.clone());
+                let (verb, argument) = line.split_once(' ').unwrap_or((line.as_str(), ""));
+                // Every command ends a pending offset; REST sets a new one.
+                let offset = std::mem::take(&mut restart);
+                let reply = match verb {
+                    "REST" => {
+                        restart = argument.parse().unwrap();
+                        format!("350 Restarting at {restart}")
+                    }
+                    "PASV" => {
+                        let data = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                        let port = data.local_addr().unwrap().port();
+                        passive = Some(data);
+                        format!(
+                            "227 Entering Passive Mode (127,0,0,1,{},{})",
+                            port / 256,
+                            port % 256
+                        )
+                    }
+                    "PORT" => {
+                        let n: Vec<u16> = argument.split(',').map(|v| v.parse().unwrap()).collect();
+                        active = Some(std::net::SocketAddr::from((
+                            [n[0] as u8, n[1] as u8, n[2] as u8, n[3] as u8],
+                            n[4] * 256 + n[5],
+                        )));
+                        "200 PORT command successful".to_string()
+                    }
+                    "RETR" | "STOR" => {
+                        control
+                            .write_all(b"150 Opening data connection\r\n")
+                            .unwrap();
+                        let mut data = match (passive.take(), active.take()) {
+                            (Some(data), _) => data.accept().unwrap().0,
+                            (None, Some(address)) => std::net::TcpStream::connect(address).unwrap(),
+                            (None, None) => panic!("no data connection negotiated"),
+                        };
+                        if verb == "RETR" {
+                            data.write_all(&RESTART_CONTENT[offset..]).unwrap();
+                        } else {
+                            let mut incoming = Vec::new();
+                            data.read_to_end(&mut incoming).unwrap();
+                            stored = RESTART_CONTENT[..offset].to_vec();
+                            stored.extend(incoming);
+                        }
+                        drop(data);
+                        "226 Transfer complete".to_string()
+                    }
+                    "QUIT" => {
+                        control.write_all(b"221 Bye\r\n").unwrap();
+                        break;
+                    }
+                    _ => "200 ok".to_string(),
+                };
+                control
+                    .write_all(format!("{reply}\r\n").as_bytes())
+                    .unwrap();
+            }
+            (lines, stored)
+        });
+        (address, worker)
+    }
+
+    /// `REST` must come right before the transfer command, after PASV/PORT.
+    fn assert_rest_precedes_transfer(lines: &[String], rest: &str, command: &str) {
+        let at = lines.iter().position(|line| line == rest).unwrap();
+        assert!(lines[at + 1].starts_with(command), "{lines:?}");
+    }
+    #[tokio::test]
+    async fn resume_transfer_sends_rest_right_before_the_transfer_command() {
+        for mode in [Mode::Passive, Mode::Active] {
+            let (address, server) = strict_restart_server();
+            let mut ftp = AsyncFtpStream::connect(address).await.unwrap();
+            ftp = ftp.active_mode(Duration::from_secs(5));
+            ftp.set_mode(mode);
+
+            ftp.resume_transfer(6).await.unwrap();
+            let mut download = ftp.retr_as_stream("file").await.unwrap();
+            let mut received = Vec::new();
+            download.read_to_end(&mut received).await.unwrap();
+            download.finish().await.unwrap();
+            assert_eq!(received, &RESTART_CONTENT[6..]);
+
+            ftp.resume_transfer(4).await.unwrap();
+            let mut upload = ftp.put_with_stream("file").await.unwrap();
+            upload.write_all(&RESTART_CONTENT[4..]).await.unwrap();
+            upload.finish().await.unwrap();
+            ftp.quit().await.unwrap();
+
+            let (lines, stored) = tokio::task::spawn_blocking(move || server.join().unwrap())
+                .await
+                .unwrap();
+            assert_eq!(stored, RESTART_CONTENT);
+            assert_rest_precedes_transfer(&lines, "REST 6", "RETR");
+            assert_rest_precedes_transfer(&lines, "REST 4", "STOR");
+        }
+    }
     #[tokio::test]
     async fn connect() {
         crate::log_init();
