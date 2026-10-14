@@ -1203,18 +1203,21 @@ where
     /// Create a new tcp listener and send a PORT command for it
     async fn active(&self, cc: &mut ControlChannel<T>) -> FtpResult<TcpListener> {
         debug!("Starting local tcp listener...");
-        let conn = TcpListener::bind("0.0.0.0:0")
-            .await
-            .map_err(FtpError::ConnectionError)?;
-
-        let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
-        trace!("Local address is {}", addr);
-
         let ip = cc
             .socket()
             .local_addr()
             .map_err(FtpError::ConnectionError)?
             .ip();
+        // Listen only on the address of the control connection: it is the address announced to the
+        // server below, so it is the only one the server can reach. Binding 0.0.0.0 opened the port on
+        // every interface of the machine, and for an IPv6 control connection the IPv4-only listener
+        // could never be reached.
+        let conn = TcpListener::bind(SocketAddr::new(ip, 0))
+            .await
+            .map_err(FtpError::ConnectionError)?;
+
+        let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
+        trace!("Local address is {}", addr);
 
         debug!("Active mode, listening on {}:{}", ip, addr.port());
 
@@ -1363,6 +1366,54 @@ mod test {
         .expect("data command ordering deadline exceeded");
     }
 
+    /// A control connection that sends the greeting, answers one PORT/EPRT and returns that
+    /// command line. `None` if `ip` can't be bound here (no IPv6 on this machine).
+    fn port_server(
+        ip: std::net::IpAddr,
+    ) -> Option<(std::net::SocketAddr, std::thread::JoinHandle<String>)> {
+        use std::io::{BufRead as _, Write as _};
+
+        let listener = std::net::TcpListener::bind((ip, 0)).ok()?;
+        let address = listener.local_addr().ok()?;
+        let worker = std::thread::spawn(move || {
+            let (mut control, _) = listener.accept().unwrap();
+            control.write_all(b"220 ready\r\n").unwrap();
+            let mut line = String::new();
+            std::io::BufReader::new(control.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            control.write_all(b"200 ok\r\n").unwrap();
+            line.trim_end().to_string()
+        });
+        Some((address, worker))
+    }
+
+    fn expected_port_command(ip: std::net::IpAddr) -> &'static str {
+        if ip.is_ipv4() {
+            "PORT 127,0,0,1,"
+        } else {
+            "EPRT |2|::1|"
+        }
+    }
+    #[tokio::test]
+    async fn active_mode_listens_on_the_control_connection_address() {
+        for ip in [
+            std::net::IpAddr::from(std::net::Ipv4Addr::LOCALHOST),
+            std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST),
+        ] {
+            let Some((address, server)) = port_server(ip) else {
+                continue;
+            };
+            let ftp = AsyncFtpStream::connect(address).await.unwrap();
+            let listener = {
+                let mut cc = ftp.control().await.unwrap();
+                ftp.active(&mut cc).await.unwrap()
+            };
+            assert_eq!(listener.local_addr().unwrap().ip(), ip);
+            let command = server.join().unwrap();
+            assert!(command.starts_with(expected_port_command(ip)), "{command}");
+        }
+    }
     #[tokio::test]
     async fn connect() {
         crate::log_init();
