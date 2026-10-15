@@ -1453,10 +1453,10 @@ mod test {
             }
             let payload = b"issue 188 TLS recovery\n";
             let mut input = std::io::Cursor::new(payload);
-            assert_eq!(
-                ftp.put_file("recovered-188.txt", &mut input).unwrap(),
-                payload.len() as u64
-            );
+            match ftp.put_file("recovered-188.txt", &mut input) {
+                Ok(n) => assert_eq!(n, payload.len() as u64),
+                Err(e) => panic!("put_file failed: {e:?}\n{}", _container.dump_logs()),
+            }
             let mut download = ftp.retr_as_stream("recovered-188.txt").unwrap();
             let mut bytes = Vec::new();
             std::io::Read::read_to_end(&mut download, &mut bytes).unwrap();
