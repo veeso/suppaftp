@@ -1203,17 +1203,18 @@ where
     /// Create a new tcp listener and send a PORT command for it
     async fn active(&self, cc: &mut ControlChannel<T>) -> FtpResult<TcpListener> {
         debug!("Starting local tcp listener...");
-        let ip = cc
+        let mut local = cc
             .socket()
             .local_addr()
-            .map_err(FtpError::ConnectionError)?
-            .ip();
-        let conn = TcpListener::bind(SocketAddr::new(ip, 0))
+            .map_err(FtpError::ConnectionError)?;
+        local.set_port(0);
+        let conn = TcpListener::bind(local)
             .await
             .map_err(FtpError::ConnectionError)?;
 
         let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
-        debug!("Active mode, listening on {}:{}", ip, addr.port());
+        debug!("Active mode, listening on {addr}");
+        let ip = addr.ip();
 
         match ip {
             std::net::IpAddr::V4(_) => {
@@ -1277,6 +1278,9 @@ mod test {
 
     use super::super::tokio::AsyncFtpStream;
     use super::*;
+    use crate::active_mode_fixture::{
+        CONTROL_ADDRESSES, bind_control, serve_active_nlst_on, serve_port_command,
+    };
     use crate::test_container::AsyncPureFtpRunner;
     #[cfg(any(
         feature = "tokio-async-native-tls",
@@ -1360,54 +1364,43 @@ mod test {
         .expect("data command ordering deadline exceeded");
     }
 
-    /// A control connection that sends the greeting, answers one PORT/EPRT and returns that
-    /// command line. `None` if `ip` can't be bound here (no IPv6 on this machine).
-    fn port_server(
-        ip: std::net::IpAddr,
-    ) -> Option<(std::net::SocketAddr, std::thread::JoinHandle<String>)> {
-        use std::io::{BufRead as _, Write as _};
-
-        let listener = std::net::TcpListener::bind((ip, 0)).ok()?;
-        let address = listener.local_addr().ok()?;
-        let worker = std::thread::spawn(move || {
-            let (mut control, _) = listener.accept().unwrap();
-            control.write_all(b"220 ready\r\n").unwrap();
-            let mut line = String::new();
-            std::io::BufReader::new(control.try_clone().unwrap())
-                .read_line(&mut line)
-                .unwrap();
-            control.write_all(b"200 ok\r\n").unwrap();
-            line.trim_end().to_string()
-        });
-        Some((address, worker))
-    }
-
-    fn expected_port_command(ip: std::net::IpAddr) -> &'static str {
-        if ip.is_ipv4() {
-            "PORT 127,0,0,1,"
-        } else {
-            "EPRT |2|::1|"
-        }
-    }
     #[tokio::test]
     async fn active_mode_listens_on_the_control_connection_address() {
-        for ip in [
-            std::net::IpAddr::from(std::net::Ipv4Addr::LOCALHOST),
-            std::net::IpAddr::from(std::net::Ipv6Addr::LOCALHOST),
-        ] {
-            let Some((address, server)) = port_server(ip) else {
+        for (address, announced) in CONTROL_ADDRESSES {
+            let Some(control) = bind_control(address) else {
                 continue;
             };
+            let control_ip = control.local_addr().unwrap().ip();
+            let (address, server) = serve_port_command(control);
             let ftp = AsyncFtpStream::connect(address).await.unwrap();
             let listener = {
                 let mut cc = ftp.control().await.unwrap();
                 ftp.active(&mut cc).await.unwrap()
             };
-            assert_eq!(listener.local_addr().unwrap().ip(), ip);
+            assert_eq!(listener.local_addr().unwrap().ip(), control_ip);
             let command = server.join().unwrap();
-            assert!(command.starts_with(expected_port_command(ip)), "{command}");
+            assert!(command.starts_with(announced), "{command}");
         }
     }
+
+    #[tokio::test]
+    async fn active_mode_transfers_data_on_the_control_connection_address() {
+        for (address, _) in CONTROL_ADDRESSES {
+            let Some(control) = bind_control(address) else {
+                continue;
+            };
+            let mut ftp = AsyncFtpStream::connect(serve_active_nlst_on(control))
+                .await
+                .unwrap()
+                .active_mode(Duration::from_secs(1));
+            assert_eq!(
+                ftp.nlst(None).await.unwrap(),
+                vec!["listed".to_string()],
+                "{address}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn connect() {
         crate::log_init();
