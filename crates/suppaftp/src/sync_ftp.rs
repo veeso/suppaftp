@@ -1116,17 +1116,11 @@ where
             .local_addr()
             .map_err(FtpError::ConnectionError)?
             .ip();
-        // Listen only on the address of the control connection: it is the address announced to the
-        // server below, so it is the only one the server can reach. Binding 0.0.0.0 opened the port on
-        // every interface of the machine, and for an IPv6 control connection the IPv4-only listener
-        // could never be reached.
         let conn = TcpListener::bind(SocketAddr::new(ip, 0)).map_err(FtpError::ConnectionError)?;
         conn.set_nonblocking(true)
             .map_err(FtpError::ConnectionError)?;
 
         let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
-        trace!("Local address is {}", addr);
-
         debug!("Active mode, listening on {}:{}", ip, addr.port());
 
         match ip {
