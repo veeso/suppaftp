@@ -2,6 +2,70 @@
 
 All notable changes to this project are documented in this file.
 
+## 12.2.1
+
+Released on 2026-10-15
+
+### Fixed
+
+- send REST right before the transfer command (#194)
+
+> `resume_transfer` sent `REST` immediately, and the transfer command then sent
+> PASV/EPSV/PORT/EPRT before RETR/STOR. RFC 3659 §5.3 requires REST to be the
+> command immediately preceding the transfer command, and servers that follow
+> this strictly drop the offset when another command comes in between, without
+> any error. With FileZilla Server 1.12.6 a read from byte 100 returned the whole
+> file; a resumed upload (REST + STOR) makes such a server replace the file with
+> the tail.
+>
+> `resume_transfer` now only stores the offset in the control channel; it is
+> sent as REST right before the next RETR, STOR or APPE, after the data
+> connection has been negotiated (sync, tokio and smol). An offset of 0 clears
+> it. A server rejecting the offset is now reported by the transfer command.
+> The new tests use a scripted server that forgets the offset like FileZilla
+> Server, in passive and active mode.
+>
+> ---
+
+- **list:** accept fractional seconds and keep the whole name in MLSx lines (#196)
+
+> RFC 3659 allows a fraction of a second in a time-val (`modify=20201019151930.123`).
+> `parse_mlsx_time` only accepted `%Y%m%d%H%M%S`, so the whole line failed with
+> InvalidDate; FileZilla Server always sends milliseconds, which left every MLSD
+> listing from it empty. The fraction is now parsed with chrono's `%.f` into the
+> sub-second part; digits beyond nanoseconds are ignored.
+>
+> The name was taken as the last token after splitting the whole line on ';', so
+> `a;b c.txt` became `b c.txt`. A fact value cannot contain ';' or SP, so the facts
+> end at the first "; " and everything after it is the pathname, as RFC 3659 §7.2
+> defines the entry. Lines without "; " keep the previous behaviour.
+>
+> Every entry line of an MLST reply starts with a single SP. `parse_mlst` now skips
+> it, so both the raw reply line and the trimmed line returned by `mlst()` parse,
+> and `File::try_from` uses `parse_mlst` instead of `parse_mlsd`, which would read
+> that SP as an entry without facts.
+
+- listen on the control connection's address in active mode (#198)
+
+> `active()` bound its listener to 0.0.0.0 but announced the local address of
+> the control connection in PORT/EPRT. The data port was therefore open on every
+> interface for the time of the transfer (on Windows this also brings up the
+> firewall prompt on first use, even for a control connection to 127.0.0.1), and
+> with an IPv6 control connection the IPv4-only listener announced via EPRT could
+> never be reached. The listener is now bound to the control connection's local
+> address, which is the one announced to the server.
+
+- drain TLS upload data connection before closing it
+- block on the accepted active mode data connection (#202)
+
+> - fix: block on the accepted active mode data connection
+>
+> In active mode the blocking client listens on a non-blocking socket so the accept loop can time out. On macOS and Windows the accepted data connection inherited that mode, so a server that was slow to send or receive data made the transfer fail at once with BadResponse or WouldBlock. The accepted connection is now switched back to blocking before the transfer and any TLS handshake. Linux was not affected.
+>
+> Tests with a slow fake server cover listing, download and a large upload, and a new CI job runs the server-free active mode tests on Windows and macOS.
+>
+> Pin just in every setup-just step, since zizmor flags an unpinned tool version.
+
 ## 12.2.0
 
 Released on 2026-10-11
