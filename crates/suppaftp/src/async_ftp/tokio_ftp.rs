@@ -1246,20 +1246,18 @@ where
     /// Create a new tcp listener and send a PORT command for it
     async fn active(&self, cc: &mut ControlChannel<T>) -> FtpResult<TcpListener> {
         debug!("Starting local tcp listener...");
-        let conn = TcpListener::bind("0.0.0.0:0")
+        let mut local = cc
+            .socket()
+            .local_addr()
+            .map_err(FtpError::ConnectionError)?;
+        local.set_port(0);
+        let conn = TcpListener::bind(local)
             .await
             .map_err(FtpError::ConnectionError)?;
 
         let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
-        trace!("Local address is {}", addr);
-
-        let ip = cc
-            .socket()
-            .local_addr()
-            .map_err(FtpError::ConnectionError)?
-            .ip();
-
-        debug!("Active mode, listening on {}:{}", ip, addr.port());
+        debug!("Active mode, listening on {addr}");
+        let ip = addr.ip();
 
         match ip {
             std::net::IpAddr::V4(_) => {
@@ -1323,6 +1321,9 @@ mod test {
 
     use super::super::tokio::AsyncFtpStream;
     use super::*;
+    use crate::active_mode_fixture::{
+        CONTROL_ADDRESSES, bind_control, serve_active_nlst_on, serve_port_command,
+    };
     use crate::test_container::AsyncPureFtpRunner;
     #[cfg(any(
         feature = "tokio-async-native-tls",
@@ -1404,6 +1405,43 @@ mod test {
         })
         .await
         .expect("data command ordering deadline exceeded");
+    }
+
+    #[tokio::test]
+    async fn active_mode_listens_on_the_control_connection_address() {
+        for (address, announced) in CONTROL_ADDRESSES {
+            let Some(control) = bind_control(address) else {
+                continue;
+            };
+            let control_ip = control.local_addr().unwrap().ip();
+            let (address, server) = serve_port_command(control);
+            let ftp = AsyncFtpStream::connect(address).await.unwrap();
+            let listener = {
+                let mut cc = ftp.control().await.unwrap();
+                ftp.active(&mut cc).await.unwrap()
+            };
+            assert_eq!(listener.local_addr().unwrap().ip(), control_ip);
+            let command = server.join().unwrap();
+            assert!(command.starts_with(announced), "{command}");
+        }
+    }
+
+    #[tokio::test]
+    async fn active_mode_transfers_data_on_the_control_connection_address() {
+        for (address, _) in CONTROL_ADDRESSES {
+            let Some(control) = bind_control(address) else {
+                continue;
+            };
+            let mut ftp = AsyncFtpStream::connect(serve_active_nlst_on(control))
+                .await
+                .unwrap()
+                .active_mode(Duration::from_secs(1));
+            assert_eq!(
+                ftp.nlst(None).await.unwrap(),
+                vec!["listed".to_string()],
+                "{address}"
+            );
+        }
     }
 
     #[tokio::test]

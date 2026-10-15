@@ -281,35 +281,60 @@ pub fn log_init() {
     });
 }
 
-/// A fake server for the active-mode data connection tests of every client.
+/// Fake servers for the active-mode data connection tests of every client.
 #[cfg(test)]
 pub(crate) mod active_mode_fixture {
     use std::io::{BufRead, BufReader, Write};
-    use std::net::{SocketAddr, TcpListener, TcpStream};
-    use std::thread;
+    use std::net::{IpAddr, SocketAddr, SocketAddrV6, TcpListener, TcpStream};
+    use std::thread::{self, JoinHandle};
+
+    /// Control connection addresses to test active mode on, each with the start of the `PORT`
+    /// or `EPRT` command the client must announce for it.
+    ///
+    /// The link-local address uses interface index 1, the loopback interface on macOS, which is
+    /// the only platform where loopback has a link-local address by default.
+    pub(crate) const CONTROL_ADDRESSES: [(&str, &str); 3] = [
+        ("127.0.0.1:0", "PORT 127,0,0,1,"),
+        ("[::1]:0", "EPRT |2|::1|"),
+        ("[fe80::1%1]:0", "EPRT |2|fe80::1|"),
+    ];
+
+    /// Binds a control listener on `address`, or returns `None` if this machine can't bind it.
+    pub(crate) fn bind_control(address: &str) -> Option<TcpListener> {
+        let address: SocketAddr = address.parse().unwrap();
+        match TcpListener::bind(address) {
+            Ok(listener) => Some(listener),
+            Err(err) => {
+                eprintln!("skipping {address}: {err}");
+                None
+            }
+        }
+    }
 
     /// Starts a one-connection server that answers `PORT` and, on `NLST`, connects back from
     /// 127.0.0.1 to the port the client sent and lists a single file, `listed`.
     pub(crate) fn serve_active_nlst() -> SocketAddr {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        serve_active_nlst_on(TcpListener::bind("127.0.0.1:0").unwrap())
+    }
+
+    /// Starts a one-connection server on `listener` that answers `PORT` or `EPRT` and, on
+    /// `NLST`, connects back to the announced address and lists a single file, `listed`.
+    pub(crate) fn serve_active_nlst_on(listener: TcpListener) -> SocketAddr {
         let address = listener.local_addr().unwrap();
         thread::spawn(move || {
             let (socket, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(socket);
             let _ = reader.get_mut().write_all(b"220 ready\r\n");
-            let mut data_port = 0;
+            let mut data_address = None;
             let mut line = String::new();
             while reader.read_line(&mut line).unwrap_or(0) > 0 {
-                let reply: &[u8] = if let Some(args) = line.strip_prefix("PORT ") {
-                    let numbers: Vec<u16> = args
-                        .trim_end()
-                        .split(',')
-                        .map(|n| n.parse().unwrap())
-                        .collect();
-                    data_port = numbers[4] * 256 + numbers[5];
+                let reply: &[u8] = if line.starts_with("PORT ") || line.starts_with("EPRT ") {
+                    data_address = Some(parse_data_address(line.trim_end(), address));
                     b"200 ok\r\n"
                 } else if line.starts_with("NLST") {
-                    if let Ok(mut data) = TcpStream::connect(("127.0.0.1", data_port)) {
+                    if let Some(data_address) = data_address
+                        && let Ok(mut data) = TcpStream::connect(data_address)
+                    {
                         let _ = reader.get_mut().write_all(b"150 here it comes\r\n");
                         let _ = data.write_all(b"listed\r\n");
                     }
@@ -324,6 +349,43 @@ pub(crate) mod active_mode_fixture {
             }
         });
         address
+    }
+
+    /// Starts a one-connection server on `listener` that answers one `PORT` or `EPRT` and
+    /// returns that command line.
+    pub(crate) fn serve_port_command(listener: TcpListener) -> (SocketAddr, JoinHandle<String>) {
+        let address = listener.local_addr().unwrap();
+        let worker = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket);
+            reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            reader.get_mut().write_all(b"200 ok\r\n").unwrap();
+            line.trim_end().to_string()
+        });
+        (address, worker)
+    }
+
+    /// Parses the data address of a `PORT` or `EPRT` command. An IPv6 address takes the scope of
+    /// `control`, which the command can't carry.
+    fn parse_data_address(command: &str, control: SocketAddr) -> SocketAddr {
+        if let Some(args) = command.strip_prefix("PORT ") {
+            let numbers: Vec<u8> = args.split(',').map(|n| n.parse().unwrap()).collect();
+            let ip = IpAddr::from([numbers[0], numbers[1], numbers[2], numbers[3]]);
+            let port = u16::from(numbers[4]) * 256 + u16::from(numbers[5]);
+            return SocketAddr::new(ip, port);
+        }
+        let args = command.strip_prefix("EPRT ").unwrap();
+        let fields: Vec<&str> = args.split('|').collect();
+        let ip: IpAddr = fields[2].parse().unwrap();
+        let port: u16 = fields[3].parse().unwrap();
+        match (ip, control) {
+            (IpAddr::V6(ip), SocketAddr::V6(control)) => {
+                SocketAddrV6::new(ip, port, 0, control.scope_id()).into()
+            }
+            (ip, _) => SocketAddr::new(ip, port),
+        }
     }
 }
 

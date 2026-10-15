@@ -1154,20 +1154,18 @@ where
     /// Create a new tcp listener and send a PORT command for it
     fn active(&self, cc: &mut ControlChannel<T>) -> FtpResult<TcpListener> {
         debug!("Starting local tcp listener...");
-        let conn = TcpListener::bind("0.0.0.0:0").map_err(FtpError::ConnectionError)?;
+        let mut local = cc
+            .socket()
+            .local_addr()
+            .map_err(FtpError::ConnectionError)?;
+        local.set_port(0);
+        let conn = TcpListener::bind(local).map_err(FtpError::ConnectionError)?;
         conn.set_nonblocking(true)
             .map_err(FtpError::ConnectionError)?;
 
         let addr = conn.local_addr().map_err(FtpError::ConnectionError)?;
-        trace!("Local address is {}", addr);
-
-        let ip = cc
-            .socket()
-            .local_addr()
-            .map_err(FtpError::ConnectionError)?
-            .ip();
-
-        debug!("Active mode, listening on {}:{}", ip, addr.port());
+        debug!("Active mode, listening on {addr}");
+        let ip = addr.ip();
 
         match ip {
             std::net::IpAddr::V4(_) => {
@@ -1288,6 +1286,9 @@ mod test {
 
     use super::*;
     use crate::FtpStream;
+    use crate::active_mode_fixture::{
+        CONTROL_ADDRESSES, bind_control, serve_active_nlst_on, serve_port_command,
+    };
     use crate::test_container::SyncPureFtpRunner;
     #[cfg(any(
         feature = "native-tls",
@@ -1368,6 +1369,42 @@ mod test {
                 drop(ftp);
                 server.finish();
             }
+        }
+    }
+
+    #[test]
+    fn active_mode_listens_on_the_control_connection_address() {
+        for (address, announced) in CONTROL_ADDRESSES {
+            let Some(control) = bind_control(address) else {
+                continue;
+            };
+            let control_ip = control.local_addr().unwrap().ip();
+            let (address, server) = serve_port_command(control);
+            let ftp = FtpStream::connect(address).unwrap();
+            let listener = {
+                let mut cc = ftp.control();
+                ftp.active(&mut cc).unwrap()
+            };
+            assert_eq!(listener.local_addr().unwrap().ip(), control_ip);
+            let command = server.join().unwrap();
+            assert!(command.starts_with(announced), "{command}");
+        }
+    }
+
+    #[test]
+    fn active_mode_transfers_data_on_the_control_connection_address() {
+        for (address, _) in CONTROL_ADDRESSES {
+            let Some(control) = bind_control(address) else {
+                continue;
+            };
+            let mut ftp = FtpStream::connect(serve_active_nlst_on(control))
+                .unwrap()
+                .active_mode(Duration::from_secs(1));
+            assert_eq!(
+                ftp.nlst(None).unwrap(),
+                vec!["listed".to_string()],
+                "{address}"
+            );
         }
     }
 
