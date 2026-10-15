@@ -38,6 +38,8 @@ where
     /// FTP forbids more than one data connection at a time, so this flag guards every data
     /// command against opening a second one.
     pub(super) data_connection_open: bool,
+    /// Offset set by `resume_transfer`, sent as `REST` right before the next RETR/STOR/APPE.
+    pub(super) restart: Option<usize>,
     /// Encoding of command lines and of the file names read back.
     pub(super) encoding: Arc<dyn Encoding>,
 }
@@ -81,6 +83,7 @@ where
         Self {
             reader: BufReader::new(stream),
             data_connection_open: false,
+            restart: None,
             encoding,
         }
     }

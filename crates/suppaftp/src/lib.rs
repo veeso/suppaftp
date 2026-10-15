@@ -576,3 +576,159 @@ pub(crate) mod upload_fixture {
         (address, handle)
     }
 }
+
+/// A fake server that forgets a `REST` offset as soon as another command follows it, for the
+/// resumed transfer tests of every client.
+#[cfg(test)]
+pub(crate) mod restart_fixture {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::thread::{self, JoinHandle};
+    use std::time::Duration;
+
+    /// Content of every file the server sends.
+    pub(crate) const CONTENT: &[u8] = b"0123456789abcdef";
+
+    /// File name the server answers `RETR` with `550`.
+    pub(crate) const MISSING: &str = "missing";
+
+    /// What the server received during one session.
+    pub(crate) struct Session {
+        /// Every command line, without the line ending.
+        pub(crate) lines: Vec<String>,
+        /// The file as left by the last `STOR`: the bytes before the offset followed by the upload.
+        pub(crate) stored: Vec<u8>,
+    }
+
+    impl Session {
+        /// Returns the `REST` and data transfer command lines, in order.
+        pub(crate) fn transfer_lines(&self) -> Vec<&str> {
+            self.lines
+                .iter()
+                .map(String::as_str)
+                .filter(|line| {
+                    ["REST ", "RETR ", "STOR ", "APPE ", "NLST"]
+                        .iter()
+                        .any(|verb| line.starts_with(verb))
+                })
+                .collect()
+        }
+    }
+
+    /// Starts a one-connection server modeled on FileZilla Server, which follows RFC 3659 §5.3
+    /// strictly: any command after `REST` drops the offset.
+    ///
+    /// `REST` beyond [`CONTENT`] is refused with `501`. `RETR` sends [`CONTENT`] from the offset
+    /// in effect, except for [`MISSING`]; `STOR` keeps the bytes of [`CONTENT`] before the offset
+    /// and appends the upload; `NLST` lists one file. `PASV`, `EPSV`, `PORT` and `EPRT` are
+    /// supported. The handle yields the [`Session`] once the client sends `QUIT` or disconnects.
+    pub(crate) fn serve_strict_restart() -> (SocketAddr, JoinHandle<Session>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(socket);
+            reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+            let mut restart = 0;
+            let mut passive: Option<TcpListener> = None;
+            let mut active: Option<SocketAddr> = None;
+            let mut session = Session {
+                lines: Vec::new(),
+                stored: Vec::new(),
+            };
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                let command = line.trim_end().to_string();
+                session.lines.push(command.clone());
+                let (verb, argument) = command.split_once(' ').unwrap_or((&command, ""));
+                // Every command drops a pending offset; only REST sets a new one.
+                let offset = std::mem::take(&mut restart);
+                let reply = match verb {
+                    "REST" => match argument.parse() {
+                        Ok(value) if value <= CONTENT.len() => {
+                            restart = value;
+                            format!("350 Restarting at {restart}")
+                        }
+                        _ => "501 Invalid restart offset".to_string(),
+                    },
+                    "PASV" => {
+                        let data = TcpListener::bind("127.0.0.1:0").unwrap();
+                        let port = data.local_addr().unwrap().port();
+                        passive = Some(data);
+                        format!(
+                            "227 Entering Passive Mode (127,0,0,1,{high},{low})",
+                            high = port >> 8,
+                            low = port & 0xFF
+                        )
+                    }
+                    "EPSV" => {
+                        let data = TcpListener::bind("127.0.0.1:0").unwrap();
+                        let port = data.local_addr().unwrap().port();
+                        passive = Some(data);
+                        format!("229 Entering Extended Passive Mode (|||{port}|)")
+                    }
+                    "PORT" => {
+                        let n: Vec<u16> = argument.split(',').map(|v| v.parse().unwrap()).collect();
+                        active = Some(SocketAddr::from((
+                            [n[0] as u8, n[1] as u8, n[2] as u8, n[3] as u8],
+                            n[4] * 256 + n[5],
+                        )));
+                        "200 PORT command successful".to_string()
+                    }
+                    "EPRT" => {
+                        let fields: Vec<&str> = argument.split('|').collect();
+                        let ip: std::net::IpAddr = fields[2].parse().unwrap();
+                        active = Some(SocketAddr::new(ip, fields[3].parse().unwrap()));
+                        "200 EPRT command successful".to_string()
+                    }
+                    "RETR" if argument == MISSING => {
+                        passive = None;
+                        active = None;
+                        "550 No such file".to_string()
+                    }
+                    "RETR" | "STOR" | "NLST" => {
+                        reader
+                            .get_mut()
+                            .write_all(b"150 Opening data connection\r\n")
+                            .unwrap();
+                        let mut data = match (passive.take(), active.take()) {
+                            (Some(data), _) => data.accept().unwrap().0,
+                            (None, Some(address)) => TcpStream::connect(address).unwrap(),
+                            (None, None) => panic!("no data connection negotiated"),
+                        };
+                        match verb {
+                            "RETR" => data.write_all(&CONTENT[offset..]).unwrap(),
+                            "STOR" => {
+                                let mut upload = Vec::new();
+                                data.read_to_end(&mut upload).unwrap();
+                                session.stored = CONTENT[..offset].to_vec();
+                                session.stored.extend(upload);
+                            }
+                            _ => data.write_all(b"file\r\n").unwrap(),
+                        }
+                        drop(data);
+                        "226 Transfer complete".to_string()
+                    }
+                    "QUIT" => "221 Bye".to_string(),
+                    _ => "200 ok".to_string(),
+                };
+                if reader
+                    .get_mut()
+                    .write_all(format!("{reply}\r\n").as_bytes())
+                    .is_err()
+                    || verb == "QUIT"
+                {
+                    break;
+                }
+            }
+            session
+        });
+        (address, handle)
+    }
+}
