@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
         with:
           toolchain: nightly
           components: rustfmt
@@ -75,12 +75,14 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
         with:
           toolchain: ${{ needs.toolchain.outputs.channel }}
           components: clippy
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
       - name: Clippy
         env:
           FEATURES: ${{ matrix.features }}
@@ -101,12 +103,14 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-clippy-cli-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
         with:
           toolchain: ${{ needs.toolchain.outputs.channel }}
           components: clippy
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
       - name: Build CLI
         run: just build_cli
       - name: Clippy CLI
@@ -144,7 +148,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
         with:
           toolchain: ${{ needs.toolchain.outputs.channel }}
       - uses: taiki-e/install-action@8b3c737da4b541bf0fb5a3e0488ff20535badac9 # v2.82.1
@@ -152,6 +156,8 @@ jobs:
           tool: cargo-llvm-cov
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
       - name: Run tests with coverage
         env:
           FEATURES: ${{ matrix.features }}
@@ -162,6 +168,36 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel: true
           file: lcov-${{ matrix.features }}.info
+
+  test-local:
+    needs: toolchain
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-local-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
+        with:
+          toolchain: ${{ needs.toolchain.outputs.channel }}
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
+      - name: Run tests that need no FTP server container
+        shell: bash
+        run: just test_local
 
   wait-for-coverage:
     name: Wait for coverage
@@ -207,11 +243,13 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
         with:
           toolchain: ${{ needs.toolchain.outputs.channel }}
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
       - name: Build
         shell: bash
         env:
@@ -233,11 +271,13 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
         with:
           toolchain: ${{ needs.toolchain.outputs.channel }}
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
       - name: Build docs
         run: just doc
 
@@ -249,7 +289,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # v1
         with:
           toolchain: ${{ needs.toolchain.outputs.channel }}
       - name: Install cargo-deny
@@ -258,5 +298,7 @@ jobs:
           tool: cargo-deny
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
       - name: Check dependencies
         run: just deny
