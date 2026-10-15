@@ -1458,9 +1458,10 @@ mod test {
     ))]
     #[tokio::test]
     async fn should_return_ftps_rejections_and_recover() {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            for mode in [Mode::Passive, Mode::ExtendedPassive] {
-                let (mut ftp, _container) = setup_tls_stream().await;
+        for mode in [Mode::Passive, Mode::ExtendedPassive] {
+            // container startup is excluded from the timeout: it is slow under parallel CI load
+            let (mut ftp, _container) = setup_tls_stream().await;
+            tokio::time::timeout(Duration::from_secs(10), async {
                 ftp.set_mode(mode);
                 ftp.transfer_type(FileType::Binary).await.unwrap();
                 for _ in 0..2 {
@@ -1505,10 +1506,10 @@ mod test {
                 assert_eq!(bytes, payload);
                 ftp.rm("recovered-188.txt").await.unwrap();
                 ftp.quit().await.unwrap();
-            }
-        })
-        .await
-        .expect("FTPS rejection or recovery exceeded 10 seconds");
+            })
+            .await
+            .expect("FTPS rejection or recovery exceeded 10 seconds");
+        }
     }
 
     #[tokio::test]

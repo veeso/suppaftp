@@ -1494,9 +1494,10 @@ mod test {
         use smol::future::FutureExt as _;
 
         smol::block_on(async {
-            async {
-                for mode in [Mode::Passive, Mode::ExtendedPassive] {
-                    let (mut ftp, _container) = setup_tls_stream().await;
+            for mode in [Mode::Passive, Mode::ExtendedPassive] {
+                // container startup is excluded from the timeout: it is slow under parallel CI load
+                let (mut ftp, _container) = setup_tls_stream().await;
+                async {
                     ftp.set_mode(mode);
                     ftp.transfer_type(FileType::Binary).await.unwrap();
                     for _ in 0..2 {
@@ -1542,12 +1543,12 @@ mod test {
                     ftp.rm("recovered-188.txt").await.unwrap();
                     ftp.quit().await.unwrap();
                 }
+                .or(async {
+                    smol::Timer::after(Duration::from_secs(10)).await;
+                    panic!("FTPS rejection or recovery exceeded 10 seconds");
+                })
+                .await;
             }
-            .or(async {
-                smol::Timer::after(Duration::from_secs(10)).await;
-                panic!("FTPS rejection or recovery exceeded 10 seconds");
-            })
-            .await;
         });
     }
 
