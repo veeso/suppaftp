@@ -18,3 +18,9 @@ test_all test_name="":
 [group('test')]
 coverage feature:
     cargo llvm-cov --no-fail-fast --no-default-features --features {{ feature }} --workspace --lcov --output-path lcov-{{ feature }}.info
+
+# Run the tests that need no FTP server container (active mode data connections). CI runs
+# these on Windows and macOS, where Docker is not available.
+[group('test')]
+test_local:
+    cargo test -p suppaftp --lib -- slow_data_tests active_peer_tests

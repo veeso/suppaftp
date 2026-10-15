@@ -1069,6 +1069,12 @@ where
                         Ok((stream, addr))
                             if self.active_peer_check.allows(addr.ip(), control_peer) =>
                         {
+                            // The listener is non-blocking so this loop can time out, and macOS
+                            // and Windows hand that mode down to the accepted socket. The
+                            // transfer (and any TLS handshake) must block until data moves.
+                            stream
+                                .set_nonblocking(false)
+                                .map_err(FtpError::ConnectionError)?;
                             break stream;
                         }
                         Ok((_, addr)) => warn!("Ignoring data connection from unexpected {addr}"),
@@ -3100,5 +3106,120 @@ mod restart_tests {
                 "RETR custom",
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod slow_data_tests {
+    use std::io::{BufRead, BufReader, Cursor, Read, Write};
+    use std::net::{SocketAddr, TcpListener, TcpStream};
+    use std::thread::{self, JoinHandle};
+    use std::time::Duration;
+
+    use crate::FtpStream;
+
+    /// Delay before the fake server uses the data connection.
+    ///
+    /// The client is already blocked on the data connection by then.
+    const DELAY: Duration = Duration::from_millis(500);
+
+    /// Starts a one-connection fake FTP server for active mode transfers.
+    ///
+    /// It answers `PORT`, connects back for `NLST`, `RETR` and `STOR`, and touches the data
+    /// connection only after [`DELAY`]. `NLST` and `RETR` send `payload`. The handle yields every
+    /// byte received by `STOR`.
+    fn serve_slow_active(payload: Vec<u8>) -> (SocketAddr, JoinHandle<Vec<u8>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket);
+            reader.get_mut().write_all(b"220 ready\r\n").unwrap();
+            let mut data_port = 0;
+            let mut stored = Vec::new();
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                if let Some(args) = line.strip_prefix("PORT ") {
+                    let numbers: Vec<u16> = args
+                        .trim_end()
+                        .split(',')
+                        .map(|n| n.parse().unwrap())
+                        .collect();
+                    data_port = numbers[4] * 256 + numbers[5];
+                    reader.get_mut().write_all(b"200 ok\r\n").unwrap();
+                } else if line.starts_with("NLST") || line.starts_with("RETR") {
+                    let mut data = TcpStream::connect(("127.0.0.1", data_port)).unwrap();
+                    reader
+                        .get_mut()
+                        .write_all(b"150 here it comes\r\n")
+                        .unwrap();
+                    thread::sleep(DELAY);
+                    data.write_all(&payload).unwrap();
+                    drop(data);
+                    reader.get_mut().write_all(b"226 done\r\n").unwrap();
+                } else if line.starts_with("STOR") {
+                    let mut data = TcpStream::connect(("127.0.0.1", data_port)).unwrap();
+                    reader.get_mut().write_all(b"150 send it\r\n").unwrap();
+                    thread::sleep(DELAY);
+                    data.read_to_end(&mut stored).unwrap();
+                    reader.get_mut().write_all(b"226 stored\r\n").unwrap();
+                } else {
+                    reader.get_mut().write_all(b"502 not here\r\n").unwrap();
+                }
+                line.clear();
+            }
+            stored
+        });
+        (address, server)
+    }
+
+    #[test]
+    fn should_wait_for_slow_data_in_active_mode() {
+        let (address, _server) = serve_slow_active(b"first\r\nsecond\r\nthird\r\n".to_vec());
+        let mut ftp = FtpStream::connect(address)
+            .unwrap()
+            .active_mode(Duration::from_secs(1));
+        assert_eq!(
+            ftp.nlst(None).unwrap(),
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn should_download_whole_file_from_slow_server_in_active_mode() {
+        // Several MiB, so the client needs many reads and may wait between them.
+        let payload: Vec<u8> = (0..4 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+        let (address, _server) = serve_slow_active(payload.clone());
+        let mut ftp = FtpStream::connect(address)
+            .unwrap()
+            .active_mode(Duration::from_secs(1));
+        let downloaded = ftp.retr_as_buffer("big.bin").unwrap().into_inner();
+        assert_eq!(downloaded.len(), payload.len());
+        assert!(
+            downloaded == payload,
+            "downloaded bytes differ from the file"
+        );
+    }
+
+    #[test]
+    fn should_upload_large_file_to_slow_server_in_active_mode() {
+        // Larger than any loopback socket buffer, so the client must wait for the server.
+        let payload = vec![b'x'; 32 * 1024 * 1024];
+        let (address, server) = serve_slow_active(Vec::new());
+        let mut ftp = FtpStream::connect(address)
+            .unwrap()
+            .active_mode(Duration::from_secs(1));
+        let sent = ftp
+            .put_file("big.bin", &mut Cursor::new(payload.clone()))
+            .unwrap();
+        assert_eq!(sent, payload.len() as u64);
+        drop(ftp);
+        let stored = server.join().unwrap();
+        assert_eq!(stored.len(), payload.len());
+        assert!(stored == payload, "stored bytes differ from the upload");
     }
 }
