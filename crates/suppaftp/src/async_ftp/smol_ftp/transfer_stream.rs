@@ -4,8 +4,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
-use smol::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use smol::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::control::SharedControl;
 use super::data_stream::DataStream;
@@ -23,6 +24,25 @@ pub(super) enum Direction {
     Upload,
     /// `RETR`, listings and custom data commands: data flows from the server.
     Download,
+}
+
+/// How long to wait for the server to close an upload's data connection.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
+
+fn is_tls<T: SmolTlsStream + Send>(data: &DataStream<T>) -> bool {
+    matches!(data, DataStream::Ssl(_))
+}
+
+/// Reads until the server closes its side. Best effort: gives up after [`DRAIN_TIMEOUT`].
+async fn drain_until_eof<T: SmolTlsStream + Send>(data: &mut DataStream<T>) {
+    use smol::future::FutureExt as _;
+
+    let mut buf = [0u8; 1024];
+    async { while matches!(data.read(&mut buf).await, Ok(n) if n > 0) {} }
+        .or(async {
+            smol::Timer::after(DRAIN_TIMEOUT).await;
+        })
+        .await;
 }
 
 /// Data connection of an FTP transfer that finalizes itself.
@@ -139,6 +159,13 @@ where
         // Close the write side so TLS streams send close_notify before being dropped, then close
         // the socket: the server only sends the completion reply once the data connection is gone.
         let closed = data.close().await;
+        // After an upload over TLS the peer may have sent data we never read (TLS 1.3 session
+        // tickets). Dropping the socket with unread data makes the OS reset the connection, which
+        // can reach the server before our `close_notify` and fail the upload with a 426. Wait for
+        // the server to close its side first.
+        if closed.is_ok() && self.direction == Direction::Upload && is_tls(&data) {
+            drain_until_eof(&mut data).await;
+        }
         drop(data);
         let reply = self.control.lock().await.complete_transfer().await;
         self.finished = true;

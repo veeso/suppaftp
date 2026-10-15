@@ -1,11 +1,16 @@
 //! Self-finalizing data stream for FTP transfers.
 
 use std::io::{Read, Result as IoResult, Write};
+use std::net::{Shutdown, TcpStream};
+use std::time::Duration;
 
 use super::control::{SharedControl, lock};
 use super::data_stream::DataStream;
 use super::tls::TlsStream;
 use crate::types::FtpResult;
+
+/// How long to wait for the server to close an upload's data connection.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Data connection of an FTP transfer that finalizes itself.
 ///
@@ -57,6 +62,8 @@ where
     /// Data socket; `None` once the transfer has been finalized or detached.
     data: Option<DataStream<T>>,
     control: SharedControl<T>,
+    /// Whether anything was written, so the data connection carried an upload.
+    written: bool,
 }
 
 impl<T> TransferStream<T>
@@ -68,6 +75,7 @@ where
         Self {
             data: Some(data),
             control,
+            written: false,
         }
     }
 
@@ -122,11 +130,33 @@ where
         let Some(data) = self.data.take() else {
             return Ok(());
         };
+        // After an upload over TLS the peer may have sent data we never read (TLS 1.3 session
+        // tickets). Closing a socket with unread data makes the OS send a reset, which can reach
+        // the server before our `close_notify` and fails the upload with a 426.
+        let drain = (self.written && matches!(data, DataStream::Ssl(_)))
+            .then(|| data.get_ref().try_clone().ok())
+            .flatten();
         // The socket must be closed before reading the reply, otherwise the server never sends
         // it. Dropping the socket never touches the control lock, so no lock is held here.
         drop(data);
+        if let Some(socket) = drain {
+            drain_until_eof(&socket);
+        }
         lock(&self.control).complete_transfer()
     }
+}
+
+/// Half-closes `socket` and reads until the server closes its side, so that closing it does not
+/// reset the connection. Best effort: gives up after [`DRAIN_TIMEOUT`] without data.
+fn drain_until_eof(socket: &TcpStream) {
+    let mut socket = socket;
+    if socket.shutdown(Shutdown::Write).is_err()
+        || socket.set_read_timeout(Some(DRAIN_TIMEOUT)).is_err()
+    {
+        return;
+    }
+    let mut buf = [0u8; 1024];
+    while matches!(socket.read(&mut buf), Ok(n) if n > 0) {}
 }
 
 impl<T> Read for TransferStream<T>
@@ -143,6 +173,7 @@ where
     T: TlsStream,
 {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        self.written = true;
         self.get_mut().write(buf)
     }
 
