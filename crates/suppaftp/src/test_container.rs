@@ -28,6 +28,8 @@ background=YES
 require_ssl_reuse=NO
 ssl_tlsv12=YES
 ssl_tlsv13=YES
+debug_ssl=YES
+log_ftp_protocol=YES
 ";
 
 #[derive(Debug, Default, Clone)]
@@ -238,6 +240,17 @@ impl SyncTlsFtpRunner {
 
     pub fn get_mapped_port(&self, port: u16) -> u16 {
         self.container.get_host_port_ipv4(port).unwrap()
+    }
+
+    /// TEMPORARY diagnostics: server output for flaky-test investigation.
+    pub fn dump_logs(&self) -> String {
+        let out = self.container.stdout_to_vec().unwrap_or_default();
+        let err = self.container.stderr_to_vec().unwrap_or_default();
+        format!(
+            "--- container stdout ---\n{}\n--- container stderr ---\n{}",
+            String::from_utf8_lossy(&out),
+            String::from_utf8_lossy(&err)
+        )
     }
 }
 
