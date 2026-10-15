@@ -161,9 +161,10 @@ impl TryFrom<&str> for File {
     type Error = ParseError;
 
     fn try_from(line: &str) -> Result<Self, Self::Error> {
+        // `parse_mlst` also parses every MLSD line with facts, and unlike `parse_mlsd` it doesn't
+        // read the leading SP of an MLST reply line as an entry without facts.
         ListParser::parse_posix(line)
             .or_else(|_| ListParser::parse_dos(line))
-            .or_else(|_| ListParser::parse_mlsd(line))
             .or_else(|_| ListParser::parse_mlst(line))
     }
 }
@@ -270,6 +271,14 @@ mod test {
     }
 
     #[test]
+    fn try_from_str_mlst_reply_line() {
+        // An MLST reply entry line starts with a single SP before the facts.
+        let file = File::try_from(" type=file;size=8192;modify=20181105163248; omar.txt").unwrap();
+        assert_eq!(file.name(), "omar.txt");
+        assert_eq!(file.size(), 8192);
+    }
+
+    #[test]
     fn try_from_string_ref() {
         let line = String::from("-rw-r--r-- 1 user group 1234 Nov 5 2018 example.txt");
         let file = File::try_from(&line).unwrap();
@@ -296,6 +305,10 @@ mod test {
         // Must include type= with an invalid value to fail the MLSX parser,
         // since MLSX accepts nearly any string by skipping tokens without '='
         assert!(File::try_from("type=badtype;size=0;modify=20181105163248; bad.txt").is_err());
+        assert!(matches!(
+            File::try_from(" type=badtype;size=0;modify=20181105163248; bad.txt"),
+            Err(ParseError::SyntaxError)
+        ));
     }
 
     #[test]

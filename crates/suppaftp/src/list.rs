@@ -84,7 +84,7 @@ impl ListParser {
     /// MLSD syntax has the following syntax:
     ///
     /// ```text
-    /// type=dir;modify=20201019151930;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000; pub
+    /// type=dir;modify=20201019151930.123;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000; pub
     /// ```
     pub fn parse_mlsd(line: &str) -> ParseResult<File> {
         Self::parse_mlsx(line)
@@ -96,10 +96,14 @@ impl ListParser {
     /// MLST syntax has the following syntax:
     ///
     /// ```text
-    /// type=dir;modify=20201019151930;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000; pub
+    /// type=dir;modify=20201019151930.123;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000; pub
     /// ```
+    ///
+    /// The single leading space that starts every entry line of an MLST reply (RFC 3659 §7.2) is
+    /// optional and skipped, so both the raw reply line and the trimmed line returned by `mlst()`
+    /// are accepted.
     pub fn parse_mlst(line: &str) -> ParseResult<File> {
-        Self::parse_mlsx(line)
+        Self::parse_mlsx(line.strip_prefix(' ').unwrap_or(line))
     }
 
     /// Parse an output line from a MLSD or MLST command
@@ -108,10 +112,20 @@ impl ListParser {
     /// MLSD/MLST syntax has the following syntax:
     ///
     /// ```text
-    /// type=dir;modify=20201019151930;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000; pub
+    /// type=dir;modify=20201019151930.123;UNIX.mode=0755;UNIX.uid=1000;UNIX.gid=1000; pub
     /// ```
     fn parse_mlsx(line: &str) -> ParseResult<File> {
-        let tokens = line.split(';').collect::<Vec<&str>>();
+        // RFC 3659 §7.2: `entry = [ facts ] SP pathname`, and every fact ends with ";". A fact value
+        // can't contain ";", so the first "; " ends the facts; everything after it is the pathname,
+        // which may itself contain ";" or spaces. Lines without facts start with the SP.
+        let (facts, name) = if let Some(name) = line.strip_prefix(' ') {
+            ("", Some(name))
+        } else if let Some(end) = line.find("; ") {
+            (&line[..=end], Some(&line[end + 2..]))
+        } else {
+            (line, None)
+        };
+        let tokens = facts.split(';').collect::<Vec<&str>>();
         if tokens.is_empty() {
             return Err(ParseError::SyntaxError);
         }
@@ -185,11 +199,16 @@ impl ListParser {
         }
 
         // get name
-        f.name = tokens
-            .last()
-            .ok_or(ParseError::SyntaxError)?
-            .trim_start()
-            .to_string();
+        f.name = match name {
+            Some(name) => name.to_string(),
+            // Not RFC 3659 conforming (no "; " before the name): keep the previous behaviour and
+            // take the last token.
+            None => tokens
+                .last()
+                .ok_or(ParseError::SyntaxError)?
+                .trim_start()
+                .to_string(),
+        };
 
         Ok(f)
     }
@@ -390,11 +409,18 @@ impl ListParser {
     }
 
     /// Convert MLSD time to System Time
+    ///
+    /// RFC 3659 §2.3: `time-val = 14DIGIT [ "." 1*DIGIT ]`. The fraction of a second is optional
+    /// (FileZilla Server always sends milliseconds). Digits beyond nanoseconds are ignored.
     fn parse_mlsx_time(tm: &str) -> Result<SystemTime, ParseError> {
-        NaiveDateTime::parse_from_str(tm, "%Y%m%d%H%M%S")
+        NaiveDateTime::parse_from_str(tm, "%Y%m%d%H%M%S%.f")
             .map(|dt| {
+                let dt = dt.and_utc();
                 SystemTime::UNIX_EPOCH
-                    .checked_add(Duration::from_secs(dt.and_utc().timestamp() as u64))
+                    .checked_add(Duration::new(
+                        dt.timestamp() as u64,
+                        dt.timestamp_subsec_nanos(),
+                    ))
                     .unwrap_or(SystemTime::UNIX_EPOCH)
             })
             .map_err(|_| ParseError::InvalidDate)
@@ -1103,7 +1129,87 @@ mod tests {
 
     #[test]
     fn parse_mlsx_with_invalid_modify() {
-        assert!(ListParser::parse_mlsd("type=file;size=0;modify=notadate; bad.txt").is_err());
+        for modify in [
+            "notadate",
+            "20201019151930.",
+            "20201019151930.1x",
+            "20201019151930.+1",
+            "20201019151930..5",
+        ] {
+            let line = format!("type=file;size=0;modify={modify}; bad.txt");
+            assert!(
+                matches!(ListParser::parse_mlsd(&line), Err(ParseError::InvalidDate)),
+                "MLSD accepted modify {modify:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_mlsx_without_space_before_name() {
+        // Not RFC 3659 conforming: the name is the last ";"-separated token.
+        let file = ListParser::parse_mlsd("type=file;size=1;modify=20201019151930;foo").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "foo");
+        pretty_assertions::assert_eq!(file.size(), 1);
+        pretty_assertions::assert_eq!(
+            file.modified(),
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_603_120_770)
+        );
+    }
+
+    #[test]
+    fn parse_mlsx_with_fractional_seconds() {
+        // As sent by FileZilla Server.
+        let file = ListParser::parse_mlsd(
+            "type=file;size=11;modify=20201019151930.123;perms=awr; note.txt",
+        )
+        .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "note.txt");
+        pretty_assertions::assert_eq!(file.size(), 11);
+        pretty_assertions::assert_eq!(
+            file.modified(),
+            SystemTime::UNIX_EPOCH + Duration::new(1_603_120_770, 123_000_000)
+        );
+        let file =
+            ListParser::parse_mlsd("type=file;size=1;modify=20201019151930.1234567891234; a")
+                .unwrap();
+        pretty_assertions::assert_eq!(
+            file.modified(),
+            SystemTime::UNIX_EPOCH + Duration::new(1_603_120_770, 123_456_789)
+        );
+    }
+
+    #[test]
+    fn parse_mlsx_keeps_semicolons_and_spaces_in_names() {
+        let file =
+            ListParser::parse_mlsd("type=file;size=3;modify=20201019151930; a;b  c.txt").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "a;b  c.txt");
+        let file = ListParser::parse_mlsd("type=dir;modify=20201019151930;  leading").unwrap();
+        pretty_assertions::assert_eq!(file.name(), " leading");
+        assert!(file.is_directory());
+        let file = ListParser::parse_mlsd(" no facts; at all").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "no facts; at all");
+    }
+
+    #[test]
+    fn parse_mlst_skips_reply_line_leading_space() {
+        // RFC 3659 §7.2: every entry line of an MLST reply starts with a single SP.
+        let file = ListParser::parse_mlst(
+            " type=file;size=27;modify=20201019151930;perms=awr; liesmich.txt",
+        )
+        .unwrap();
+        pretty_assertions::assert_eq!(file.name(), "liesmich.txt");
+        pretty_assertions::assert_eq!(file.size(), 27);
+        pretty_assertions::assert_eq!(
+            file.modified(),
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_603_120_770)
+        );
+        // Without facts the reply line is `SP SP pathname`.
+        let file = ListParser::parse_mlst("  no facts; at all").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "no facts; at all");
+        // A line already stripped of its leading SP (as returned by `mlst()`) still parses.
+        let file = ListParser::parse_mlst("type=file;size=27; liesmich.txt").unwrap();
+        pretty_assertions::assert_eq!(file.name(), "liesmich.txt");
+        pretty_assertions::assert_eq!(file.size(), 27);
     }
 
     #[test]
