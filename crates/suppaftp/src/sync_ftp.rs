@@ -560,7 +560,8 @@ where
     /// # Errors
     ///
     /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
-    /// [`FtpError::UnexpectedResponse`] if the server refuses the `RETR` command.
+    /// [`FtpError::UnexpectedResponse`] if the server refuses the `RETR` command or the offset set by
+    /// [`Self::resume_transfer`].
     pub fn retr_as_stream<S: AsRef<str>>(&mut self, file_name: S) -> FtpResult<TransferStream<T>> {
         debug!("Retrieving '{}'", file_name.as_ref());
         let (_, stream) = self.open_transfer(
@@ -638,7 +639,8 @@ where
     /// # Errors
     ///
     /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
-    /// [`FtpError::UnexpectedResponse`] if the server refuses the `STOR` command.
+    /// [`FtpError::UnexpectedResponse`] if the server refuses the `STOR` command or the offset set by
+    /// [`Self::resume_transfer`].
     pub fn put_with_stream<S: AsRef<str>>(&mut self, filename: S) -> FtpResult<TransferStream<T>> {
         debug!("Put file {}", filename.as_ref());
         let (_, stream) = self.open_transfer(
@@ -655,7 +657,8 @@ where
     /// # Errors
     ///
     /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
-    /// [`FtpError::UnexpectedResponse`] if the server refuses the `APPE` command.
+    /// [`FtpError::UnexpectedResponse`] if the server refuses the `APPE` command or the offset set by
+    /// [`Self::resume_transfer`].
     pub fn append_with_stream<S: AsRef<str>>(
         &mut self,
         filename: S,
@@ -715,20 +718,23 @@ where
         Ok(())
     }
 
-    /// Tell the server to resume the next transfer from a certain offset. The offset indicates the amount of bytes
-    /// to skip from the beginning of the file.
+    /// Sets the offset the next transfer resumes from: the amount of bytes to skip at the beginning of the file.
     ///
-    /// The `REST` command is not sent here: it is sent right before the next `RETR`, `STOR` or `APPE` (for example
-    /// from [`Self::retr_as_stream`] or [`Self::put_with_stream`]), after the data connection has been negotiated
-    /// with `PASV`/`EPSV`/`PORT`/`EPRT`. RFC 3659 §5.3 requires `REST` to be the command immediately preceding the
-    /// transfer command, and some servers (FileZilla Server) silently drop the offset when another command comes
-    /// in between. A server rejecting the offset is therefore reported by the transfer command.
-    /// `custom_data_command` does not use the offset.
+    /// `REST` is not sent here but by the next data command, right before `RETR`, `STOR`, `APPE` or the command of
+    /// [`Self::custom_data_command`], once the data connection has been negotiated with `PASV`/`EPSV`/`PORT`/`EPRT`.
+    /// RFC 3659 §5.3 requires `REST` to immediately precede the transfer command, and some servers (FileZilla Server)
+    /// silently drop the offset when another command comes in between.
     ///
-    /// Passing an offset of 0 cancels a pending offset.
+    /// The offset applies to the next data command only, which consumes it whether it succeeds or fails. A listing
+    /// (`LIST`, `NLST`, `MLSD`) discards it without sending `REST`. Passing an offset of 0 cancels a pending offset.
+    ///
+    /// # Errors
+    ///
+    /// Never fails; a server refusing the offset is reported by the next transfer command with
+    /// [`FtpError::UnexpectedResponse`].
     pub fn resume_transfer(&mut self, offset: usize) -> FtpResult<()> {
         let mut cc = self.control();
-        debug!("Resuming the next transfer at offset {}", offset);
+        debug!("Resuming the next transfer at offset {offset}");
         cc.restart = (offset > 0).then_some(offset);
         Ok(())
     }
@@ -950,7 +956,8 @@ where
     /// # Errors
     ///
     /// Returns [`FtpError::DataConnectionAlreadyOpen`] if a transfer is still in progress, and
-    /// [`FtpError::UnexpectedResponse`] if the server's reply is not in `expected_code`.
+    /// [`FtpError::UnexpectedResponse`] if the server's reply is not in `expected_code` or the server
+    /// refuses the offset set by [`Self::resume_transfer`].
     pub fn custom_data_command(
         &mut self,
         command: impl ToString,
@@ -1029,19 +1036,24 @@ where
     /// Passive mode connects the raw TCP socket before sending the command. Active mode sends the
     /// command and validates its reply before accepting a data socket. Rejections drop the pending
     /// socket or listener without starting TLS or marking the data connection open.
+    ///
+    /// The offset set by `resume_transfer` is consumed here, even on failure, and sent as `REST`
+    /// right before a file transfer command.
     fn data_command_with_response(
         &self,
         cc: &mut ControlChannel<T>,
         cmd: Command,
         expected_code: &[Status],
     ) -> FtpResult<(Response, DataStream<T>)> {
+        // A pending offset belongs to this data command only, so no failure can leave it armed.
+        let restart = cc.restart.take();
         // Reject overlapping transfers before negotiating or opening another data socket.
         cc.guard_multiple_data_connections()?;
 
         let (response, stream) = match self.mode {
             Mode::Active => {
                 let listener = self.active(cc)?;
-                Self::send_restart(cc, &cmd)?;
+                Self::send_restart(cc, restart, &cmd)?;
                 cc.perform(cmd)?;
                 let response = cc.read_response_in(expected_code)?;
 
@@ -1076,7 +1088,7 @@ where
             Mode::ExtendedPassive => {
                 let address = self.epsv(cc)?;
                 let stream = (self.passive_stream_builder)(address)?;
-                Self::send_restart(cc, &cmd)?;
+                Self::send_restart(cc, restart, &cmd)?;
                 cc.perform(cmd)?;
                 let response = cc.read_response_in(expected_code)?;
                 (response, stream)
@@ -1084,7 +1096,7 @@ where
             Mode::Passive => {
                 let address = self.pasv(cc)?;
                 let stream = (self.passive_stream_builder)(address)?;
-                Self::send_restart(cc, &cmd)?;
+                Self::send_restart(cc, restart, &cmd)?;
                 cc.perform(cmd)?;
                 let response = cc.read_response_in(expected_code)?;
                 (response, stream)
@@ -1114,17 +1126,28 @@ where
         Ok((response, data_stream))
     }
 
-    /// Sends the offset set by `resume_transfer` as `REST`, if `cmd` is a transfer command. It must be the
-    /// command immediately preceding RETR/STOR/APPE (RFC 3659 §5.3), so it comes after PASV/EPSV/PORT/EPRT.
-    fn send_restart(cc: &mut ControlChannel<T>, cmd: &Command) -> FtpResult<()> {
-        if !matches!(cmd, Command::Retr(_) | Command::Store(_) | Command::Appe(_)) {
+    /// Sends `restart` as `REST` if `cmd` transfers a file.
+    ///
+    /// `REST` must immediately precede the transfer command (RFC 3659 §5.3), so this runs after
+    /// PASV/EPSV/PORT/EPRT. A custom data command counts as a transfer, while listings drop the offset.
+    fn send_restart(
+        cc: &mut ControlChannel<T>,
+        restart: Option<usize>,
+        cmd: &Command,
+    ) -> FtpResult<()> {
+        let Some(offset) = restart else {
+            return Ok(());
+        };
+        if !matches!(
+            cmd,
+            Command::Retr(_) | Command::Store(_) | Command::Appe(_) | Command::Custom(_)
+        ) {
+            debug!("Dropping restart offset {offset}: the command does not transfer a file");
             return Ok(());
         }
-        if let Some(offset) = cc.restart.take() {
-            debug!("Requesting to resume transfer at offset {}", offset);
-            cc.perform(Command::Rest(offset))?;
-            cc.read_response(Status::RequestFilePending)?;
-        }
+        debug!("Requesting to resume transfer at offset {offset}");
+        cc.perform(Command::Rest(offset))?;
+        cc.read_response(Status::RequestFilePending)?;
         Ok(())
     }
 
@@ -1348,134 +1371,6 @@ mod test {
         }
     }
 
-    const RESTART_CONTENT: &[u8] = b"0123456789abcdef";
-
-    /// The address of [strict_restart_server] and its worker, which returns the received command
-    /// lines and the stored file.
-    type RestartServer = (
-        std::net::SocketAddr,
-        std::thread::JoinHandle<(Vec<String>, Vec<u8>)>,
-    );
-
-    /// A server that, like FileZilla Server, forgets a `REST` offset as soon as another command
-    /// follows it (RFC 3659 §5.3). It serves `RESTART_CONTENT` from the offset in effect when RETR
-    /// arrives, keeps what STOR sends after the bytes before the offset, and returns the command
-    /// lines it received together with the stored file.
-    fn strict_restart_server() -> RestartServer {
-        use std::io::{BufRead as _, Read as _, Write as _};
-
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let worker = std::thread::spawn(move || {
-            let (mut control, _) = listener.accept().unwrap();
-            let mut reader = std::io::BufReader::new(control.try_clone().unwrap());
-            control.write_all(b"220 ready\r\n").unwrap();
-            let mut restart = 0usize;
-            let mut passive: Option<std::net::TcpListener> = None;
-            let mut active: Option<std::net::SocketAddr> = None;
-            let (mut lines, mut stored) = (Vec::new(), Vec::new());
-            loop {
-                let mut line = String::new();
-                if reader.read_line(&mut line).unwrap_or(0) == 0 {
-                    break;
-                }
-                let line = line.trim_end().to_string();
-                lines.push(line.clone());
-                let (verb, argument) = line.split_once(' ').unwrap_or((line.as_str(), ""));
-                // Every command ends a pending offset; REST sets a new one.
-                let offset = std::mem::take(&mut restart);
-                let reply = match verb {
-                    "REST" => {
-                        restart = argument.parse().unwrap();
-                        format!("350 Restarting at {restart}")
-                    }
-                    "PASV" => {
-                        let data = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-                        let port = data.local_addr().unwrap().port();
-                        passive = Some(data);
-                        format!(
-                            "227 Entering Passive Mode (127,0,0,1,{},{})",
-                            port / 256,
-                            port % 256
-                        )
-                    }
-                    "PORT" => {
-                        let n: Vec<u16> = argument.split(',').map(|v| v.parse().unwrap()).collect();
-                        active = Some(std::net::SocketAddr::from((
-                            [n[0] as u8, n[1] as u8, n[2] as u8, n[3] as u8],
-                            n[4] * 256 + n[5],
-                        )));
-                        "200 PORT command successful".to_string()
-                    }
-                    "RETR" | "STOR" => {
-                        control
-                            .write_all(b"150 Opening data connection\r\n")
-                            .unwrap();
-                        let mut data = match (passive.take(), active.take()) {
-                            (Some(data), _) => data.accept().unwrap().0,
-                            (None, Some(address)) => std::net::TcpStream::connect(address).unwrap(),
-                            (None, None) => panic!("no data connection negotiated"),
-                        };
-                        if verb == "RETR" {
-                            data.write_all(&RESTART_CONTENT[offset..]).unwrap();
-                        } else {
-                            let mut incoming = Vec::new();
-                            data.read_to_end(&mut incoming).unwrap();
-                            stored = RESTART_CONTENT[..offset].to_vec();
-                            stored.extend(incoming);
-                        }
-                        drop(data);
-                        "226 Transfer complete".to_string()
-                    }
-                    "QUIT" => {
-                        control.write_all(b"221 Bye\r\n").unwrap();
-                        break;
-                    }
-                    _ => "200 ok".to_string(),
-                };
-                control
-                    .write_all(format!("{reply}\r\n").as_bytes())
-                    .unwrap();
-            }
-            (lines, stored)
-        });
-        (address, worker)
-    }
-
-    /// `REST` must come right before the transfer command, after PASV/PORT.
-    fn assert_rest_precedes_transfer(lines: &[String], rest: &str, command: &str) {
-        let at = lines.iter().position(|line| line == rest).unwrap();
-        assert!(lines[at + 1].starts_with(command), "{lines:?}");
-    }
-    #[test]
-    fn resume_transfer_sends_rest_right_before_the_transfer_command() {
-        use std::io::{Read as _, Write as _};
-
-        for mode in [Mode::Passive, Mode::Active] {
-            let (address, server) = strict_restart_server();
-            let mut ftp = FtpStream::connect(address).unwrap();
-            ftp = ftp.active_mode(Duration::from_secs(5));
-            ftp.set_mode(mode);
-
-            ftp.resume_transfer(6).unwrap();
-            let mut download = ftp.retr_as_stream("file").unwrap();
-            let mut received = Vec::new();
-            download.read_to_end(&mut received).unwrap();
-            download.finish().unwrap();
-            assert_eq!(received, &RESTART_CONTENT[6..]);
-
-            ftp.resume_transfer(4).unwrap();
-            let mut upload = ftp.put_with_stream("file").unwrap();
-            upload.write_all(&RESTART_CONTENT[4..]).unwrap();
-            upload.finish().unwrap();
-            ftp.quit().unwrap();
-
-            let (lines, stored) = server.join().unwrap();
-            assert_eq!(stored, RESTART_CONTENT);
-            assert_rest_precedes_transfer(&lines, "REST 6", "RETR");
-            assert_rest_precedes_transfer(&lines, "REST 4", "STOR");
-        }
-    }
     #[test]
     fn connect() {
         crate::log_init();
@@ -3024,5 +2919,149 @@ mod ascii_tests {
                 vec![expected.to_vec(), expected.to_vec(), b"a\r\n".to_vec()]
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use std::io::{Read as _, Write as _};
+    use std::time::Duration;
+
+    use pretty_assertions::assert_eq;
+
+    use super::{NoTlsStream, TransferStream};
+    use crate::restart_fixture::{CONTENT, MISSING, serve_strict_restart};
+    use crate::{FtpError, FtpResult, FtpStream as Ftp, Mode, Status};
+
+    type Stream = TransferStream<NoTlsStream>;
+
+    /// Reads a data stream to its end and finalizes it.
+    fn read_all(mut stream: Stream) -> FtpResult<Vec<u8>> {
+        let mut content = Vec::new();
+        stream
+            .read_to_end(&mut content)
+            .map_err(FtpError::ConnectionError)?;
+        stream.finish()?;
+        Ok(content)
+    }
+
+    /// Downloads `name` with `retr_as_stream`.
+    fn download(ftp: &mut Ftp, name: &str) -> FtpResult<Vec<u8>> {
+        read_all(ftp.retr_as_stream(name)?)
+    }
+
+    /// Returns the status of an [`FtpError::UnexpectedResponse`], panicking on any other result.
+    fn rejected_status<V>(result: FtpResult<V>) -> Status {
+        match result {
+            Err(FtpError::UnexpectedResponse(response)) => response.status,
+            Err(err) => panic!("expected a rejection, got {err:?}"),
+            Ok(_) => panic!("expected a rejection, got a success"),
+        }
+    }
+
+    #[test]
+    fn should_send_rest_right_before_the_transfer_command() {
+        for mode in [Mode::Passive, Mode::ExtendedPassive, Mode::Active] {
+            let (address, server) = serve_strict_restart();
+            let mut ftp = Ftp::connect(address)
+                .unwrap()
+                .active_mode(Duration::from_secs(5));
+            ftp.set_mode(mode);
+
+            ftp.resume_transfer(6).unwrap();
+            assert_eq!(
+                download(&mut ftp, "file").unwrap(),
+                &CONTENT[6..],
+                "{mode:?}"
+            );
+            ftp.resume_transfer(4).unwrap();
+            let mut upload = ftp.put_with_stream("file").unwrap();
+            upload.write_all(&CONTENT[4..]).unwrap();
+            upload.finish().unwrap();
+            ftp.quit().unwrap();
+
+            let session = server.join().unwrap();
+            assert_eq!(session.stored, CONTENT, "{mode:?}");
+            let rest_and_next: Vec<_> = session
+                .lines
+                .windows(2)
+                .filter(|pair| pair[0].starts_with("REST "))
+                .map(|pair| (pair[0].as_str(), pair[1].as_str()))
+                .collect();
+            assert_eq!(
+                rest_and_next,
+                [("REST 6", "RETR file"), ("REST 4", "STOR file")],
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_consume_the_offset_with_the_next_data_command() {
+        let (address, server) = serve_strict_restart();
+        let mut ftp = Ftp::connect(address).unwrap();
+
+        // An offset of 0 cancels the pending one.
+        ftp.resume_transfer(6).unwrap();
+        ftp.resume_transfer(0).unwrap();
+        assert_eq!(download(&mut ftp, "cancelled").unwrap(), CONTENT);
+        // Control commands leave the offset pending.
+        ftp.resume_transfer(6).unwrap();
+        ftp.noop().unwrap();
+        assert_eq!(download(&mut ftp, "kept").unwrap(), &CONTENT[6..]);
+        // A listing discards the offset without sending REST.
+        ftp.resume_transfer(6).unwrap();
+        assert_eq!(ftp.nlst(None).unwrap(), ["file"]);
+        assert_eq!(download(&mut ftp, "after-listing").unwrap(), CONTENT);
+        // A refused transfer consumes the offset.
+        ftp.resume_transfer(6).unwrap();
+        assert_eq!(
+            rejected_status(download(&mut ftp, MISSING)),
+            Status::FileUnavailable
+        );
+        assert_eq!(download(&mut ftp, "after-missing").unwrap(), CONTENT);
+        // A refused offset is reported by the transfer command, which is not sent.
+        ftp.resume_transfer(100).unwrap();
+        assert_eq!(
+            rejected_status(download(&mut ftp, "too-far")),
+            Status::BadArguments
+        );
+        assert_eq!(download(&mut ftp, "after-refused-offset").unwrap(), CONTENT);
+        // A failure before REST consumes the offset as well.
+        let open = ftp.retr_as_stream("open").unwrap();
+        ftp.resume_transfer(6).unwrap();
+        assert!(matches!(
+            download(&mut ftp, "overlapping"),
+            Err(FtpError::DataConnectionAlreadyOpen)
+        ));
+        assert_eq!(read_all(open).unwrap(), CONTENT);
+        assert_eq!(download(&mut ftp, "after-overlap").unwrap(), CONTENT);
+        // A custom data command is resumed like RETR.
+        ftp.resume_transfer(6).unwrap();
+        let (_, custom) = ftp
+            .custom_data_command("RETR custom", &[Status::AboutToSend])
+            .unwrap();
+        assert_eq!(read_all(custom).unwrap(), &CONTENT[6..]);
+        ftp.quit().unwrap();
+
+        assert_eq!(
+            server.join().unwrap().transfer_lines(),
+            [
+                "RETR cancelled",
+                "REST 6",
+                "RETR kept",
+                "NLST",
+                "RETR after-listing",
+                "REST 6",
+                "RETR missing",
+                "RETR after-missing",
+                "REST 100",
+                "RETR after-refused-offset",
+                "RETR open",
+                "RETR after-overlap",
+                "REST 6",
+                "RETR custom",
+            ]
+        );
     }
 }
