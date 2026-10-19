@@ -112,11 +112,14 @@ where
         crate::command::validate_encoded_command_line(&line)?;
         let line = crate::command::escape_telnet_iac(&line);
 
-        self.reader
-            .get_mut()
+        let stream = self.reader.get_mut();
+        stream
             .write_all(&line)
             .await
-            .map_err(FtpError::ConnectionError)
+            .map_err(FtpError::ConnectionError)?;
+        // A TLS stream may accept the line into a record the socket has not taken yet, and
+        // reading the reply never sends it: without a flush both sides wait for each other.
+        stream.flush().await.map_err(FtpError::ConnectionError)
     }
 
     /// Reads one reply and checks that its status is `expected_code`.
@@ -460,6 +463,111 @@ mod reply_size_tests {
         smol::block_on(async {
             let result = AsyncFtpStream::connect(serve_and_hang_up()).await;
             assert_connection_closed(result.map(|_| ()));
+        });
+    }
+}
+
+#[cfg(test)]
+mod flush_tests {
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, ready};
+    use std::thread;
+    use std::time::Duration;
+
+    use smol::io::{AsyncRead, AsyncWrite};
+    use smol::net::TcpStream;
+
+    use super::super::data_stream::DataStream;
+    use super::super::tls::SmolTlsStream;
+    use super::ControlChannel;
+    use crate::command::Command;
+    use crate::encoding::Utf8Encoding;
+
+    /// Keeps written bytes until a flush, as a TLS stream keeps a record the socket did not take.
+    #[derive(Debug)]
+    struct HeldUntilFlush {
+        socket: TcpStream,
+        held: Vec<u8>,
+    }
+
+    impl AsyncRead for HeldUntilFlush {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Pin::new(&mut self.socket).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for HeldUntilFlush {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            self.held.extend_from_slice(buf);
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            let this = &mut *self;
+            while !this.held.is_empty() {
+                let written = ready!(Pin::new(&mut this.socket).poll_write(cx, &this.held))?;
+                this.held.drain(..written);
+            }
+            Pin::new(&mut this.socket).poll_flush(cx)
+        }
+
+        fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.socket).poll_close(cx)
+        }
+    }
+
+    impl SmolTlsStream for HeldUntilFlush {
+        type InnerStream = TcpStream;
+
+        fn tcp_stream(self) -> crate::FtpResult<TcpStream> {
+            Ok(self.socket)
+        }
+
+        fn get_ref(&self) -> &TcpStream {
+            &self.socket
+        }
+
+        fn mut_ref(&mut self) -> &mut Self::InnerStream {
+            &mut self.socket
+        }
+    }
+
+    #[test]
+    fn should_send_a_command_the_stream_holds_until_flushed() {
+        smol::block_on(async {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut line = String::new();
+                BufReader::new(socket).read_line(&mut line).map(|_| line)
+            });
+            let socket = TcpStream::connect(address).await.unwrap();
+            let mut control = ControlChannel::new(
+                DataStream::Ssl(Box::new(HeldUntilFlush {
+                    socket,
+                    held: Vec::new(),
+                })),
+                Arc::new(Utf8Encoding),
+            );
+
+            control.perform(Command::Noop).await.unwrap();
+
+            assert_eq!(server.join().unwrap().unwrap(), "NOOP\r\n");
         });
     }
 }
