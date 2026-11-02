@@ -228,6 +228,7 @@ let mut upload = ftp.put_with_stream("hello.txt")?;
 upload.write_all(b"hello")?;
 upload.finish()?;
 ftp.noop()?;
+```
 
 ### Added
 
