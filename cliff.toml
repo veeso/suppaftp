@@ -49,5 +49,10 @@ commit_parsers = [
   { message = "^chore", skip = true },
 ]
 filter_commits = false
+# git-cliff reads "Ok::<..." at the start of a line as a footer and cuts the
+# commit body there, which drops the closing fence of the code example in #175.
+commit_preprocessors = [
+  { pattern = '(?m)^Ok::<', replace = "Ok ::<" },
+]
 tag_pattern = "v[0-9].*"
 sort_commits = "oldest"
