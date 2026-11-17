@@ -455,7 +455,7 @@ mod reply_size_tests {
 
 #[cfg(test)]
 mod flush_tests {
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -463,12 +463,13 @@ mod flush_tests {
     use std::thread;
     use std::time::Duration;
 
-    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+    use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
     use tokio::net::TcpStream;
 
     use super::super::data_stream::DataStream;
     use super::super::tls::TokioTlsStream;
     use super::ControlChannel;
+    use crate::Status;
     use crate::command::Command;
     use crate::encoding::Utf8Encoding;
 
@@ -532,6 +533,14 @@ mod flush_tests {
         }
     }
 
+    /// Wraps `socket` into a control stream that keeps written bytes until a flush.
+    fn held_until_flush(socket: TcpStream) -> DataStream<HeldUntilFlush> {
+        DataStream::Ssl(Box::new(HeldUntilFlush {
+            socket,
+            held: Vec::new(),
+        }))
+    }
+
     #[tokio::test]
     async fn should_send_a_command_the_stream_holds_until_flushed() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -541,20 +550,47 @@ mod flush_tests {
             socket
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
+            let mut reader = BufReader::new(socket);
             let mut line = String::new();
-            BufReader::new(socket).read_line(&mut line).map(|_| line)
+            reader.read_line(&mut line)?;
+            reader.get_mut().write_all(b"200 OK\r\n")?;
+            Ok::<_, std::io::Error>(line)
         });
         let socket = TcpStream::connect(address).await.unwrap();
-        let mut control = ControlChannel::new(
-            DataStream::Ssl(Box::new(HeldUntilFlush {
-                socket,
-                held: Vec::new(),
-            })),
-            Arc::new(Utf8Encoding),
-        );
+        let mut control = ControlChannel::new(held_until_flush(socket), Arc::new(Utf8Encoding));
 
         control.perform(Command::Noop).await.unwrap();
+        let response = control.read_response(Status::CommandOk).await.unwrap();
 
         assert_eq!(server.join().unwrap().unwrap(), "NOOP\r\n");
+        assert_eq!(response.status, Status::CommandOk);
+    }
+
+    #[tokio::test]
+    async fn should_reach_the_socket_through_the_held_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut received = Vec::new();
+            socket.read_to_end(&mut received).map(|_| received)
+        });
+        let socket = TcpStream::connect(address).await.unwrap();
+        let local = socket.local_addr().unwrap();
+        let control = ControlChannel::new(held_until_flush(socket), Arc::new(Utf8Encoding));
+        assert_eq!(control.socket().peer_addr().unwrap(), address);
+
+        let mut stream = control.reader.into_inner();
+        stream.shutdown().await.unwrap();
+        assert!(server.join().unwrap().unwrap().is_empty());
+
+        let DataStream::Ssl(mut tls) = stream else {
+            panic!("the control stream must be the held TLS stream");
+        };
+        assert_eq!(tls.mut_ref().local_addr().unwrap(), local);
+        assert_eq!(tls.tcp_stream().unwrap().local_addr().unwrap(), local);
     }
 }
