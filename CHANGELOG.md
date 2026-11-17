@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## 12.2.2
+
+Released on 2026-11-17
+
+### Fixed
+
+- flush each command on the async control connection (#205)
+
+> - fix: flush each command on the async control connection
+
 ## 12.2.1
 
 Released on 2026-10-15
@@ -228,7 +238,23 @@ let mut upload = ftp.put_with_stream("hello.txt")?;
 upload.write_all(b"hello")?;
 upload.finish()?;
 ftp.noop()?;
+Ok ::<(), Box<dyn std::error::Error>>(())
 ```
+
+Always finish the transfer before issuing another command, including when the
+transfer runs in another thread or task. `finish()` closes the data connection and
+checks the server's completion reply. Dropping a transfer loses its result and does
+not guarantee that all data was transferred. Sync drop waits for the completion
+reply and can block; async drop defers reading that reply to the next command.
+Async drop also skips the TLS close notification, which strict FTPS servers may
+reject, so prefer `finish().await` for successful transfers.
+
+Cancelling async `finish()` leaves the completion reply for the next command.
+If that command is cancelled while draining the reply, a later command resumes
+reading it. This recovery does not extend to arbitrary commands or `abort()`;
+reconnect if their futures are cancelled after polling begins.
+
+- chore: release 12.0.0
 
 ### Added
 
@@ -982,6 +1008,3 @@ Released on 2021-08-22
 - syntax highlighting fix
 
 > This fixes the syntax highlighting for the Rust code by using the `rust` language for the fenced code block.
-
-```
-```
