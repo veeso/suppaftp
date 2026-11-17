@@ -2,7 +2,10 @@
 //!
 //! Regular expressions to parse FTP response
 
+use jiff::civil::DateTime;
 use lazy_regex::{Lazy, Regex};
+
+use crate::types::{FtpError, FtpResult};
 
 /// This regex extracts IP and Port details from PASV command response.
 /// The regex looks for the pattern (h1,h2,h3,h4,p1,p2).
@@ -14,6 +17,25 @@ pub static EPSV_PORT_RE: Lazy<Regex> = lazy_regex!(r"\(\|\|\|(\d+)\|\)");
 
 /// This regex extracts modification time from MDTM command response.
 pub static MDTM_RE: Lazy<Regex> = lazy_regex!(r"\b(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\b");
+
+/// Parses the body of an MDTM reply (`YYYYMMDDHHMMSS`) into a date and time.
+///
+/// The value is the UTC time sent by the server (RFC 3659 §3).
+pub(crate) fn parse_mdtm(body: &str) -> FtpResult<DateTime> {
+    let caps = MDTM_RE.captures(body).ok_or(FtpError::BadResponse)?;
+    let year = caps[1].parse::<i16>().map_err(|_| FtpError::BadResponse)?;
+    let field = |i: usize| caps[i].parse::<i8>().map_err(|_| FtpError::BadResponse);
+    DateTime::new(
+        year,
+        field(2)?,
+        field(3)?,
+        field(4)?,
+        field(5)?,
+        field(6)?,
+        0,
+    )
+    .map_err(|_| FtpError::BadResponse)
+}
 
 /// This regex extracts file size from SIZE command response.
 pub static SIZE_RE: Lazy<Regex> = lazy_regex!(r"\s+(\d+)\s*$");
@@ -148,5 +170,35 @@ mod test {
         assert_eq!(caps[4].parse::<u32>().unwrap(), 12);
         assert_eq!(caps[5].parse::<u32>().unwrap(), 0);
         assert_eq!(caps[6].parse::<u32>().unwrap(), 0);
+    }
+
+    #[test]
+    fn parse_mdtm_should_return_datetime() {
+        assert_eq!(
+            parse_mdtm("213 20210315120000").unwrap(),
+            jiff::civil::date(2021, 3, 15).at(12, 0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn parse_mdtm_should_reject_invalid_date_or_time() {
+        for body in [
+            "213 20210230120000",
+            "213 20210315250000",
+            "213 20211301120000",
+        ] {
+            assert!(
+                matches!(parse_mdtm(body), Err(crate::FtpError::BadResponse)),
+                "body: {body}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_mdtm_should_reject_missing_timestamp() {
+        assert!(matches!(
+            parse_mdtm("550 no such file"),
+            Err(crate::FtpError::BadResponse)
+        ));
     }
 }

@@ -164,7 +164,7 @@ pub fn login(ftp: &mut FtpStream) {
 
 pub fn mdtm(ftp: &mut FtpStream, f: &str) {
     match ftp.mdtm(f) {
-        Ok(time) => println!("OK: {time}"),
+        Ok(time) => println!("OK: {}", time.strftime("%Y-%m-%d %H:%M:%S")),
         Err(err) => eprintln!("MDTM error: {err}"),
     }
 }

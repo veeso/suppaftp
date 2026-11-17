@@ -21,7 +21,10 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 # Fail on dependencies flagged as unmaintained anywhere in the tree.
 unmaintained = "all"
-ignore = []
+ignore = [
+  # Pulled in only by testcontainers, which is a dev-dependency.
+  "RUSTSEC-2026-0440",
+]
 
 # ---------------------------------------------------------------------------
 # License policy.

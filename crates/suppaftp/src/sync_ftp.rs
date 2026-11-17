@@ -14,7 +14,6 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, MutexGuard};
 use std::time::{Duration, Instant};
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 // export
 pub use control::ControlSocket;
 use control::{ControlChannel, SharedControl};
@@ -29,7 +28,7 @@ pub use tls::{RustlsConnector, RustlsStream};
 pub use transfer_stream::TransferStream;
 
 use super::Status;
-use super::regex::{EPSV_PORT_RE, MDTM_RE, PASV_PORT_RE, SIZE_RE};
+use super::regex::{EPSV_PORT_RE, PASV_PORT_RE, SIZE_RE, parse_mdtm};
 use super::types::{ActivePeerCheck, FileType, FtpError, FtpResult, Mode, Response};
 use crate::command::Command;
 #[cfg(feature = "secure")]
@@ -817,40 +816,16 @@ where
     }
 
     /// Retrieves the modification time of the file at `pathname` if it exists.
-    pub fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<NaiveDateTime> {
+    ///
+    /// The time is the server's UTC time, returned as a [`jiff::civil::DateTime`].
+    pub fn mdtm<S: AsRef<str>>(&mut self, pathname: S) -> FtpResult<jiff::civil::DateTime> {
         let mut cc = self.control();
         debug!("Getting modification time for {}", pathname.as_ref());
         cc.perform(Command::Mdtm(pathname.as_ref().to_string()))?;
         let response: Response = cc.read_response(Status::File)?;
         let body = response.as_string().map_err(|_| FtpError::BadResponse)?;
 
-        match MDTM_RE.captures(&body) {
-            Some(caps) => {
-                let (year, month, day) = (
-                    caps[1].parse::<i32>().map_err(|_| FtpError::BadResponse)?,
-                    caps[2].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
-                    caps[3].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
-                );
-                let (hour, minute, second) = (
-                    caps[4].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
-                    caps[5].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
-                    caps[6].parse::<u32>().map_err(|_| FtpError::BadResponse)?,
-                );
-
-                let date = match NaiveDate::from_ymd_opt(year, month, day) {
-                    Some(d) => d,
-                    None => return Err(FtpError::BadResponse),
-                };
-
-                let time = match NaiveTime::from_hms_opt(hour, minute, second) {
-                    Some(t) => t,
-                    None => return Err(FtpError::BadResponse),
-                };
-
-                Ok(NaiveDateTime::new(date, time))
-            }
-            None => Err(FtpError::BadResponse),
-        }
+        parse_mdtm(&body)
     }
 
     /// Retrieves the size of the file in bytes at `pathname` if it exists.
