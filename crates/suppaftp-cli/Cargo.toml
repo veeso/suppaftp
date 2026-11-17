@@ -4,7 +4,6 @@ version = { workspace = true }
 authors = { workspace = true }
 categories = { workspace = true }
 edition = { workspace = true }
-homepage = "https://github.com/veeso/suppaftp"
 include = [
   "src/**/*",
   "../../LICENSE-MIT",
