@@ -35,8 +35,9 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use chrono::prelude::Utc;
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
+use jiff::Timestamp;
+use jiff::civil::{Date, DateTime};
+use jiff::tz::Offset;
 use lazy_regex::{Lazy, Regex};
 use thiserror::Error;
 
@@ -413,17 +414,31 @@ impl ListParser {
     /// RFC 3659 §2.3: `time-val = 14DIGIT [ "." 1*DIGIT ]`. The fraction of a second is optional
     /// (FileZilla Server always sends milliseconds). Digits beyond nanoseconds are ignored.
     fn parse_mlsx_time(tm: &str) -> Result<SystemTime, ParseError> {
-        NaiveDateTime::parse_from_str(tm, "%Y%m%d%H%M%S%.f")
-            .map(|dt| {
-                let dt = dt.and_utc();
-                SystemTime::UNIX_EPOCH
-                    .checked_add(Duration::new(
-                        dt.timestamp() as u64,
-                        dt.timestamp_subsec_nanos(),
-                    ))
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-            })
+        // jiff accepts a sign in the year and rejects fractions longer than nanoseconds.
+        // The whole part must be plain digits, and a well-formed fraction is cut to 9 digits.
+        let (whole, fraction) = tm.split_once('.').unwrap_or((tm, ""));
+        if !whole.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(ParseError::InvalidDate);
+        }
+        let tm = if fraction.len() > 9 && fraction.bytes().all(|b| b.is_ascii_digit()) {
+            &tm[..whole.len() + 10]
+        } else {
+            tm
+        };
+        DateTime::strptime("%Y%m%d%H%M%S%.f", tm)
+            .map(Self::civil_to_system_time)
             .map_err(|_| ParseError::InvalidDate)
+    }
+
+    /// Convert a date and time in UTC to System Time.
+    /// Dates before the Unix epoch are clamped to [`SystemTime::UNIX_EPOCH`].
+    fn civil_to_system_time(dt: DateTime) -> SystemTime {
+        // Measured on the civil calendar, so dates past the largest `Timestamp` still convert.
+        let since_epoch = dt.duration_since(jiff::civil::date(1970, 1, 1).at(0, 0, 0, 0));
+        Duration::try_from(since_epoch)
+            .ok()
+            .and_then(|d| SystemTime::UNIX_EPOCH.checked_add(d))
+            .unwrap_or(SystemTime::UNIX_EPOCH)
     }
 
     /// Convert ls syntax time to System Time
@@ -431,7 +446,7 @@ impl ListParser {
     /// 1. if year is current: %b %d %H:%M (e.g. Nov 5 13:46)
     /// 2. else: %b %d %Y (e.g. Nov 5 2019)
     fn parse_lstime(tm: &str, fmt_year: &str, fmt_hours: &str) -> Result<SystemTime, ParseError> {
-        Self::parse_lstime_with_now(tm, fmt_year, fmt_hours, Utc::now())
+        Self::parse_lstime_with_now(tm, fmt_year, fmt_hours, Timestamp::now())
     }
 
     /// Same as [`Self::parse_lstime`], but with an injectable reference time so the
@@ -440,54 +455,51 @@ impl ListParser {
         tm: &str,
         fmt_year: &str,
         fmt_hours: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<SystemTime, ParseError> {
-        let datetime: NaiveDateTime = match NaiveDate::parse_from_str(tm, fmt_year) {
+        let datetime: DateTime = match Date::strptime(fmt_year, tm) {
             Ok(date) => {
                 // Case 2.
-                // Return NaiveDateTime from NaiveDate with time 00:00:00
-                date.and_hms_opt(0, 0, 0).ok_or(ParseError::InvalidDate)?
+                // Return DateTime from Date with time 00:00:00
+                date.to_datetime(jiff::civil::Time::midnight())
             }
             Err(_) => {
                 // Might be case 1.
                 // We need to add Current Year at the end of the string
-                let this_year: i32 = now.year();
+                let this_year: i16 = Offset::UTC.to_datetime(now).year();
                 let date_time_str: String = format!("{tm} {this_year}");
                 // Now parse
-                let mut dt = NaiveDateTime::parse_from_str(
-                    date_time_str.as_ref(),
-                    format!("{fmt_hours} %Y").as_ref(),
-                )
-                .map_err(|_| ParseError::InvalidDate)?;
-                // If the date is more than 6 months in the future, it refers to the previous year
-                if dt.and_utc().timestamp() - now.timestamp() > 180 * 24 * 3600 {
-                    let date_time_str: String = format!("{tm} {}", this_year - 1);
-                    dt = NaiveDateTime::parse_from_str(
-                        date_time_str.as_ref(),
-                        format!("{fmt_hours} %Y").as_ref(),
-                    )
+                let mut dt = DateTime::strptime(format!("{fmt_hours} %Y"), date_time_str)
                     .map_err(|_| ParseError::InvalidDate)?;
+                // If the date is more than 6 months in the future, it refers to the previous year
+                let dt_timestamp = Offset::UTC
+                    .to_timestamp(dt)
+                    .map_err(|_| ParseError::InvalidDate)?;
+                if dt_timestamp.as_second() - now.as_second() > 180 * 24 * 3600 {
+                    let date_time_str: String = format!("{tm} {}", this_year - 1);
+                    dt = DateTime::strptime(format!("{fmt_hours} %Y"), date_time_str)
+                        .map_err(|_| ParseError::InvalidDate)?;
                 }
                 dt
             }
         };
-        // Convert datetime to system time
-        let sys_time: SystemTime = SystemTime::UNIX_EPOCH;
-        Ok(sys_time
-            .checked_add(Duration::from_secs(datetime.and_utc().timestamp() as u64))
-            .unwrap_or(SystemTime::UNIX_EPOCH))
+        Ok(Self::civil_to_system_time(datetime))
     }
 
     /// Parse date time string in DOS representation ("%m-%d-%y %I:%M%p")
     fn parse_dostime(tm: &str) -> Result<SystemTime, ParseError> {
-        NaiveDateTime::parse_from_str(tm, "%m-%d-%y %I:%M%p")
-            .or_else(|_| NaiveDateTime::parse_from_str(tm, "%m-%d-%y %I:%M %p"))
-            .map(|dt| {
-                SystemTime::UNIX_EPOCH
-                    .checked_add(Duration::from_secs(dt.and_utc().timestamp() as u64))
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-            })
-            .map_err(|_| ParseError::InvalidDate)
+        let mut dt = DateTime::strptime("%m-%d-%y %I:%M%p", tm)
+            .or_else(|_| DateTime::strptime("%m-%d-%y %I:%M %p", tm))
+            .map_err(|_| ParseError::InvalidDate)?;
+        // `%y` reads "69" as 1969, while DOS listings mean 2069 for it (the 00..=69 pivot).
+        if dt.year() == 1969 {
+            dt = dt
+                .with()
+                .year(2069)
+                .build()
+                .map_err(|_| ParseError::InvalidDate)?;
+        }
+        Ok(Self::civil_to_system_time(dt))
     }
 }
 
@@ -828,17 +840,17 @@ mod tests {
 
     #[test]
     fn parse_lstime_should_adjust_year_for_future_dates() {
-        use chrono::TimeZone;
-
         // Reference time fixed so the test is deterministic regardless of when it runs.
-        let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
+        let now = Offset::UTC
+            .to_timestamp(jiff::civil::date(2024, 6, 15).at(12, 0, 0, 0))
+            .unwrap();
 
         // "Dec 15" stamped with the current year (2024) lands >6 months in the future,
         // so it must be re-assigned to the previous year.
         let result =
             ListParser::parse_lstime_with_now("Dec 15 12:00", "%b %d %Y", "%b %d %H:%M", now)
                 .unwrap();
-        let result_dt: DateTime<Utc> = result.into();
+        let result_dt = Offset::UTC.to_datetime(Timestamp::try_from(result).unwrap());
 
         pretty_assertions::assert_eq!(result_dt.year(), 2023);
         pretty_assertions::assert_eq!(result_dt.month(), 12);
@@ -847,15 +859,15 @@ mod tests {
 
     #[test]
     fn parse_lstime_should_not_adjust_year_for_near_future_dates() {
-        use chrono::TimeZone;
-
-        let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
+        let now = Offset::UTC
+            .to_timestamp(jiff::civil::date(2024, 6, 15).at(12, 0, 0, 0))
+            .unwrap();
 
         // "Aug 15" is ~2 months ahead — within the 6-month threshold, keep current year.
         let result =
             ListParser::parse_lstime_with_now("Aug 15 12:00", "%b %d %Y", "%b %d %H:%M", now)
                 .unwrap();
-        let result_dt: DateTime<Utc> = result.into();
+        let result_dt = Offset::UTC.to_datetime(Timestamp::try_from(result).unwrap());
 
         pretty_assertions::assert_eq!(result_dt.year(), 2024);
         pretty_assertions::assert_eq!(result_dt.month(), 8);
@@ -864,24 +876,48 @@ mod tests {
 
     #[test]
     fn parse_lstime_should_not_adjust_year_for_recent_past_dates() {
-        use chrono::TimeZone;
-
-        let now = Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap();
+        let now = Offset::UTC
+            .to_timestamp(jiff::civil::date(2024, 6, 15).at(12, 0, 0, 0))
+            .unwrap();
 
         // "May 15" is 1 month in the past — keep the current year.
         let result =
             ListParser::parse_lstime_with_now("May 15 12:00", "%b %d %Y", "%b %d %H:%M", now)
                 .unwrap();
-        let result_dt: DateTime<Utc> = result.into();
+        let result_dt = Offset::UTC.to_datetime(Timestamp::try_from(result).unwrap());
 
         pretty_assertions::assert_eq!(result_dt.year(), 2024);
         pretty_assertions::assert_eq!(result_dt.month(), 5);
     }
 
     #[test]
+    fn parse_dostime_should_keep_chrono_two_digit_year_pivot() {
+        // chrono maps %y 00..=69 to 20xx and 70..=99 to 19xx; jiff maps 69 to 1969.
+        for (input, expected) in [
+            ("01-01-69 03:09AM", "2069-01-01 03:09"),
+            ("01-01-70 03:09AM", "1970-01-01 03:09"),
+            ("01-01-68 03:09AM", "2068-01-01 03:09"),
+        ] {
+            pretty_assertions::assert_eq!(
+                fmt_time(ListParser::parse_dostime(input).unwrap(), "%Y-%m-%d %H:%M"),
+                expected,
+                "input: {input}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_lstime_should_clamp_pre_epoch_dates_to_unix_epoch() {
+        pretty_assertions::assert_eq!(
+            ListParser::parse_lstime("Jan 1 1969", "%b %d %Y", "%b %d %H:%M").unwrap(),
+            SystemTime::UNIX_EPOCH
+        );
+    }
+
+    #[test]
     fn parse_posix_line_should_route_date_through_lstime() {
         // parse_posix has to thread the timeless date through parse_lstime, so its result
-        // must match parse_lstime for the same input. Both use the real `Utc::now()` here,
+        // must match parse_lstime for the same input. Both use the real `Timestamp::now()` here,
         // which keeps the test correct regardless of the current date.
         let line = "-rw-r--r-- 1 user group 1234 Dec 15 10:30 example.txt";
 
@@ -1179,6 +1215,37 @@ mod tests {
     }
 
     #[test]
+    fn parse_mlsx_time_should_clamp_pre_epoch_times_to_unix_epoch() {
+        for tm in ["19691231235958.5", "19691231235959.1", "19491231235959"] {
+            pretty_assertions::assert_eq!(
+                ListParser::parse_mlsx_time(tm).unwrap(),
+                SystemTime::UNIX_EPOCH,
+                "input: {tm}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_mlsx_time_should_keep_year_9999() {
+        pretty_assertions::assert_eq!(
+            ListParser::parse_mlsx_time("99991231235959").unwrap(),
+            SystemTime::UNIX_EPOCH + Duration::from_secs(253_402_300_799)
+        );
+    }
+
+    #[test]
+    fn parse_mlsx_time_should_reject_signed_year_and_malformed_fraction() {
+        for tm in [
+            "+20201010101010",
+            "-20201010101010",
+            "20201010101010.12345678901x",
+            "20201010101010.1234567890é",
+        ] {
+            assert!(ListParser::parse_mlsx_time(tm).is_err(), "input: {tm}");
+        }
+    }
+
+    #[test]
     fn parse_mlsx_keeps_semicolons_and_spaces_in_names() {
         let file =
             ListParser::parse_mlsd("type=file;size=3;modify=20201019151930; a;b  c.txt").unwrap();
@@ -1235,7 +1302,9 @@ mod tests {
     }
 
     fn fmt_time(time: SystemTime, fmt: &str) -> String {
-        let datetime: DateTime<Utc> = time.into();
-        format!("{}", datetime.format(fmt))
+        Offset::UTC
+            .to_datetime(Timestamp::try_from(time).unwrap())
+            .strftime(fmt)
+            .to_string()
     }
 }

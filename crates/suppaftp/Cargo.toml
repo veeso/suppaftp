@@ -27,8 +27,8 @@ path = "src/lib.rs"
 [dependencies]
 async-native-tls-crate = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
-chrono = { workspace = true, features = ["clock"] }
 futures-rustls = { workspace = true, features = ["tls12", "logging"], optional = true }
+jiff = { workspace = true, features = ["std"] }
 lazy-regex = { workspace = true }
 log = { workspace = true }
 native-tls-crate = { workspace = true, optional = true }
