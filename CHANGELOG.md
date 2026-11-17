@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## 13.0.0
+
+Released on 2026-11-17
+
+### Breaking changes
+
+- migrate from chrono to jiff
+
+> mdtm() now returns `jiff::civil::DateTime` instead of `chrono::NaiveDateTime`.
+
+### Build
+
+- Breaking: migrate from chrono to jiff
+
+> chrono is unmaintained (RUSTSEC-2026-0543), so cargo-deny failed. Dates in LIST, MLSD and DOS listings and in MDTM replies are now parsed with jiff 1.0. Parsed values are unchanged: MLSD fractions longer than nanoseconds are still truncated, the DOS two-digit year 69 still maps to 2069, and dates before 1970 still clamp to the Unix epoch. Malformed MLSD times are still rejected. The three copies of the MDTM parser are merged into one helper. RUSTSEC-2026-0440 is allowed in cargo-deny because only the dev-dependency testcontainers pulls it in.
+
 ## 12.2.2
 
 Released on 2026-11-17
