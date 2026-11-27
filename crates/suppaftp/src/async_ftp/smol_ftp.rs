@@ -243,6 +243,40 @@ where
         let stream = TcpStream::connect(addr)
             .await
             .map_err(FtpError::ConnectionError)?;
+        Self::connect_secure_implicit_with_stream(stream, tls_connector, domain).await
+    }
+
+    /// Connect to remote ftps server using IMPLICIT secure connection on an already connected
+    /// [`TcpStream`].
+    ///
+    /// Does the same as [`Self::connect_secure_implicit`] after the TCP connection is open: the TLS
+    /// handshake on `stream`, then reading the welcome message. Use it when the application opens
+    /// the connection itself, e.g. to pick the address family, apply a connect timeout or go
+    /// through a proxy.
+    ///
+    /// > Warning: mind that implicit ftps should be considered deprecated, if you can use explicit mode with `into_secure()`
+    ///
+    /// ## Example
+    ///
+    /// ```rust,ignore
+    /// use suppaftp::ImplAsyncFtpStream;
+    /// use suppaftp::native_tls::TlsConnector;
+    ///
+    /// let stream = TcpStream::connect("127.0.0.1:990").await.unwrap();
+    /// let ctx = TlsConnector::new();
+    /// let mut ftp_stream =
+    ///     ImplAsyncFtpStream::connect_secure_implicit_with_stream(stream, ctx, "localhost").await.unwrap();
+    /// ```
+    #[cfg(all(feature = "async-secure", feature = "deprecated"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(all(feature = "async-secure", feature = "deprecated")))
+    )]
+    pub async fn connect_secure_implicit_with_stream(
+        stream: TcpStream,
+        tls_connector: impl AsyncTlsConnector<Stream = T> + Send + Sync + 'static,
+        domain: &str,
+    ) -> FtpResult<Self> {
         debug!("Established connection with server");
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector

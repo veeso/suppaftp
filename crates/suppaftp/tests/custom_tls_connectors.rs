@@ -1,3 +1,19 @@
+/// Accepts one connection on a local port, sends an FTP greeting and keeps the connection open
+/// until the client closes it.
+#[cfg(feature = "deprecated")]
+fn serve_greeting() -> std::net::SocketAddr {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.write_all(b"220 ready\r\n").unwrap();
+        let _ = stream.read(&mut [0; 16]);
+    });
+    addr
+}
+
 #[cfg(feature = "secure")]
 mod sync {
     use std::io::{Read, Write};
@@ -67,6 +83,19 @@ mod sync {
 
         assert_connector::<CustomTlsConnector>();
         let _ = into_secure_accepts_custom_connector;
+    }
+
+    #[cfg(feature = "deprecated")]
+    #[test]
+    fn connect_secure_implicit_with_stream_reads_the_greeting_on_the_given_stream() {
+        let stream = TcpStream::connect(super::serve_greeting()).unwrap();
+        let ftp_stream = ImplFtpStream::connect_secure_implicit_with_stream(
+            stream,
+            CustomTlsConnector,
+            "example.com",
+        )
+        .unwrap();
+        assert_eq!(ftp_stream.get_welcome_msg(), Some("220 ready"));
     }
 }
 
@@ -162,6 +191,26 @@ mod tokio {
         assert_connector::<CustomTlsConnector>();
         let _ = into_secure_accepts_custom_connector;
     }
+
+    #[cfg(feature = "deprecated")]
+    #[test]
+    fn connect_secure_implicit_with_stream_reads_the_greeting_on_the_given_stream() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let stream = TcpStream::connect(super::serve_greeting()).await.unwrap();
+            let ftp_stream = ImplAsyncFtpStream::connect_secure_implicit_with_stream(
+                stream,
+                CustomTlsConnector,
+                "example.com",
+            )
+            .await
+            .unwrap();
+            assert_eq!(ftp_stream.get_welcome_msg(), Some("220 ready"));
+        });
+    }
 }
 
 #[cfg(all(feature = "smol", feature = "async-secure"))]
@@ -255,5 +304,21 @@ mod smol {
 
         assert_connector::<CustomTlsConnector>();
         let _ = into_secure_accepts_custom_connector;
+    }
+
+    #[cfg(feature = "deprecated")]
+    #[test]
+    fn connect_secure_implicit_with_stream_reads_the_greeting_on_the_given_stream() {
+        smol::block_on(async {
+            let stream = TcpStream::connect(super::serve_greeting()).await.unwrap();
+            let ftp_stream = ImplAsyncFtpStream::connect_secure_implicit_with_stream(
+                stream,
+                CustomTlsConnector,
+                "example.com",
+            )
+            .await
+            .unwrap();
+            assert_eq!(ftp_stream.get_welcome_msg(), Some("220 ready"));
+        });
     }
 }

@@ -266,6 +266,39 @@ where
     ) -> FtpResult<Self> {
         debug!("Connecting to server (secure)");
         let stream = TcpStream::connect(addr).map_err(FtpError::ConnectionError)?;
+        Self::connect_secure_implicit_with_stream(stream, tls_connector, domain)
+    }
+
+    /// Connect to remote ftps server using IMPLICIT secure connection on an already connected
+    /// [`TcpStream`].
+    ///
+    /// Does the same as [`Self::connect_secure_implicit`] after the TCP connection is open: the TLS
+    /// handshake on `stream`, then reading the welcome message. Use it when the application opens
+    /// the connection itself, e.g. to pick the address family, apply a connect timeout or go
+    /// through a proxy.
+    ///
+    /// > Warning: mind that implicit ftps should be considered deprecated, if you can use explicit mode with [`ImplFtpStream::into_secure`]
+    ///
+    /// ## Example
+    ///
+    /// ```rust,ignore
+    /// use std::net::TcpStream;
+    ///
+    /// use suppaftp::{NativeTlsConnector, NativeTlsFtpStream};
+    /// use suppaftp::native_tls::TlsConnector;
+    ///
+    /// let stream = TcpStream::connect("127.0.0.1:990").unwrap();
+    /// let ctx = NativeTlsConnector::from(TlsConnector::new().unwrap());
+    /// let mut ftp_stream =
+    ///     NativeTlsFtpStream::connect_secure_implicit_with_stream(stream, ctx, "localhost").unwrap();
+    /// ```
+    #[cfg(all(feature = "secure", feature = "deprecated"))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "secure", feature = "deprecated"))))]
+    pub fn connect_secure_implicit_with_stream(
+        stream: TcpStream,
+        tls_connector: impl TlsConnector<Stream = T> + Send + Sync + 'static,
+        domain: &str,
+    ) -> FtpResult<Self> {
         debug!("Established connection with server");
         debug!("TLS OK; initializing ssl stream");
         let stream = tls_connector
