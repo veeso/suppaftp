@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## 13.1.0
+
+Released on 2026-11-28
+
+### Added
+
+- implicit FTPS on an already connected TcpStream (#211)
+
+> - feat: implicit FTPS on an already connected TcpStream
+>
+> Add connect_secure_implicit_with_stream to the sync, tokio and smol
+> clients. It does what connect_secure_implicit does after its
+> TcpStream::connect (TLS handshake, then the welcome message), so an
+> application that opens the connection itself (address family, connect
+> timeout, proxy) can use implicit FTPS too. connect_secure_implicit now
+> calls it.
+
 ## 13.0.0
 
 Released on 2026-11-17
