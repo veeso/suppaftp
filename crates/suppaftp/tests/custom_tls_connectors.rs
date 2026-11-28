@@ -1,6 +1,9 @@
 /// Accepts one connection on a local port, sends an FTP greeting and keeps the connection open
 /// until the client closes it.
-#[cfg(feature = "deprecated")]
+#[cfg(all(
+    feature = "deprecated",
+    any(feature = "secure", feature = "async-secure")
+))]
 fn serve_greeting() -> std::net::SocketAddr {
     use std::io::{Read, Write};
 
