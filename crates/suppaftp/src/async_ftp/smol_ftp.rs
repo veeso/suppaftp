@@ -259,13 +259,17 @@ where
     /// ## Example
     ///
     /// ```rust,ignore
-    /// use suppaftp::ImplAsyncFtpStream;
-    /// use suppaftp::native_tls::TlsConnector;
+    /// use smol::net::TcpStream;
+    ///
+    /// use suppaftp::async_native_tls::TlsConnector;
+    /// use suppaftp::{AsyncNativeTlsConnector, AsyncNativeTlsFtpStream};
     ///
     /// let stream = TcpStream::connect("127.0.0.1:990").await.unwrap();
-    /// let ctx = TlsConnector::new();
+    /// let ctx = AsyncNativeTlsConnector::from(TlsConnector::new());
     /// let mut ftp_stream =
-    ///     ImplAsyncFtpStream::connect_secure_implicit_with_stream(stream, ctx, "localhost").await.unwrap();
+    ///     AsyncNativeTlsFtpStream::connect_secure_implicit_with_stream(stream, ctx, "localhost")
+    ///         .await
+    ///         .unwrap();
     /// ```
     #[cfg(all(feature = "async-secure", feature = "deprecated"))]
     #[cfg_attr(
